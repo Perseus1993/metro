@@ -12,7 +12,7 @@ Module layout:
 - `design/`: editable `StationDesignDocument`, topology templates, validation, and React Flow editor adapter.
 - `station/`: design compilation and station topology: `StationGraph`, `LayoutGraph`, `RuntimeStationLayout`, geometry safety, scenario config, route catalog.
 - `planning/`: passenger intent/state/action model, graph-aware plan factory, progress monitoring, and selection helpers.
-- `agents/`: Mesa agent classes and shared base classes for passengers, trains, platforms, and admin staff.
+- `agents/`: Mesa agent classes split by domain: passenger behavior, platform/train transit resources, admin staff guidance, and shared base classes.
 - `facilities/`: OOP facility process model, including abstract `FacilityProcessAgent` plus gates, escalators, elevators, stairs, and boarding doors.
 - `movement/`: movement backend request/result interface and JuPedSim adapter.
 - `runtime/`: `MetroStationModel`, demand scheduling, snapshots, metrics, audit, and stress-run helpers.

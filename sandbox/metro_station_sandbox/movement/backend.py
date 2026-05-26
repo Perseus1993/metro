@@ -9,7 +9,7 @@ from collections import defaultdict
 from ..planning.plan import CROWD_INTERACTION_STATES, PASSIVE_STATES, AgentState
 
 if TYPE_CHECKING:
-    from ..agents import PassengerAgent
+    from ..agents.passenger import PassengerAgent
     from .jps_adapter import JuPedSimAdapter
 
 

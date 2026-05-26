@@ -8,7 +8,7 @@ from typing import TYPE_CHECKING, Any
 from .plan import AgentIntent, AgentState, FacilityStage
 
 if TYPE_CHECKING:
-    from ..agents import PassengerAgent
+    from ..agents.passenger import PassengerAgent
 
 
 class BehaviorActionKind(StrEnum):

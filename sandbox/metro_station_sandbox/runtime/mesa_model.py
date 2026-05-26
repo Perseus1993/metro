@@ -8,12 +8,9 @@ from typing import Any
 import mesa
 from shapely.geometry import Point as ShapelyPoint
 
-from ..agents import (
-    AdminAgent,
-    PassengerAgent,
-    PlatformAgent,
-    TrainAgent,
-)
+from ..agents.passenger import PassengerAgent
+from ..agents.staff import AdminAgent
+from ..agents.transit import PlatformAgent, TrainAgent
 from ..planning.plan import CROWD_INTERACTION_STATES, AgentPlan, AgentState, FacilityStage, RouteKey
 from .audit import AuditLogger
 from .demand_scheduler import DemandScheduler

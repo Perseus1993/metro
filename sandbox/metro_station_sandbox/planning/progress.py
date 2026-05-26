@@ -7,7 +7,7 @@ from typing import TYPE_CHECKING
 from .plan import AgentIntent, AgentState, RouteKey
 
 if TYPE_CHECKING:
-    from ..agents import PassengerAgent
+    from ..agents.passenger import PassengerAgent
     from ..facilities.runtime import FacilityProcessAgent
     from ..runtime.mesa_model import MetroStationModel
 

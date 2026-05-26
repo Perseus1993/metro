@@ -11,7 +11,7 @@ from .process import FacilityKind
 from ..planning.selection import pick_logit
 
 if TYPE_CHECKING:
-    from ..agents import PassengerAgent
+    from ..agents.passenger import PassengerAgent
     from .runtime import FacilityProcessAgent
     from ..runtime.mesa_model import MetroStationModel
 

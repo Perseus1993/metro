@@ -10,7 +10,8 @@ from ..planning.plan import FacilityStage
 from .process import FacilityKind, FacilitySpec
 
 if TYPE_CHECKING:
-    from ..agents import PassengerAgent, TrainAgent
+    from ..agents.passenger import PassengerAgent
+    from ..agents.transit import TrainAgent
 
 
 class FacilityProcessAgent(ServiceAgent):

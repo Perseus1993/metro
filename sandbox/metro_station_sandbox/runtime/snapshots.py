@@ -17,7 +17,9 @@ from .metrics import (
 )
 
 if TYPE_CHECKING:
-    from ..agents import AdminAgent, PassengerAgent, TrainAgent
+    from ..agents.passenger import PassengerAgent
+    from ..agents.staff import AdminAgent
+    from ..agents.transit import TrainAgent
     from .mesa_model import MetroStationModel
 
 
