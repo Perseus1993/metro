@@ -1,0 +1,10 @@
+{
+  "table_name": "fact_station_flow_hourly",
+  "ingest_time": "2026-04-22T13:57:50.688061+08:00",
+  "source_batch": "reports_batch3",
+  "batch_id": "2025H1",
+  "build_version": "v3",
+  "row_count": 1023840,
+  "partitions": 1,
+  "pk_unique": true
+}

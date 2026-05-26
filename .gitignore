@@ -1,0 +1,76 @@
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+*.so
+.Python
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+.pyright/
+.coverage
+htmlcov/
+build/
+dist/
+*.egg-info/
+
+# 本地环境
+.venv/
+venv/
+env/
+.env
+.env.*
+.claude/
+
+# 缓存（可再生）
+cache/
+
+# 原始数据（太大，不入仓）
+data/afc/
+data/reports/
+data/BaiduNetdiskDownload/
+data/IP/
+data/processed/
+data/weather/
+
+# ODS 构建临时文件
+data/ods/.tmp_build/
+data/ods/*.bak
+data/ods/*.parquet
+data/ods/fact_*/
+# 但 registry 和 manifest 要入 git：
+!data/ods/station_id_registry.json
+!data/ods/*_manifest.json
+!data/ods/fact_*/_manifest.json
+
+# ADS 产出（可从 ODS 重建）
+data/ads/
+
+# 分析中间产出
+data/analysis/
+
+# 产出文件（可再生）
+output/
+
+# 日志与临时文件
+*.log
+*.err
+*.tmp
+*.bak
+~$*
+
+# LaTeX 编译产物
+*.aux
+*.fdb_latexmk
+*.fls
+*.out
+*.synctex.gz
+*.toc
+rp/*.pdf
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo

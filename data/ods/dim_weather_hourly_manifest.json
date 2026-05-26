@@ -1,0 +1,10 @@
+{
+  "table_name": "dim_weather_hourly",
+  "ingest_time": "2026-04-22T13:57:29.762701+08:00",
+  "source_batch": "weather_openmeteo_v2",
+  "batch_id": "2025H1",
+  "build_version": "v3",
+  "row_count": 4344,
+  "partitions": 1,
+  "pk_unique": true
+}

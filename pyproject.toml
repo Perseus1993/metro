@@ -1,0 +1,29 @@
+[project]
+name = "metro-data-warehouse"
+version = "0.1.0"
+description = "Metro passenger flow ODS/ADS pipeline and weather impact analysis."
+requires-python = ">=3.12"
+dependencies = [
+    "numpy",
+    "openpyxl",
+    "pandas",
+    "pyarrow",
+    "statsmodels",
+]
+
+[project.optional-dependencies]
+sandbox = [
+    "mesa>=3.2",
+    "shapely>=2.0",
+    "jupedsim>=1.4.1",
+    "pillow",
+    "playwright",
+    "imageio-ffmpeg",
+]
+
+[tool.pyright]
+pythonVersion = "3.12"
+
+[tool.ruff]
+line-length = 100
+target-version = "py312"
