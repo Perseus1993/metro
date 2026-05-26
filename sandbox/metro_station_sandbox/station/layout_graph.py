@@ -6,17 +6,17 @@ from math import cos, hypot, radians, sin
 
 from shapely.geometry import Point as ShapelyPoint
 
-from .agent_plan import AgentState, FacilityStage, RouteKey
-from .design.helpers import (
+from ..planning.plan import AgentState, FacilityStage, RouteKey
+from ..design.helpers import (
     gate_direction as _gate_direction,
     platform_direction as _platform_direction,
     platform_line_id as _platform_line_id,
     vertical_direction as _vertical_direction,
 )
-from .design.schema import DesignElement, QueueSpec, StationDesignDocument
-from .design.validation import validate_design
-from .facility_process import FacilityKind, FacilitySpec, QueueLayout
-from .geometry_safety import (
+from ..design.schema import DesignElement, QueueSpec, StationDesignDocument
+from ..design.validation import validate_design
+from ..facilities.process import FacilityKind, FacilitySpec, QueueLayout
+from .geometry import (
     dedupe_points,
     document_walkable_geometry,
     element_shape,
@@ -24,7 +24,7 @@ from .geometry_safety import (
     safe_core,
 )
 from .scenario import StationGeometry, StationSandboxScenario
-from .station_graph import GraphEdge, GraphNode, StationGraph
+from .graph import GraphEdge, GraphNode, StationGraph
 
 
 Point = tuple[float, float]

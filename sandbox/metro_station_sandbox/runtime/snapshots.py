@@ -4,8 +4,8 @@ from collections.abc import Mapping
 from dataclasses import asdict, dataclass
 from typing import TYPE_CHECKING, Any
 
-from .agent_plan import AgentIntent, AgentState
-from .behavior import behavior_status_for_passenger
+from ..planning.plan import AgentIntent, AgentState
+from ..planning.behavior import behavior_status_for_passenger
 from .metrics import (
     average_system_minutes,
     average_walk_speed_factor,
@@ -17,7 +17,7 @@ from .metrics import (
 )
 
 if TYPE_CHECKING:
-    from .agents import AdminAgent, PassengerAgent, TrainAgent
+    from ..agents import AdminAgent, PassengerAgent, TrainAgent
     from .mesa_model import MetroStationModel
 
 

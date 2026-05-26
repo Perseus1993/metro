@@ -7,20 +7,17 @@ Passenger behavior semantics are defined in
 are region-to-region, while queues, facilities, service, and replanning are
 compiled behavior actions.
 
-Layout-design direction:
+Module layout:
 
-- `design/`: editable station design document model for topology templates, level constraints, draggable facilities, queue geometry, validation, and future React Flow editor projection.
-- `station_graph.py`: compiles `StationDesignDocument` into weighted graph nodes/edges for simulation routing.
-- `plan_factory.py`: builds graph-aware `AgentPlan` instances, including repeated vertical-transfer stages for deeper station templates.
-- `design/validation.py`: validates explicit graph reachability; missing walk connections are errors instead of being patched by geometry.
-- `visual_demo/layout.py`: current downstream geometry payload used by the canvas/JuPedSim demo.
-- The design document is intended to become the source of truth; React Flow should be treated as an editor adapter rather than simulation data.
-- `layout_graph.py`: derives named station nodes, route fragments, and facility processes from `StationGeometry`.
-- `facility_process.py`: common facility spec and queue-slot geometry for gates, escalators, elevators, stairs, and train doors.
-- `agent_plan.py`: passenger intent, facility chain, current state, and current goal.
-- `agent_base.py`: common base types for movable, service, and station-owned agents.
-- `facility_choice.py`: strategy hook for choosing facilities; staff/admin guidance should plug in here rather than into `MetroStationModel`.
-- `movement_backend.py`: movement engine boundary; JuPedSim owns physical passenger motion while Mesa owns passenger journey logic.
+- `design/`: editable `StationDesignDocument`, topology templates, validation, and React Flow editor adapter.
+- `station/`: design compilation and station topology: `StationGraph`, `LayoutGraph`, `RuntimeStationLayout`, geometry safety, scenario config, route catalog.
+- `planning/`: passenger intent/state/action model, graph-aware plan factory, progress monitoring, and selection helpers.
+- `agents/`: Mesa agent classes and shared base classes for passengers, trains, platforms, and admin staff.
+- `facilities/`: OOP facility process model, including abstract `FacilityProcessAgent` plus gates, escalators, elevators, stairs, and boarding doors.
+- `movement/`: movement backend request/result interface and JuPedSim adapter.
+- `runtime/`: `MetroStationModel`, demand scheduling, snapshots, metrics, audit, and stress-run helpers.
+- `visual_demo/`: visualization adapter and retained high-fidelity demo renderer.
+- The package root `__init__.py` re-exports common public classes. New module imports should target the owning subpackage directly.
 
 Mesa owns the station process:
 

@@ -8,21 +8,21 @@ from typing import Any
 import mesa
 from shapely.geometry import Point as ShapelyPoint
 
-from .agents import (
+from ..agents import (
     AdminAgent,
     PassengerAgent,
     PlatformAgent,
     TrainAgent,
 )
-from .agent_plan import CROWD_INTERACTION_STATES, AgentPlan, AgentState, FacilityStage, RouteKey
+from ..planning.plan import CROWD_INTERACTION_STATES, AgentPlan, AgentState, FacilityStage, RouteKey
 from .audit import AuditLogger
 from .demand_scheduler import DemandScheduler
-from .design_compiler import DesignCompiler
-from .facility_choice import DefaultFacilityChoicePolicy, FacilityChoicePolicy, StaffGuidedPolicy
-from .facility_filters import filter_boarding_doors_for_platform, filter_platforms_for_passenger
-from .facility_runtime import FacilityProcessAgent, facility_agent_for_spec
-from .geometry_safety import project_to_safe_point
-from .jps_adapter import JuPedSimAdapter
+from ..station.compiler import DesignCompiler
+from ..facilities.choice import DefaultFacilityChoicePolicy, FacilityChoicePolicy, StaffGuidedPolicy
+from ..facilities.filters import filter_boarding_doors_for_platform, filter_platforms_for_passenger
+from ..facilities.runtime import FacilityProcessAgent, facility_agent_for_spec
+from ..station.geometry import project_to_safe_point
+from ..movement.jps_adapter import JuPedSimAdapter
 from .metrics import (
     average_system_minutes,
     average_walk_speed_factor,
@@ -32,15 +32,15 @@ from .metrics import (
     station_persons,
     vertical_queue_persons,
 )
-from .movement_backend import (
+from ..movement.backend import (
     BatchedJuPedSimMovementBackend,
     JuPedSimMovementBackend,
     MovementBackend,
 )
-from .plan_factory import plan_for_station_graph
-from .progress_monitor import ProgressMonitor
-from .scenario import StationSandboxScenario
-from .selection import pick_least_loaded
+from ..planning.factory import plan_for_station_graph
+from ..planning.progress import ProgressMonitor
+from ..station.scenario import StationSandboxScenario
+from ..planning.selection import pick_least_loaded
 from .snapshots import SnapshotBuilder
 
 

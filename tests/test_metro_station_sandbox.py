@@ -7,20 +7,20 @@ from types import SimpleNamespace
 
 from shapely.geometry import LineString, Point
 
-from sandbox.metro_station_sandbox.agent_plan import AgentIntent, AgentState, FacilityStage
+from sandbox.metro_station_sandbox.planning.plan import AgentIntent, AgentState, FacilityStage
 from sandbox.metro_station_sandbox.agents import PassengerAgent
-from sandbox.metro_station_sandbox.behavior import (
+from sandbox.metro_station_sandbox.planning.behavior import (
     BehaviorActionKind,
     behavior_status_for_passenger,
 )
 from sandbox.metro_station_sandbox.design import create_design, validate_design
-from sandbox.metro_station_sandbox.design_payload import geometry_payload
-from sandbox.metro_station_sandbox.facility_filters import (
+from sandbox.metro_station_sandbox.station.payload import geometry_payload
+from sandbox.metro_station_sandbox.facilities.filters import (
     filter_boarding_doors_for_passenger,
     filter_platforms_for_passenger,
 )
-from sandbox.metro_station_sandbox.facility_process import QueueLayout
-from sandbox.metro_station_sandbox.facility_runtime import (
+from sandbox.metro_station_sandbox.facilities.process import QueueLayout
+from sandbox.metro_station_sandbox.facilities.runtime import (
     BoardingDoorProcessAgent,
     ElevatorProcessAgent,
     EscalatorProcessAgent,
@@ -28,16 +28,16 @@ from sandbox.metro_station_sandbox.facility_runtime import (
     GateProcessAgent,
     StairsProcessAgent,
 )
-from sandbox.metro_station_sandbox.jps_adapter import JuPedSimAdapter
-from sandbox.metro_station_sandbox.mesa_model import MetroStationModel
-from sandbox.metro_station_sandbox.movement_backend import (
+from sandbox.metro_station_sandbox.movement.jps_adapter import JuPedSimAdapter
+from sandbox.metro_station_sandbox.movement.backend import (
     BatchedJuPedSimMovementBackend,
     MovementBackend,
     MovementResult,
 )
-from sandbox.metro_station_sandbox.scenario import StationSandboxScenario
-from sandbox.metro_station_sandbox.selection import pick_least_loaded, pick_logit
-from sandbox.metro_station_sandbox.station_graph import StationGraph
+from sandbox.metro_station_sandbox.planning.selection import pick_least_loaded, pick_logit
+from sandbox.metro_station_sandbox.runtime.mesa_model import MetroStationModel
+from sandbox.metro_station_sandbox.station.graph import StationGraph
+from sandbox.metro_station_sandbox.station.scenario import StationSandboxScenario
 from sandbox.metro_station_sandbox.visual_demo.geometry import load_station_geometry, meters
 from sandbox.metro_station_sandbox.visual_demo.field_routing import (
     QueueAttractivenessField,

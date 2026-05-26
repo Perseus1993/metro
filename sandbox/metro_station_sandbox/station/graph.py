@@ -7,15 +7,15 @@ from typing import Any
 
 from shapely.geometry import LineString
 
-from .agent_plan import AgentIntent, FacilityStage
-from .design.helpers import (
+from ..planning.plan import AgentIntent, FacilityStage
+from ..design.helpers import (
     gate_direction as _gate_direction,
     platform_direction as _platform_direction,
     platform_line_id as _platform_line_id,
     vertical_direction as _vertical_direction,
 )
-from .design.schema import DesignElement, QueueSpec, StationDesignDocument
-from .geometry_safety import (
+from ..design.schema import DesignElement, QueueSpec, StationDesignDocument
+from .geometry import (
     document_walkable_geometry,
     element_representative_point,
     element_walkable_domain,

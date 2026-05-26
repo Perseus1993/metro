@@ -8,9 +8,9 @@ from types import SimpleNamespace
 
 from shapely.geometry import Point as ShapelyPoint
 
-from .agent_plan import RouteKey
-from .design.templates import create_design
-from .geometry_safety import (
+from ..planning.plan import RouteKey
+from ..design.templates import create_design
+from ..station.geometry import (
     dedupe_points,
     document_walkable_geometry,
     element_representative_point,
@@ -21,7 +21,7 @@ from .geometry_safety import (
     sample_safe_point,
 )
 from .mesa_model import MetroStationModel
-from .scenario import StationSandboxScenario
+from ..station.scenario import StationSandboxScenario
 
 
 @dataclass(frozen=True)

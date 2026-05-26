@@ -5,12 +5,12 @@ from typing import TYPE_CHECKING
 
 import mesa
 
-from .agent_base import ServiceAgent
-from .agent_plan import FacilityStage
-from .facility_process import FacilityKind, FacilitySpec
+from ..agents.base import ServiceAgent
+from ..planning.plan import FacilityStage
+from .process import FacilityKind, FacilitySpec
 
 if TYPE_CHECKING:
-    from .agents import PassengerAgent, TrainAgent
+    from ..agents import PassengerAgent, TrainAgent
 
 
 class FacilityProcessAgent(ServiceAgent):

@@ -7,7 +7,7 @@ from shapely.geometry import LineString, Point as ShapelyPoint, Polygon, box
 from shapely.ops import nearest_points, unary_union
 from shapely.validation import make_valid
 
-from .design.schema import DesignElement, ElementGeometry, StationDesignDocument
+from ..design.schema import DesignElement, ElementGeometry, StationDesignDocument
 
 
 Point = tuple[float, float]

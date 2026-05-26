@@ -3,7 +3,7 @@ from __future__ import annotations
 from collections.abc import Sequence
 from typing import Protocol, TypeVar
 
-from .agent_plan import AgentIntent, FacilityStage
+from ..planning.plan import AgentIntent, FacilityStage
 
 
 class FacilitySpecLike(Protocol):

@@ -17,10 +17,10 @@ ROOT = Path(__file__).resolve().parents[1]
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
-from sandbox.metro_station_sandbox.agent_plan import AgentIntent, AgentState  # noqa: E402
+from sandbox.metro_station_sandbox.planning.plan import AgentIntent, AgentState  # noqa: E402
 from sandbox.metro_station_sandbox.agents import PassengerAgent  # noqa: E402
 from sandbox.metro_station_sandbox.design import create_design  # noqa: E402
-from sandbox.metro_station_sandbox.geometry_safety import (  # noqa: E402
+from sandbox.metro_station_sandbox.station.geometry import (  # noqa: E402
     document_walkable_geometry,
     element_representative_point,
     element_walkable_domain,
@@ -29,8 +29,8 @@ from sandbox.metro_station_sandbox.geometry_safety import (  # noqa: E402
     project_to_safe_point,
     sample_safe_point,
 )
-from sandbox.metro_station_sandbox.mesa_model import MetroStationModel  # noqa: E402
-from sandbox.metro_station_sandbox.scenario import StationSandboxScenario  # noqa: E402
+from sandbox.metro_station_sandbox.runtime.mesa_model import MetroStationModel  # noqa: E402
+from sandbox.metro_station_sandbox.station.scenario import StationSandboxScenario  # noqa: E402
 
 
 AGENT_NAME = "Hans Landa"

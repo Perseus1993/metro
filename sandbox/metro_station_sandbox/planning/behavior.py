@@ -5,10 +5,10 @@ from enum import StrEnum
 from math import hypot
 from typing import TYPE_CHECKING, Any
 
-from .agent_plan import AgentIntent, AgentState, FacilityStage
+from .plan import AgentIntent, AgentState, FacilityStage
 
 if TYPE_CHECKING:
-    from .agents import PassengerAgent
+    from ..agents import PassengerAgent
 
 
 class BehaviorActionKind(StrEnum):

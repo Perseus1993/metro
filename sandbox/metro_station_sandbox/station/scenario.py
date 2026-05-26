@@ -5,7 +5,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
-    from .design.schema import StationDesignDocument
+    from ..design.schema import StationDesignDocument
 
 
 @dataclass(frozen=True)

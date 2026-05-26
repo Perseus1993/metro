@@ -4,12 +4,12 @@ from dataclasses import dataclass
 from math import hypot
 from typing import TYPE_CHECKING
 
-from .agent_plan import AgentIntent, AgentState, RouteKey
+from .plan import AgentIntent, AgentState, RouteKey
 
 if TYPE_CHECKING:
-    from .agents import PassengerAgent
-    from .facility_runtime import FacilityProcessAgent
-    from .mesa_model import MetroStationModel
+    from ..agents import PassengerAgent
+    from ..facilities.runtime import FacilityProcessAgent
+    from ..runtime.mesa_model import MetroStationModel
 
 
 Point = tuple[float, float]

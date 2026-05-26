@@ -4,8 +4,8 @@ from math import hypot
 
 import mesa
 
-from .agent_base import MovableAgent, StationAgent
-from .agent_plan import (
+from .base import MovableAgent, StationAgent
+from ..planning.plan import (
     PASSIVE_STATES,
     AgentIntent,
     AgentState,
@@ -13,17 +13,17 @@ from .agent_plan import (
     PlanAction,
     PlanActionKind,
 )
-from .facility_filters import filter_facilities_for_passenger
-from .facility_process import FacilitySpec
-from .facility_runtime import FacilityProcessAgent
-from .geometry_safety import (
+from ..facilities.filters import filter_facilities_for_passenger
+from ..facilities.process import FacilitySpec
+from ..facilities.runtime import FacilityProcessAgent
+from ..station.geometry import (
     document_walkable_geometry,
     element_walkable_domain,
     level_walkable_geometry,
     sample_safe_point,
 )
-from .movement_backend import MovementResult
-from .selection import pick_least_loaded
+from ..movement.backend import MovementResult
+from ..planning.selection import pick_least_loaded
 
 
 Point = tuple[float, float]

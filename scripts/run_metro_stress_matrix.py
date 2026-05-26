@@ -18,8 +18,8 @@ if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
 from sandbox.metro_station_sandbox.design import create_design  # noqa: E402
-from sandbox.metro_station_sandbox.mesa_model import MetroStationModel  # noqa: E402
-from sandbox.metro_station_sandbox.scenario import StationSandboxScenario  # noqa: E402
+from sandbox.metro_station_sandbox.runtime.mesa_model import MetroStationModel  # noqa: E402
+from sandbox.metro_station_sandbox.station.scenario import StationSandboxScenario  # noqa: E402
 
 
 DEFAULT_ENTRIES = (60, 120)

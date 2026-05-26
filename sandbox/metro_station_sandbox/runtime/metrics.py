@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from .agent_plan import AgentState
+from ..planning.plan import AgentState
 
 
 def persons_in_states(model, states: set[str]) -> int:

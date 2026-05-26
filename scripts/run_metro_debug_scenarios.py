@@ -13,12 +13,12 @@ ROOT = Path(__file__).resolve().parents[1]
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
-from sandbox.metro_station_sandbox.agent_plan import AgentIntent, AgentState  # noqa: E402
+from sandbox.metro_station_sandbox.planning.plan import AgentIntent, AgentState  # noqa: E402
 from sandbox.metro_station_sandbox.agents import PassengerAgent  # noqa: E402
-from sandbox.metro_station_sandbox.behavior import behavior_status_for_passenger  # noqa: E402
+from sandbox.metro_station_sandbox.planning.behavior import behavior_status_for_passenger  # noqa: E402
 from sandbox.metro_station_sandbox.design import create_design  # noqa: E402
-from sandbox.metro_station_sandbox.mesa_model import MetroStationModel  # noqa: E402
-from sandbox.metro_station_sandbox.scenario import StationSandboxScenario  # noqa: E402
+from sandbox.metro_station_sandbox.runtime.mesa_model import MetroStationModel  # noqa: E402
+from sandbox.metro_station_sandbox.station.scenario import StationSandboxScenario  # noqa: E402
 
 
 OUTPUT_ROOT = ROOT / "output" / "metro_debug_runs"

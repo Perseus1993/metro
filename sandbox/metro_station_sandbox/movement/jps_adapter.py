@@ -4,7 +4,7 @@ from dataclasses import dataclass
 from math import hypot
 from typing import Any
 
-from .geometry_safety import project_to_safe_point
+from ..station.geometry import project_to_safe_point
 
 
 @dataclass(frozen=True)

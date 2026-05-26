@@ -1,25 +1,14 @@
 """Single-station metro passenger flow sandbox."""
 
-from .agent_base import MovableAgent, ServiceAgent, StationAgent
-from .agent_plan import (
-    AgentIntent,
-    AgentPlan,
-    AgentState,
-    FacilityStage,
-    PlanAction,
-    PlanActionKind,
-    RouteKey,
-)
-from .audit import AuditEvent, AuditLogger
-from .behavior import BehaviorActionKind, BehaviorStatus, RegionGoal
-from .design_compiler import DesignCompiler
-from .facility_choice import (
+from .agents import AdminAgent, PassengerAgent, PlatformAgent, TrainAgent
+from .agents.base import MovableAgent, ServiceAgent, StationAgent
+from .facilities.choice import (
     DefaultFacilityChoicePolicy,
     FacilityChoicePolicy,
     StaffGuidedPolicy,
 )
-from .facility_process import FacilityKind, FacilitySpec, QueueLayout
-from .facility_runtime import (
+from .facilities.process import FacilityKind, FacilitySpec, QueueLayout
+from .facilities.runtime import (
     BoardingDoorProcessAgent,
     ElevatorProcessAgent,
     EscalatorProcessAgent,
@@ -29,20 +18,28 @@ from .facility_runtime import (
     VerticalTransportProcessAgent,
     facility_agent_for_spec,
 )
-from .agents import AdminAgent
-from .demand_scheduler import DemandScheduler
-from .layout_graph import LayoutGraph
-from .movement_backend import (
+from .movement.backend import (
     BatchedJuPedSimMovementBackend,
     JuPedSimMovementBackend,
     MovementBackend,
     MovementRequest,
     MovementResult,
 )
-from .progress_monitor import ExplicitReplanPolicy, ProgressMonitor
-from .runtime_layout import RouteCatalog, RuntimeStationLayout
-from .scenario import StationSandboxScenario
-from .snapshots import (
+from .planning.behavior import BehaviorActionKind, BehaviorStatus, RegionGoal
+from .planning.plan import (
+    AgentIntent,
+    AgentPlan,
+    AgentState,
+    FacilityStage,
+    PlanAction,
+    PlanActionKind,
+    RouteKey,
+)
+from .planning.progress import ExplicitReplanPolicy, ProgressMonitor
+from .runtime.audit import AuditEvent, AuditLogger
+from .runtime.demand_scheduler import DemandScheduler
+from .runtime.mesa_model import MetroStationModel
+from .runtime.snapshots import (
     AdminSnapshot,
     FrameSnapshot,
     MetricSnapshot,
@@ -50,7 +47,11 @@ from .snapshots import (
     SnapshotBuilder,
     TrainSnapshot,
 )
-from .station_graph import GraphEdge, GraphNode, RouteSegment, StationGraph
+from .station.compiler import DesignCompiler
+from .station.graph import GraphEdge, GraphNode, RouteSegment, StationGraph
+from .station.layout_graph import LayoutGraph
+from .station.runtime_layout import RouteCatalog, RuntimeStationLayout
+from .station.scenario import StationSandboxScenario
 
 __all__ = [
     "AgentIntent",
@@ -81,14 +82,17 @@ __all__ = [
     "GraphNode",
     "LayoutGraph",
     "MetricSnapshot",
+    "MetroStationModel",
     "MovementBackend",
     "MovementRequest",
     "MovementResult",
     "MovableAgent",
     "PassengerSnapshot",
+    "PassengerAgent",
     "PlanAction",
     "PlanActionKind",
     "ProgressMonitor",
+    "PlatformAgent",
     "QueueLayout",
     "RegionGoal",
     "RouteCatalog",
@@ -103,6 +107,7 @@ __all__ = [
     "StationGraph",
     "StationAgent",
     "TrainSnapshot",
+    "TrainAgent",
     "VerticalTransportProcessAgent",
     "BoardingDoorProcessAgent",
     "facility_agent_for_spec",

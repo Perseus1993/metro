@@ -359,7 +359,7 @@ def _issue(severity: str, code: str, path: str, message: str) -> ValidationIssue
 def _validate_graph_reachability(document: StationDesignDocument) -> list[ValidationIssue]:
     issues: list[ValidationIssue] = []
     try:
-        from ..station_graph import StationGraph
+        from ..station.graph import StationGraph
 
         graph = StationGraph.from_design(document, include_walkable_access_edges=False)
     except Exception as exc:

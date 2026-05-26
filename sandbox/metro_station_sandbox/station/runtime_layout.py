@@ -7,10 +7,10 @@ from typing import Any
 from shapely.geometry import Point as ShapelyPoint
 from shapely.ops import unary_union
 
-from .agent_plan import FacilityStage, RouteKey
-from .design.schema import StationDesignDocument
-from .facility_process import FacilitySpec
-from .geometry_safety import (
+from ..planning.plan import FacilityStage, RouteKey
+from ..design.schema import StationDesignDocument
+from ..facilities.process import FacilitySpec
+from .geometry import (
     dedupe_points,
     grid_safe_points,
     level_walkable_geometry,
@@ -18,7 +18,7 @@ from .geometry_safety import (
 )
 from .layout_graph import LayoutEdge, LayoutGraph, LayoutNode
 from .scenario import StationGeometry
-from .station_graph import StationGraph
+from .graph import StationGraph
 
 
 Point = tuple[float, float]

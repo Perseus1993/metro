@@ -3,7 +3,7 @@ from __future__ import annotations
 from typing import Any
 
 from .scenario import StationSandboxScenario
-from .station_graph import StationGraph
+from .graph import StationGraph
 
 
 def geometry_payload(scenario: StationSandboxScenario) -> dict[str, Any]:

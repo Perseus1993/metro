@@ -3,8 +3,8 @@ from __future__ import annotations
 from collections import Counter, defaultdict
 from typing import Any
 
-from .agent_plan import AgentIntent
-from .scenario import StationSandboxScenario
+from ..planning.plan import AgentIntent
+from ..station.scenario import StationSandboxScenario
 
 
 class DemandScheduler:

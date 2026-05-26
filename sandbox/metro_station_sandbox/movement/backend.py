@@ -6,10 +6,10 @@ from math import hypot
 from typing import TYPE_CHECKING
 from collections import defaultdict
 
-from .agent_plan import CROWD_INTERACTION_STATES, PASSIVE_STATES, AgentState
+from ..planning.plan import CROWD_INTERACTION_STATES, PASSIVE_STATES, AgentState
 
 if TYPE_CHECKING:
-    from .agents import PassengerAgent
+    from ..agents import PassengerAgent
     from .jps_adapter import JuPedSimAdapter
 
 

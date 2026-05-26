@@ -7,9 +7,9 @@ from collections.abc import Iterable, Mapping, Sequence
 from pathlib import Path
 from typing import Any
 
-from ..agent_plan import AgentState, FacilityStage
-from ..scenario import StationSandboxScenario
-from ..snapshots import FrameSnapshot, PassengerSnapshot, TrainSnapshot
+from ..planning.plan import AgentState, FacilityStage
+from ..runtime.snapshots import FrameSnapshot, PassengerSnapshot, TrainSnapshot
+from ..station.scenario import StationSandboxScenario
 from .config import H, SAMPLE_DT, TRACKS_JS, W
 from .facilities import elevator_payload
 from .layout import layout_payload

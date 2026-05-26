@@ -3,17 +3,17 @@ from __future__ import annotations
 from abc import ABC, abstractmethod
 from typing import TYPE_CHECKING
 
-from .agent_plan import AgentIntent, FacilityStage
+from ..planning.plan import AgentIntent, FacilityStage
 from math import hypot
 
-from .facility_filters import filter_facilities_for_passenger
-from .facility_process import FacilityKind
-from .selection import pick_logit
+from .filters import filter_facilities_for_passenger
+from .process import FacilityKind
+from ..planning.selection import pick_logit
 
 if TYPE_CHECKING:
-    from .agents import PassengerAgent
-    from .facility_runtime import FacilityProcessAgent
-    from .mesa_model import MetroStationModel
+    from ..agents import PassengerAgent
+    from .runtime import FacilityProcessAgent
+    from ..runtime.mesa_model import MetroStationModel
 
 
 class FacilityChoicePolicy(ABC):
