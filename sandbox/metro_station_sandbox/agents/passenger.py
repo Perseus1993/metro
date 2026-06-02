@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import mesa
+from shapely.geometry import Point as ShapelyPoint
 
 from .base import MovableAgent
 from ..facilities.process import FacilitySpec
@@ -14,8 +15,10 @@ from ..planning.plan import (
 )
 from ..station.geometry import (
     document_walkable_geometry,
+    element_shape,
     element_walkable_domain,
     level_walkable_geometry,
+    project_to_safe_point,
     sample_safe_point,
 )
 
@@ -107,7 +110,7 @@ class PassengerAgent(MovableAgent):
         )
 
     def _sample_platform_start_position(self, node) -> Point:
-        sampled = self._sample_level_walkable_position(node.level_id)
+        sampled = self._sample_graph_node_position(node, local_radius=3.0)
         if sampled is not None:
             return sampled
         return self._sample_graph_node_position(node)
@@ -128,9 +131,7 @@ class PassengerAgent(MovableAgent):
             )
         )
 
-    def _sample_graph_node_position(self, node) -> Point:
-        if node.kind == "platform":
-            return self.model.clamp_position(node.position)
+    def _sample_graph_node_position(self, node, *, local_radius: float = 2.4) -> Point:
         station_graph = self.model.layout_graph.station_graph
         document = getattr(station_graph, "source_document", None)
         if document is None or node.element_id is None:
@@ -141,7 +142,27 @@ class PassengerAgent(MovableAgent):
             return node.position
 
         walkable = document_walkable_geometry(document)
-        domain = element_walkable_domain(element, walkable)
+        if element.kind == "walkable_area" or element.role == "floor":
+            domain = element_walkable_domain(element, walkable)
+        else:
+            level_domain = level_walkable_geometry(document, node.level_id, walkable)
+            local_domain = level_domain.intersection(
+                element_shape(element.geometry).buffer(max(0.1, local_radius))
+            )
+            if local_domain.is_empty:
+                local_domain = level_domain.intersection(
+                    ShapelyPoint(node.position).buffer(max(0.1, local_radius))
+                )
+            if local_domain.is_empty:
+                return self.model.clamp_position(
+                    project_to_safe_point(
+                        level_domain,
+                        node.position,
+                        clearance=self.model.scenario.jupedsim_agent_radius_units,
+                        require_inside=False,
+                    )
+                )
+            domain = local_domain
         return self.model.clamp_position(
             sample_safe_point(
                 domain,

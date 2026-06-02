@@ -306,6 +306,8 @@ class StationGraph:
         direction: str | tuple[str | None, ...] | None = None,
         line_id: str | None = None,
         start_level_id: str | None = None,
+        start_kind: str | None = None,
+        start_facility_stage: str | None = None,
     ) -> tuple[Point, ...]:
         targets = self.nodes_matching(
             kind=kind,
@@ -318,9 +320,27 @@ class StationGraph:
                 f"No station graph nodes match kind={kind!r}, "
                 f"facility_stage={facility_stage!r}, direction={direction!r}"
             )
-        start_candidates = (
-            self.nodes_matching(level_id=start_level_id) if start_level_id is not None else None
-        )
+        start_candidates = None
+        if (
+            start_level_id is not None
+            or start_kind is not None
+            or start_facility_stage is not None
+        ):
+            start_candidates = [
+                node
+                for node in self.nodes.values()
+                if (start_level_id is None or node.level_id == start_level_id)
+                and (start_kind is None or node.kind == start_kind)
+                and (
+                    start_facility_stage is None
+                    or node.facility_stage == start_facility_stage
+                )
+            ]
+            if not start_candidates:
+                raise ValueError(
+                    f"No station graph start nodes match level={start_level_id!r}, "
+                    f"kind={start_kind!r}, facility_stage={start_facility_stage!r}"
+                )
         start_node = self.nearest_node(start, start_candidates)
         path = self.shortest_path(
             start_node.node_id,

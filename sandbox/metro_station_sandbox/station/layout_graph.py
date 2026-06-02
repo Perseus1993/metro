@@ -406,59 +406,15 @@ def _facility_specs_from_station_graph(
     for element in document.elements:
         queue = queues_by_owner.get(element.id)
         if element.kind == "gate":
-            gate_direction = _gate_direction(element)
-            if gate_direction in {"entry", "bidirectional"}:
-                position = _node_position(station_graph, f"gate:{element.id}:entry")
-                exit_position = _node_position(station_graph, f"gate:{element.id}:paid")
-                facilities.append(
-                    FacilitySpec(
-                        facility_id=f"entry_gate:{element.id}",
-                        stage=FacilityStage.ENTRY_GATE.value,
-                        label=element.label,
-                        kind=FacilityKind.GATE.value,
-                        direction="in",
-                        position=position,
-                        queue_layout=_queue_layout(
-                            queue if gate_direction == "exit" else None,
-                            default_anchor=position,
-                            per_row=scenario.gate_queue_slots_per_row,
-                            walkable_geometry=walkable_geometry,
-                        ),
-                        exit_position=exit_position,
-                        service_persons_per_min=scenario.gate_service_persons_per_min,
-                        queue_state=AgentState.QUEUEING_GATE.value,
-                        service_state=AgentState.PASSING_GATE.value,
-                        release_route=(position, exit_position),
-                        entry_level_id=element.level_id,
-                        exit_level_id=element.level_id,
-                    )
+            facilities.extend(
+                _gate_facility_specs(
+                    element,
+                    queue,
+                    station_graph,
+                    scenario,
+                    walkable_geometry=walkable_geometry,
                 )
-            if gate_direction in {"exit", "bidirectional"}:
-                position = _node_position(station_graph, f"gate:{element.id}:exit")
-                exit_position = _node_position(station_graph, f"gate:{element.id}:unpaid")
-                facilities.append(
-                    FacilitySpec(
-                        facility_id=f"exit_gate:{element.id}",
-                        stage=FacilityStage.EXIT_GATE.value,
-                        label=element.label,
-                        kind=FacilityKind.GATE.value,
-                        direction="out",
-                        position=position,
-                        queue_layout=_queue_layout(
-                            queue,
-                            default_anchor=position,
-                            per_row=scenario.gate_queue_slots_per_row,
-                            walkable_geometry=walkable_geometry,
-                        ),
-                        exit_position=exit_position,
-                        service_persons_per_min=scenario.gate_service_persons_per_min,
-                        queue_state=AgentState.QUEUEING_EXIT_GATE.value,
-                        service_state=AgentState.PASSING_EXIT_GATE.value,
-                        release_route=(position, exit_position),
-                        entry_level_id=element.level_id,
-                        exit_level_id=element.level_id,
-                    )
-                )
+            )
         elif element.role == "vertical_connector":
             ordered_levels = sorted(
                 element.connects_levels,
@@ -531,16 +487,130 @@ def _facility_specs_from_station_graph(
     return facilities
 
 
+def _gate_facility_specs(
+    element: DesignElement,
+    queue: QueueSpec | None,
+    station_graph: StationGraph,
+    scenario: StationSandboxScenario,
+    *,
+    walkable_geometry,
+) -> list[FacilitySpec]:
+    gate_direction = _gate_direction(element)
+    facilities: list[FacilitySpec] = []
+    if gate_direction in {"entry", "bidirectional"}:
+        position = _node_position(station_graph, f"gate:{element.id}:entry")
+        exit_position = _node_position(station_graph, f"gate:{element.id}:paid")
+        facilities.extend(
+            _gate_lane_facility_specs(
+                element,
+                queue if gate_direction == "entry" else None,
+                scenario,
+                stage=FacilityStage.ENTRY_GATE.value,
+                facility_prefix="entry_gate",
+                direction="in",
+                position=position,
+                exit_position=exit_position,
+                queue_state=AgentState.QUEUEING_GATE.value,
+                service_state=AgentState.PASSING_GATE.value,
+                walkable_geometry=walkable_geometry,
+            )
+        )
+    if gate_direction in {"exit", "bidirectional"}:
+        position = _node_position(station_graph, f"gate:{element.id}:unpaid")
+        exit_position = _node_position(station_graph, f"gate:{element.id}:exit")
+        facilities.extend(
+            _gate_lane_facility_specs(
+                element,
+                queue,
+                scenario,
+                stage=FacilityStage.EXIT_GATE.value,
+                facility_prefix="exit_gate",
+                direction="out",
+                position=position,
+                exit_position=exit_position,
+                queue_state=AgentState.QUEUEING_EXIT_GATE.value,
+                service_state=AgentState.PASSING_EXIT_GATE.value,
+                walkable_geometry=walkable_geometry,
+            )
+        )
+    return facilities
+
+
+def _gate_lane_facility_specs(
+    element: DesignElement,
+    queue: QueueSpec | None,
+    scenario: StationSandboxScenario,
+    *,
+    stage: str,
+    facility_prefix: str,
+    direction: str,
+    position: Point,
+    exit_position: Point,
+    queue_state: str,
+    service_state: str,
+    walkable_geometry,
+) -> list[FacilitySpec]:
+    lane_count = _gate_lane_count(element)
+    base_layout = _queue_layout(
+        queue,
+        default_anchor=position,
+        per_row=scenario.gate_queue_slots_per_row,
+        walkable_geometry=walkable_geometry,
+    )
+    lane_positions = _gate_lane_positions(element, lane_count, position, exit_position)
+    facilities: list[FacilitySpec] = []
+    for lane_index, (lane_position, lane_exit_position) in enumerate(lane_positions):
+        facility_id = (
+            f"{facility_prefix}:{element.id}"
+            if lane_count == 1
+            else f"{facility_prefix}:{element.id}:lane_{lane_index + 1}"
+        )
+        label = (
+            element.label
+            if lane_count == 1
+            else f"{element.label} lane {lane_index + 1}"
+        )
+        facilities.append(
+            FacilitySpec(
+                facility_id=facility_id,
+                stage=stage,
+                label=label,
+                kind=FacilityKind.GATE.value,
+                direction=direction,
+                position=lane_position,
+                queue_layout=_gate_lane_queue_layout(
+                    base_layout,
+                    element,
+                    queue=queue,
+                    lane_index=lane_index,
+                    lane_count=lane_count,
+                    lane_position=lane_position,
+                    walkable_geometry=walkable_geometry,
+                ),
+                exit_position=lane_exit_position,
+                service_persons_per_min=scenario.gate_service_persons_per_min,
+                queue_state=queue_state,
+                service_state=service_state,
+                release_route=(lane_position, lane_exit_position),
+                entry_level_id=element.level_id,
+                exit_level_id=element.level_id,
+            )
+        )
+    return facilities
+
+
 def _route_registry_from_station_graph(
     station_graph: StationGraph,
 ) -> dict[str, Callable[[Point, object | None], tuple[Point, ...]]]:
+    gate_decision_points = _gate_decision_points_by_stage(station_graph)
     return {
         RouteKey.CURRENT_POSITION.value: lambda start, _passenger=None: (start,),
         RouteKey.ENTRY_GATE_DECISION.value: lambda start,
-        _passenger=None: station_graph.route_from_position_to(
+        _passenger=None: _gate_decision_route(
+            station_graph,
             start,
-            kind="facility_entry",
-            facility_stage=FacilityStage.ENTRY_GATE.value,
+            FacilityStage.ENTRY_GATE.value,
+            gate_decision_points.get(FacilityStage.ENTRY_GATE.value, ()),
             start_level_id=_route_start_level(_passenger),
         ),
         RouteKey.AFTER_GATE.value: lambda start,
@@ -550,6 +620,8 @@ def _route_registry_from_station_graph(
             facility_stage=FacilityStage.VERTICAL_TRANSFER.value,
             direction=("down", "both"),
             start_level_id=_route_start_level(_passenger),
+            start_kind="facility_exit",
+            start_facility_stage=FacilityStage.ENTRY_GATE.value,
         ),
         RouteKey.AFTER_VERTICAL.value: lambda start, passenger=None: _after_vertical_route(
             station_graph, start, passenger
@@ -563,13 +635,94 @@ def _route_registry_from_station_graph(
             start_level_id=_route_start_level(_passenger),
         ),
         RouteKey.AFTER_EXIT_VERTICAL.value: lambda start,
-        _passenger=None: station_graph.route_from_position_to(
+        _passenger=None: _gate_decision_route(
+            station_graph,
             start,
-            kind="facility_entry",
-            facility_stage=FacilityStage.EXIT_GATE.value,
+            FacilityStage.EXIT_GATE.value,
+            gate_decision_points.get(FacilityStage.EXIT_GATE.value, ()),
             start_level_id=_route_start_level(_passenger),
         ),
     }
+
+
+def _gate_decision_points_by_stage(
+    station_graph: StationGraph,
+) -> dict[str, tuple[Point, ...]]:
+    document = station_graph.source_document
+    if document is None:
+        return {}
+
+    queues_by_owner = {queue.owner_element_id: queue for queue in document.queues}
+    walkable_geometry = document_walkable_geometry(document)
+    points_by_stage: dict[str, list[Point]] = {
+        FacilityStage.ENTRY_GATE.value: [],
+        FacilityStage.EXIT_GATE.value: [],
+    }
+    for element in document.elements:
+        if element.kind != "gate":
+            continue
+        queue = queues_by_owner.get(element.id)
+        if queue is None:
+            continue
+
+        point = _queue_approach_point(queue, walkable_geometry)
+        gate_direction = _gate_direction(element)
+        if gate_direction in {"entry", "bidirectional"}:
+            points_by_stage[FacilityStage.ENTRY_GATE.value].append(point)
+        if gate_direction in {"exit", "bidirectional"}:
+            points_by_stage[FacilityStage.EXIT_GATE.value].append(point)
+
+    return {stage: tuple(dedupe_points(points)) for stage, points in points_by_stage.items()}
+
+
+def _queue_approach_point(
+    queue: QueueSpec,
+    walkable_geometry,
+) -> Point:
+    shape = element_shape(queue.geometry)
+    domain = shape
+    if walkable_geometry is not None:
+        clipped = shape.intersection(walkable_geometry)
+        if not clipped.is_empty:
+            domain = clipped
+
+    core = safe_core(domain, min(0.18, max(0.05, queue.spacing_m * 0.2)))
+    min_x, min_y, max_x, max_y = core.bounds
+    center = ((min_x + max_x) / 2.0, (min_y + max_y) / 2.0)
+    service_x, service_y = queue.service_point_m
+    span_x = max_x - min_x
+    span_y = max_y - min_y
+
+    if abs(service_x - center[0]) >= abs(service_y - center[1]):
+        offset = min(max(0.15, queue.spacing_m * 0.5), max(0.0, span_x / 2.0))
+        x = min_x + offset if service_x > center[0] else max_x - offset
+        raw = (x, center[1])
+    else:
+        offset = min(max(0.15, queue.spacing_m * 0.5), max(0.0, span_y / 2.0))
+        y = min_y + offset if service_y > center[1] else max_y - offset
+        raw = (center[0], y)
+
+    return project_to_safe_point(core, raw, clearance=0.0, require_inside=False)
+
+
+def _gate_decision_route(
+    station_graph: StationGraph,
+    start: Point,
+    stage: str,
+    decision_points: tuple[Point, ...],
+    *,
+    start_level_id: str | None,
+) -> tuple[Point, ...]:
+    if not decision_points:
+        return station_graph.route_from_position_to(
+            start,
+            kind="facility_entry",
+            facility_stage=stage,
+            start_level_id=start_level_id,
+        )
+
+    decision_point = min(decision_points, key=lambda point: _point_distance(start, point))
+    return (decision_point,)
 
 
 def _route_platform_line_id(passenger: object | None) -> str | None:
@@ -642,6 +795,171 @@ def _vertical_facility_spec(
     )
 
 
+def _gate_lane_count(element: DesignElement) -> int:
+    return max(1, int(element.capacity or 1))
+
+
+def _gate_lane_positions(
+    element: DesignElement,
+    lane_count: int,
+    position: Point,
+    exit_position: Point,
+) -> tuple[tuple[Point, Point], ...]:
+    if lane_count <= 1:
+        return ((position, exit_position),)
+
+    min_x, min_y, max_x, max_y = element.geometry.bounds()
+    split_axis = _gate_split_axis(element)
+    positions: list[tuple[Point, Point]] = []
+    for lane_index in range(lane_count):
+        coordinate = _lane_coordinate(
+            min_x if split_axis == "x" else min_y,
+            max_x if split_axis == "x" else max_y,
+            lane_index,
+            lane_count,
+        )
+        if split_axis == "x":
+            lane_position = (coordinate, position[1])
+            lane_exit_position = (coordinate, exit_position[1])
+        else:
+            lane_position = (position[0], coordinate)
+            lane_exit_position = (exit_position[0], coordinate)
+        positions.append((lane_position, lane_exit_position))
+    return tuple(positions)
+
+
+def _gate_lane_queue_layout(
+    base_layout: QueueLayout,
+    element: DesignElement,
+    *,
+    queue: QueueSpec | None,
+    lane_index: int,
+    lane_count: int,
+    lane_position: Point,
+    walkable_geometry,
+) -> QueueLayout:
+    if lane_count <= 1:
+        return base_layout
+
+    slots = (
+        _queue_slots_from_geometry_for_lane(
+            queue,
+            element,
+            lane_index=lane_index,
+            lane_count=lane_count,
+            service_point=lane_position,
+            walkable_geometry=walkable_geometry,
+        )
+        if queue is not None
+        else _layout_slots_for_lane(base_layout, element, lane_index, lane_count)
+    )
+    if not slots:
+        slots = _default_queue_slots(
+            lane_position,
+            per_row=1,
+            spacing=0.8,
+            walkable_geometry=walkable_geometry,
+        )[:8]
+
+    if slots:
+        ordered = tuple(sorted(slots, key=lambda slot: _point_distance(slot, lane_position)))
+        return QueueLayout(
+            anchor=ordered[0],
+            per_row=1,
+            col_step=(0.0, 0.0),
+            row_step=(0.0, 0.0),
+            slots=ordered,
+        )
+
+    return QueueLayout(
+        anchor=lane_position,
+        per_row=1,
+        col_step=(0.0, 0.0),
+        row_step=(0.0, 0.8),
+    )
+
+
+def _layout_slots_for_lane(
+    layout: QueueLayout,
+    element: DesignElement,
+    lane_index: int,
+    lane_count: int,
+) -> tuple[Point, ...]:
+    slots = layout.slots or tuple(layout.slot(index) for index in range(max(8, lane_count * 4)))
+    if not slots:
+        return ()
+    return _points_for_gate_lane(slots, element, lane_index, lane_count)
+
+
+def _queue_slots_from_geometry_for_lane(
+    queue: QueueSpec,
+    element: DesignElement,
+    *,
+    lane_index: int,
+    lane_count: int,
+    service_point: Point,
+    walkable_geometry,
+) -> tuple[Point, ...]:
+    candidates, domain = _queue_slot_candidates(queue, walkable_geometry)
+    lane_candidates = _points_for_gate_lane(candidates, element, lane_index, lane_count)
+    if not lane_candidates:
+        lane_candidates = tuple(sorted(candidates, key=lambda point: _point_distance(point, service_point)))
+    capacity = max(4, (queue.capacity + lane_count - 1) // lane_count)
+    return tuple(
+        dedupe_points(
+            _sort_queue_slots_from_service(
+                list(lane_candidates),
+                service_point,
+                queue.direction_deg,
+                queue.spacing_m,
+                domain,
+            )
+        )
+    )[:capacity]
+
+
+def _points_for_gate_lane(
+    points: tuple[Point, ...],
+    element: DesignElement,
+    lane_index: int,
+    lane_count: int,
+) -> tuple[Point, ...]:
+    min_x, min_y, max_x, max_y = element.geometry.bounds()
+    split_axis = _gate_split_axis(element)
+    min_value = min_x if split_axis == "x" else min_y
+    max_value = max_x if split_axis == "x" else max_y
+    lane_values = tuple(
+        _lane_coordinate(min_value, max_value, index, lane_count)
+        for index in range(lane_count)
+    )
+
+    selected: list[Point] = []
+    axis_index = 0 if split_axis == "x" else 1
+    for point in points:
+        slot_value = point[axis_index]
+        nearest_lane = min(
+            range(lane_count),
+            key=lambda index: abs(slot_value - lane_values[index]),
+        )
+        if nearest_lane == lane_index:
+            selected.append(point)
+    return tuple(selected)
+
+
+def _gate_split_axis(element: DesignElement) -> str:
+    min_x, min_y, max_x, max_y = element.geometry.bounds()
+    return "x" if max_x - min_x >= max_y - min_y else "y"
+
+
+def _lane_coordinate(min_value: float, max_value: float, lane_index: int, lane_count: int) -> float:
+    if lane_count <= 1:
+        return (min_value + max_value) / 2.0
+    span = max_value - min_value
+    if abs(span) <= 0.001:
+        return min_value
+    return min_value + (lane_index + 0.5) * span / lane_count
+
+
 def _queue_layout(
     queue: QueueSpec | None,
     *,
@@ -698,6 +1016,14 @@ def _queue_slots_from_geometry(
     queue: QueueSpec,
     walkable_geometry,
 ) -> tuple[Point, ...]:
+    candidates, domain = _queue_slot_candidates(queue, walkable_geometry)
+    return tuple(dedupe_points(_sort_queue_slots(list(candidates), queue, domain)))[: queue.capacity]
+
+
+def _queue_slot_candidates(
+    queue: QueueSpec,
+    walkable_geometry,
+) -> tuple[tuple[Point, ...], object]:
     shape = element_shape(queue.geometry)
     domain = shape
     if walkable_geometry is not None:
@@ -723,7 +1049,7 @@ def _queue_slots_from_geometry(
         representative = core.representative_point()
         candidates = [(float(representative.x), float(representative.y))]
 
-    return tuple(dedupe_points(_sort_queue_slots(candidates, queue, domain)))[: queue.capacity]
+    return tuple(dedupe_points(candidates)), domain
 
 
 def _sort_queue_slots(
@@ -731,15 +1057,30 @@ def _sort_queue_slots(
     queue: QueueSpec,
     domain,
 ) -> list[Point]:
-    service = queue.service_point_m
+    return _sort_queue_slots_from_service(
+        candidates,
+        queue.service_point_m,
+        queue.direction_deg,
+        queue.spacing_m,
+        domain,
+    )
+
+
+def _sort_queue_slots_from_service(
+    candidates: list[Point],
+    service: Point,
+    direction_deg: float,
+    spacing_m: float,
+    domain,
+) -> list[Point]:
     centroid = domain.centroid
     tail = (float(centroid.x) - service[0], float(centroid.y) - service[1])
     if hypot(*tail) < 0.001:
-        angle = radians(queue.direction_deg)
+        angle = radians(direction_deg)
         tail = (cos(angle), sin(angle))
     tail = _normalize(tail)
     lateral_axis = (-tail[1], tail[0])
-    spacing = max(0.2, float(queue.spacing_m))
+    spacing = max(0.2, float(spacing_m))
 
     def key(point: Point) -> tuple[float, float, float, float]:
         dx = point[0] - service[0]

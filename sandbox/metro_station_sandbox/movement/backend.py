@@ -6,6 +6,8 @@ from math import hypot
 from typing import TYPE_CHECKING
 from collections import defaultdict
 
+from shapely.geometry import Point as ShapelyPoint
+
 from ..planning.plan import CROWD_INTERACTION_STATES, PASSIVE_STATES, AgentState
 
 if TYPE_CHECKING:
@@ -96,6 +98,7 @@ class JuPedSimMovementBackend(MovementBackend):
             model=model,
             starts=starts,
             target=request.target,
+            walkable_area=self._walkable_area_for(passenger),
         )
 
         if not positions:
@@ -115,6 +118,7 @@ class JuPedSimMovementBackend(MovementBackend):
         model,
         starts: list[tuple[float, float]],
         target: tuple[float, float],
+        walkable_area,
     ) -> list[tuple[float, float]]:
         scenario = model.scenario
         try:
@@ -126,7 +130,7 @@ class JuPedSimMovementBackend(MovementBackend):
                 iterations=scenario.jupedsim_iterations_per_tick,
                 radius=scenario.jupedsim_agent_radius_units,
                 target_radius=scenario.jupedsim_target_radius_units,
-                walkable_area=model.jupedsim_walkable_area(),
+                walkable_area=walkable_area,
                 operational_model=scenario.jupedsim_operational_model,
             )
         except Exception as exc:
@@ -156,6 +160,35 @@ class JuPedSimMovementBackend(MovementBackend):
             ):
                 starts.append(candidate)
         return starts
+
+    def _movement_level_key(self, passenger: PassengerAgent) -> str | None:
+        if passenger.state == AgentState.RIDING_VERTICAL.value:
+            return None
+        return passenger.current_level_id
+
+    def _walkable_area_for(self, passenger: PassengerAgent):
+        return self._walkable_area_for_segment(
+            passenger.model,
+            self._movement_level_key(passenger),
+            [passenger.pos],
+            passenger.target,
+        )
+
+    def _walkable_area_for_segment(
+        self,
+        model,
+        level_id: str | None,
+        starts: list[tuple[float, float]],
+        target: tuple[float, float],
+    ):
+        if level_id is None:
+            return model.jupedsim_walkable_area()
+        level_area = model.jupedsim_walkable_area(level_id)
+        if level_area.covers(ShapelyPoint(target)) and all(
+            level_area.covers(ShapelyPoint(start)) for start in starts
+        ):
+            return level_area
+        return model.jupedsim_walkable_area()
 
     @staticmethod
     def _has_clearance(
@@ -188,7 +221,7 @@ class BatchedJuPedSimMovementBackend(JuPedSimMovementBackend):
                 f"JuPedSim movement requested but unavailable: {self.adapter.status.message}"
             )
 
-        groups: dict[tuple[float, float], list[PassengerAgent]] = defaultdict(list)
+        groups: dict[tuple[float, float, str | None], list[PassengerAgent]] = defaultdict(list)
         results: list[tuple[PassengerAgent, MovementResult]] = []
         for passenger in list(passengers):
             if passenger.state in PASSIVE_STATES:
@@ -203,7 +236,9 @@ class BatchedJuPedSimMovementBackend(JuPedSimMovementBackend):
                 results.append((passenger, reached))
                 continue
             tx, ty = passenger.target
-            groups[(round(tx, 3), round(ty, 3))].append(passenger)
+            groups[(round(tx, 3), round(ty, 3), self._movement_level_key(passenger))].append(
+                passenger
+            )
 
         for target_key, group in groups.items():
             results.extend(self._step_group(target_key, group))
@@ -218,7 +253,7 @@ class BatchedJuPedSimMovementBackend(JuPedSimMovementBackend):
 
     def _step_group(
         self,
-        target_key: tuple[float, float],
+        target_key: tuple[float, float, str | None],
         group: list[PassengerAgent],
     ) -> list[tuple[PassengerAgent, MovementResult]]:
         if not group:
@@ -248,16 +283,18 @@ class BatchedJuPedSimMovementBackend(JuPedSimMovementBackend):
             return results
 
         model = batched[0].model
+        target = (target_key[0], target_key[1])
         positions = self._simulate_walk_tick_with_audit(
             model=model,
             starts=starts,
-            target=target_key,
+            target=target,
+            walkable_area=self._walkable_area_for_segment(model, target_key[2], starts, target),
         )
 
         if len(positions) != len(batched):
             raise RuntimeError(
                 "JuPedSim batch result size mismatch: "
-                f"positions={len(positions)} agents={len(batched)} target={target_key}"
+                f"positions={len(positions)} agents={len(batched)} target={target}"
             )
 
         self.jps_batch_count += 1

@@ -18,7 +18,7 @@ from ..station.compiler import DesignCompiler
 from ..facilities.choice import DefaultFacilityChoicePolicy, FacilityChoicePolicy, StaffGuidedPolicy
 from ..facilities.filters import filter_boarding_doors_for_platform, filter_platforms_for_passenger
 from ..facilities.runtime import FacilityProcessAgent, facility_agent_for_spec
-from ..station.geometry import project_to_safe_point
+from ..station.geometry import level_walkable_geometry, project_to_safe_point
 from ..movement.jps_adapter import JuPedSimAdapter
 from .metrics import (
     average_system_minutes,
@@ -124,6 +124,7 @@ class MetroStationModel(mesa.Model):
         self._spatial_index: dict[tuple[int, int], list[PassengerAgent]] = {}
         self._spatial_cell_size = max(1.0, self.scenario.crowd_radius_units)
         self._jupedsim_walkable_area = None
+        self._jupedsim_level_walkable_areas: dict[str, Any] = {}
         self.demand_scheduler = DemandScheduler.from_scenario(scenario, self.random)
         self.spawn_schedule = self.demand_scheduler.spawn_schedule
         self.datacollector = mesa.DataCollector(
@@ -381,11 +382,30 @@ class MetroStationModel(mesa.Model):
             max(1.0, min(geom.height - 1.0, y)),
         )
 
-    def jupedsim_walkable_area(self):
-        if self._jupedsim_walkable_area is not None:
+    def jupedsim_walkable_area(self, level_id: str | None = None):
+        if level_id is None:
+            if self._jupedsim_walkable_area is not None:
+                return self._jupedsim_walkable_area
+            self._jupedsim_walkable_area = self.layout_graph.walkable_geometry
             return self._jupedsim_walkable_area
-        self._jupedsim_walkable_area = self.layout_graph.walkable_geometry
-        return self._jupedsim_walkable_area
+
+        if level_id in self._jupedsim_level_walkable_areas:
+            return self._jupedsim_level_walkable_areas[level_id]
+
+        station_graph = getattr(self.layout_graph, "station_graph", None)
+        document = getattr(station_graph, "source_document", None)
+        if document is None:
+            area = self.jupedsim_walkable_area()
+        else:
+            area = level_walkable_geometry(
+                document,
+                level_id,
+                self.layout_graph.walkable_geometry,
+            )
+            if area.is_empty:
+                area = self.jupedsim_walkable_area()
+        self._jupedsim_level_walkable_areas[level_id] = area
+        return area
 
     def _rectangular_jupedsim_walkable_area(self):
         from shapely import Polygon

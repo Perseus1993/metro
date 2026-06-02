@@ -7,7 +7,12 @@ from types import SimpleNamespace
 
 from shapely.geometry import LineString, Point
 
-from sandbox.metro_station_sandbox.planning.plan import AgentIntent, AgentState, FacilityStage
+from sandbox.metro_station_sandbox.planning.plan import (
+    AgentIntent,
+    AgentState,
+    FacilityStage,
+    RouteKey,
+)
 from sandbox.metro_station_sandbox.agents import PassengerAgent
 from sandbox.metro_station_sandbox.planning.behavior import (
     BehaviorActionKind,
@@ -37,8 +42,13 @@ from sandbox.metro_station_sandbox.movement.backend import (
 from sandbox.metro_station_sandbox.planning.selection import pick_least_loaded, pick_logit
 from sandbox.metro_station_sandbox.runtime.mesa_model import MetroStationModel
 from sandbox.metro_station_sandbox.station.graph import StationGraph
+from sandbox.metro_station_sandbox.station.geometry import (
+    document_walkable_geometry,
+    level_walkable_geometry,
+)
 from sandbox.metro_station_sandbox.station.scenario import StationSandboxScenario
 from sandbox.metro_station_sandbox.visual_demo.geometry import load_station_geometry, meters
+from sandbox.metro_station_sandbox.visual_demo.layout import layout_payload
 from sandbox.metro_station_sandbox.visual_demo.field_routing import (
     QueueAttractivenessField,
     QueueFieldCandidate,
@@ -199,6 +209,59 @@ class StationGraphTests(unittest.TestCase):
 
 
 class PassengerFlowTests(unittest.TestCase):
+    def test_visual_demo_initial_positions_stay_on_intent_level(self) -> None:
+        scenario = scenario_for("visual_demo_station")
+        model = MetroStationModel(
+            scenario,
+            seed=13,
+            movement_backend=InstantMovementBackend(),
+        )
+        document = scenario.station_design
+        self.assertIsNotNone(document)
+        assert document is not None
+        walkable = document_walkable_geometry(document)
+        b1_domain = level_walkable_geometry(document, "b1_concourse", walkable)
+        b2_domain = level_walkable_geometry(document, "b2_platform", walkable)
+        b2_platform_y = document.constraints.canvas_height_m * 0.60
+
+        entry_passengers = [
+            PassengerAgent(
+                model,
+                group_size=1,
+                created_step=0,
+                intent=AgentIntent.ENTER_AND_BOARD,
+            )
+            for _ in range(8)
+        ]
+        exit_passengers = [
+            PassengerAgent(
+                model,
+                group_size=1,
+                created_step=0,
+                intent=AgentIntent.EXIT_STATION,
+            )
+            for _ in range(8)
+        ]
+
+        self.assertTrue(all(item.current_level_id == "b1_concourse" for item in entry_passengers))
+        self.assertTrue(all(b1_domain.covers(Point(item.pos)) for item in entry_passengers))
+        self.assertTrue(all(item.current_level_id == "b2_platform" for item in exit_passengers))
+        self.assertTrue(all(b2_domain.covers(Point(item.pos)) for item in exit_passengers))
+        self.assertTrue(all(item.pos[1] >= b2_platform_y for item in exit_passengers))
+
+    def test_jupedsim_walkable_area_can_be_scoped_to_level(self) -> None:
+        model = MetroStationModel(
+            scenario_for("visual_demo_station"),
+            seed=14,
+            movement_backend=InstantMovementBackend(),
+        )
+
+        platform_point = Point(meters((0.251, 0.785)))
+
+        self.assertTrue(model.jupedsim_walkable_area().covers(platform_point))
+        self.assertFalse(model.jupedsim_walkable_area("b1_concourse").covers(platform_point))
+        self.assertTrue(model.jupedsim_walkable_area("b2_platform").covers(platform_point))
+
     def test_behavior_status_describes_region_goal_and_queue_mode(self) -> None:
         model = MetroStationModel(scenario_for("single_level_terminal"), seed=11)
         model.spawn_schedule.clear()
@@ -598,6 +661,98 @@ class VisualDemoGeometryTests(unittest.TestCase):
             for slot in slots[:32]:
                 with self.subTest(facility=facility.spec.facility_id, slot=slot):
                     self.assertTrue(geometry.covers(Point(slot)))
+
+    def test_visual_demo_gate_banks_compile_to_individual_lanes(self) -> None:
+        model = MetroStationModel(scenario_for("visual_demo_station"), seed=2)
+
+        self.assertEqual(6, len(model.gates))
+        self.assertEqual(4, len(model.exit_gates))
+        self.assertEqual(
+            6,
+            len({round(gate.spec.position[0], 3) for gate in model.gates}),
+        )
+        self.assertEqual(
+            4,
+            len({round(gate.spec.position[0], 3) for gate in model.exit_gates}),
+        )
+
+    def test_visual_demo_queue_payload_exports_gate_lanes(self) -> None:
+        scenario = scenario_for("visual_demo_station")
+        model = MetroStationModel(scenario, seed=2)
+
+        payload = mesa_frames_to_visual_tracks(
+            frames=[],
+            scenario=scenario,
+            facilities=model.facilities,
+        )
+        entry_queues = [
+            queue for queue in payload["queue_layouts"] if queue["kind"] == "entry_gate"
+        ]
+        exit_queues = [
+            queue for queue in payload["queue_layouts"] if queue["kind"] == "exit_gate"
+        ]
+
+        self.assertEqual(6, len(entry_queues))
+        self.assertEqual(4, len(exit_queues))
+        self.assertTrue(all("_lane_" in queue["id"] for queue in entry_queues))
+        self.assertEqual(6, len({tuple(queue["exit"]) for queue in entry_queues}))
+        self.assertTrue(all(queue["exit"][1] >= 0.318 for queue in exit_queues))
+
+    def test_visual_demo_decision_regions_are_exported(self) -> None:
+        payload = layout_payload()
+        geometry = load_station_geometry()
+        regions = payload["decision_regions"]
+        by_id = {region["id"]: region for region in regions}
+
+        self.assertIn("entry_gate_decision", by_id)
+        self.assertIn("vertical_transfer_decision", by_id)
+        self.assertIn("platform_boarding_decision", by_id)
+        self.assertIn("exit_gate_decision", by_id)
+        self.assertGreaterEqual(by_id["exit_gate_decision"]["points"][0][1], 0.318)
+        for region in regions:
+            points = region["points"]
+            centroid = (
+                sum(point[0] for point in points) / len(points),
+                sum(point[1] for point in points) / len(points),
+            )
+            with self.subTest(region=region["id"]):
+                self.assertTrue(geometry.covers(Point(meters(centroid))))
+
+    def test_visual_demo_exit_gate_decision_route_stays_on_paid_side(self) -> None:
+        model = MetroStationModel(scenario_for("visual_demo_station"), seed=2)
+
+        route = model.layout_graph.route_for_key(
+            RouteKey.AFTER_EXIT_VERTICAL.value,
+            meters((0.600, 0.430)),
+        )
+
+        self.assertGreaterEqual(route[-1][1], meters((0.0, 0.330))[1])
+        for facility in model.vertical_transports:
+            if facility.spec.direction not in {"up", "both"}:
+                continue
+            with self.subTest(facility=facility.facility_id):
+                route = model.layout_graph.route_for_key(
+                    RouteKey.AFTER_EXIT_VERTICAL.value,
+                    facility.spec.exit_position,
+                )
+                self.assertEqual(1, len(route))
+                self.assertGreaterEqual(route[-1][1], meters((0.0, 0.330))[1])
+
+    def test_visual_demo_after_entry_gate_route_stays_in_paid_area(self) -> None:
+        model = MetroStationModel(scenario_for("visual_demo_station"), seed=2)
+        context = SimpleNamespace(current_level_id="b1_concourse")
+
+        for facility in model.gates:
+            with self.subTest(facility=facility.facility_id):
+                route = model.layout_graph.route_for_key(
+                    RouteKey.AFTER_GATE.value,
+                    facility.spec.exit_position,
+                    context,
+                )
+
+                self.assertTrue(route)
+                self.assertTrue(all(point[1] >= meters((0.0, 0.350))[1] for point in route))
+                self.assertTrue(all(point[0] >= meters((0.145, 0.0))[0] for point in route))
 
     def test_platform_boarding_release_is_limited_by_door_frontage(self) -> None:
         model = MetroStationModel(scenario_for("visual_demo_station"), seed=2)

@@ -405,6 +405,7 @@
       </div>
       <select class="control-select" id="diagnosticLayer" aria-label="诊断层">
         <option value="off">关闭诊断</option>
+        <option value="decision">决策区</option>
         <option value="target">目标点</option>
         <option value="queue">排队</option>
         <option value="slow">慢行</option>
@@ -602,6 +603,7 @@
       connector_channels: [],
       obstacles: [],
       facility_boxes: [],
+      decision_regions: [],
       control_points: { platform_doors: [] },
     };
     const SCENARIO = TRACK_DATA?.scenario || {};
@@ -801,6 +803,7 @@
     function updateDiagnosticHelp() {
       const copy = {
         off: "隐藏诊断图层，仅显示乘客与设施状态。",
+        decision: "显示固定状态决策区域，用于检查乘客是否在区域内触发选择。",
         target: "显示乘客当前导航目标，用于判断路径是否合理。",
         queue: "突出设施排队位置与排队人数。",
         slow: "标记速度过低的乘客位置。",
@@ -933,6 +936,62 @@
         strokeByKind[facility.kind] || "rgba(215, 229, 236, 0.45)",
         facility.kind === "elevator" ? 3 : 2,
       );
+    }
+
+    function decisionRegionStyle(kind) {
+      const styles = {
+        entry_gate_decision: ["rgba(255, 209, 102, 0.20)", "rgba(255, 209, 102, 0.88)"],
+        vertical_transfer_decision: ["rgba(93, 212, 95, 0.17)", "rgba(93, 212, 95, 0.80)"],
+        platform_boarding_decision: ["rgba(255, 102, 204, 0.15)", "rgba(255, 102, 204, 0.76)"],
+        exit_vertical_decision: ["rgba(82, 162, 255, 0.14)", "rgba(82, 162, 255, 0.78)"],
+        exit_gate_decision: ["rgba(74, 163, 255, 0.18)", "rgba(74, 163, 255, 0.84)"],
+      };
+      return styles[kind] || ["rgba(255,255,255,0.12)", "rgba(255,255,255,0.62)"];
+    }
+
+    function polygonCenter(points) {
+      if (!points || !points.length) return [0, 0];
+      return [
+        points.reduce((sum, point) => sum + Number(point[0] || 0), 0) / points.length,
+        points.reduce((sum, point) => sum + Number(point[1] || 0), 0) / points.length,
+      ];
+    }
+
+    function drawDecisionRegions() {
+      const regions = LAYOUT.decision_regions || [];
+      if (!regions.length) return;
+      ctx.save();
+      for (const region of regions) {
+        const points = region.points || [];
+        if (points.length < 3) continue;
+        const [fill, stroke] = decisionRegionStyle(region.kind);
+        pathFromPoints(points);
+        ctx.fillStyle = fill;
+        ctx.fill();
+        ctx.strokeStyle = stroke;
+        ctx.lineWidth = 2.2;
+        ctx.setLineDash([8, 6]);
+        ctx.stroke();
+        ctx.setLineDash([]);
+
+        const [cx, cy] = polygonCenter(points);
+        const label = region.label || region.id || "";
+        if (label) {
+          ctx.font = "600 12px Inter, system-ui, sans-serif";
+          const textWidth = ctx.measureText(label).width;
+          const x = nx(cx);
+          const y = ny(cy);
+          ctx.fillStyle = "rgba(7, 19, 27, 0.68)";
+          ctx.beginPath();
+          ctx.roundRect(x - textWidth / 2 - 7, y - 10, textWidth + 14, 20, 6);
+          ctx.fill();
+          ctx.fillStyle = stroke;
+          ctx.textAlign = "center";
+          ctx.textBaseline = "middle";
+          ctx.fillText(label, x, y);
+        }
+      }
+      ctx.restore();
     }
 
     function drawTrackRails() {
@@ -1384,19 +1443,16 @@
 
     function elevatorMotion(t) {
       const e = t % 16;
-      if (e < 2) {
-        return { pos: 0, open: Math.sin((e / 2) * Math.PI), label: "B1" };
-      }
-      if (e < 6) {
-        return { pos: ease((e - 2) / 4), open: 0, label: "下行" };
+      if (e < 4) {
+        return { pos: 0, open: Math.sin((e / 4) * Math.PI), label: "B1" };
       }
       if (e < 8) {
-        return { pos: 1, open: Math.sin(((e - 6) / 2) * Math.PI), label: "B2" };
+        return { pos: ease((e - 4) / 4), open: 0, label: "下行" };
       }
       if (e < 12) {
-        return { pos: 1 - ease((e - 8) / 4), open: 0, label: "上行" };
+        return { pos: 1, open: Math.sin(((e - 8) / 4) * Math.PI), label: "B2" };
       }
-      return { pos: 0, open: Math.sin(((e - 12) / 4) * Math.PI), label: "B1" };
+      return { pos: 1 - ease((e - 12) / 4), open: 0, label: "上行" };
     }
 
     function elevatorCabinRect(t) {
@@ -1711,6 +1767,7 @@
       ctx.clearRect(0, 0, W, H);
       drawStationGeometry();
       const diagnosticLayer = selectedDiagnosticLayer();
+      if (diagnosticLayer === "decision" || diagnosticLayer === "all") drawDecisionRegions();
       drawQueueLayouts(simSeconds, diagnosticLayer === "queue" || diagnosticLayer === "all");
       drawTransportFlows(simSeconds);
       drawElevator(simSeconds);

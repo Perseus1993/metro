@@ -81,6 +81,7 @@ class StationLayout:
     obstacles: tuple[PolygonShape, ...]
     facility_boxes: tuple[PolygonShape, ...]
     control_points: dict[str, tuple[tuple[float, float], ...]]
+    decision_regions: tuple[PolygonShape, ...] = ()
 
     def as_dict(self) -> dict[str, object]:
         return {
@@ -89,6 +90,7 @@ class StationLayout:
             "connector_channels": [channel.as_dict() for channel in self.connector_channels],
             "obstacles": [obstacle.as_dict() for obstacle in self.obstacles],
             "facility_boxes": [facility.as_dict() for facility in self.facility_boxes],
+            "decision_regions": [region.as_dict() for region in self.decision_regions],
             "control_points": {
                 key: [list(point) for point in points]
                 for key, points in self.control_points.items()
@@ -128,6 +130,46 @@ def exit_gate_boxes() -> tuple[PolygonShape, ...]:
             )
         )
     return tuple(boxes)
+
+
+def decision_regions() -> tuple[PolygonShape, ...]:
+    return (
+        PolygonShape(
+            "entry_gate_decision",
+            "entry gate lane decision",
+            rect_points(0.205, 0.240, 0.130, 0.102),
+            "entry_gate_decision",
+            False,
+        ),
+        PolygonShape(
+            "vertical_transfer_decision",
+            "vertical transfer decision",
+            rect_points(0.145, 0.350, 0.660, 0.085),
+            "vertical_transfer_decision",
+            False,
+        ),
+        PolygonShape(
+            "platform_boarding_decision",
+            "platform boarding door decision",
+            rect_points(0.160, 0.705, 0.710, 0.100),
+            "platform_boarding_decision",
+            False,
+        ),
+        PolygonShape(
+            "exit_vertical_decision",
+            "exit vertical transfer decision",
+            rect_points(0.120, 0.635, 0.760, 0.085),
+            "exit_vertical_decision",
+            False,
+        ),
+        PolygonShape(
+            "exit_gate_decision",
+            "exit gate lane decision",
+            rect_points(0.735, 0.318, 0.130, 0.052),
+            "exit_gate_decision",
+            False,
+        ),
+    )
 
 
 def fare_barrier_boxes() -> tuple[PolygonShape, ...]:
@@ -449,6 +491,7 @@ STATION_LAYOUT = StationLayout(
             (0.861, 0.785),
         ),
     },
+    decision_regions=decision_regions(),
 )
 
 
