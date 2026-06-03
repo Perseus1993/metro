@@ -18,7 +18,20 @@ from sandbox.metro_station_sandbox.planning.behavior import (
     BehaviorActionKind,
     behavior_status_for_passenger,
 )
-from sandbox.metro_station_sandbox.design import create_design, validate_design
+from sandbox.metro_station_sandbox.design import (
+    DesignConnection,
+    DesignPort,
+    StationDesignDocument,
+    apply_react_flow_edges,
+    create_design,
+    to_react_flow,
+    validate_design,
+)
+from sandbox.metro_station_sandbox.design_inspector.server import (
+    build_design_payload,
+    compile_react_flow_payload,
+    template_catalog_payload,
+)
 from sandbox.metro_station_sandbox.station.payload import geometry_payload
 from sandbox.metro_station_sandbox.facilities.filters import (
     filter_boarding_doors_for_passenger,
@@ -137,7 +150,7 @@ class VisualExportPayloadTests(unittest.TestCase):
 
 
 class StationGraphTests(unittest.TestCase):
-    def test_templates_validate_and_compile_without_implicit_same_level_edges(self) -> None:
+    def test_templates_validate_and_compile_without_graph_fallbacks(self) -> None:
         for template_id in (
             "single_level_terminal",
             "two_level_island_platform",
@@ -151,6 +164,33 @@ class StationGraphTests(unittest.TestCase):
                 graph = StationGraph.from_design(document)
                 self.assertGreater(len(graph.nodes), 0)
                 self.assertGreater(len(graph.edges), 0)
+                self.assertEqual([], [item.as_dict() for item in graph.compile_diagnostics])
+                self.assertFalse(
+                    any(edge.origin == "walkable_access_fallback" for edge in graph.edges)
+                )
+
+    def test_template_gate_ports_are_directional(self) -> None:
+        document = create_design("single_level_terminal")
+        gate = document.element_by_id()["gate_bank_a"]
+        ports_by_id = {port.id: port for port in gate.ports}
+        entrance_to_gate = next(
+            connection
+            for connection in document.connections
+            if connection.id == "conn_entrance_to_gates"
+        )
+        gate_to_boarding = next(
+            connection
+            for connection in document.connections
+            if connection.id == "conn_gate_to_boarding"
+        )
+
+        self.assertEqual("in", ports_by_id["service"].direction)
+        self.assertEqual("out", ports_by_id["release"].direction)
+        self.assertEqual("out", ports_by_id["unpaid"].direction)
+        self.assertEqual("service", entrance_to_gate.target_port_id)
+        self.assertFalse(entrance_to_gate.bidirectional)
+        self.assertEqual("release", gate_to_boarding.source_port_id)
+        self.assertFalse(gate_to_boarding.bidirectional)
 
     def test_validation_reports_missing_explicit_connection(self) -> None:
         document = create_design("single_level_terminal")
@@ -163,7 +203,6 @@ class StationGraphTests(unittest.TestCase):
             ),
         )
         issue_codes = {issue.code for issue in validate_design(broken)}
-        self.assertIn("graph.unreachable_node", issue_codes)
         self.assertIn("graph.enter_path_missing", issue_codes)
 
     def test_route_uses_current_level_for_overlapping_vertical_nodes(self) -> None:
@@ -206,6 +245,267 @@ class StationGraphTests(unittest.TestCase):
             "up",
             graph.nodes["vertical:up_escalator_a:b1_concourse"].direction,
         )
+
+    def test_design_ports_round_trip_and_project_to_react_flow_handles(self) -> None:
+        document = create_design("single_level_terminal")
+        elements = tuple(
+            replace(
+                element,
+                ports=(
+                    *element.ports,
+                    DesignPort(
+                        "public_exit",
+                        "walk",
+                        level_id="l1_terminal",
+                        position_m=(6.0, 22.5),
+                    ),
+                ),
+            )
+            if element.id == "entrance_a"
+            else replace(
+                element,
+                ports=(
+                    *element.ports,
+                    DesignPort(
+                        "hall_entry",
+                        "walk",
+                        level_id="l1_terminal",
+                        position_m=(10.0, 22.5),
+                    ),
+                ),
+            )
+            if element.id == "main_hall"
+            else element
+            for element in document.elements
+        )
+        connections = tuple(
+            replace(
+                connection,
+                source_port_id="public_exit",
+                target_port_id="hall_entry",
+            )
+            if connection.id == "conn_entrance_to_hall"
+            else connection
+            for connection in document.connections
+        )
+        document = replace(document, elements=elements, connections=connections)
+
+        self.assertEqual([], [issue.as_dict() for issue in validate_design(document)])
+
+        round_tripped = StationDesignDocument.from_dict(document.as_dict())
+        self.assertTrue(
+            any(port.id == "public_exit" for port in round_tripped.elements[1].ports)
+        )
+        flow = to_react_flow(round_tripped)
+        edge = next(edge for edge in flow["edges"] if edge["id"] == "edge:conn_entrance_to_hall")
+
+        self.assertEqual("public_exit", edge["sourceHandle"])
+        self.assertEqual("hall_entry", edge["targetHandle"])
+
+        applied = apply_react_flow_edges(round_tripped, flow["edges"])
+        applied_connection = next(
+            connection
+            for connection in applied.connections
+            if connection.id == "conn_entrance_to_hall"
+        )
+        self.assertEqual("public_exit", applied_connection.source_port_id)
+        self.assertEqual("hall_entry", applied_connection.target_port_id)
+
+    def test_design_inspector_reports_clean_template_compile(self) -> None:
+        catalog = template_catalog_payload()
+        self.assertIn("xyflow / React Flow", [item["name"] for item in catalog["reference_wheels"]])
+        self.assertIn("equipment", [item["id"] for item in catalog["component_palette"]])
+
+        payload = build_design_payload("single_level_terminal")
+        self.assertEqual("ok", payload["summary"]["status"])
+        self.assertEqual(0, payload["summary"]["fallback_edges"])
+        self.assertGreater(len(payload["react_flow"]["nodes"]), 0)
+        self.assertTrue(
+            any(node.get("data", {}).get("ports") for node in payload["react_flow"]["nodes"])
+        )
+
+    def test_design_inspector_compile_accepts_dropped_component_node(self) -> None:
+        payload = build_design_payload("single_level_terminal")
+        level_node = next(
+            node for node in payload["react_flow"]["nodes"] if node["id"].startswith("level:")
+        )
+        draft_node = {
+            "id": "element:draft_equipment_test",
+            "type": "facilityNode",
+            "parentId": level_node["id"],
+            "position": {"x": 42.0, "y": 16.0},
+            "width": 4.0,
+            "height": 3.0,
+            "style": {"width": 4.0, "height": 3.0},
+            "data": {
+                "inspector_created": True,
+                "palette_id": "equipment",
+                "kind": "equipment",
+                "level_id": level_node["data"]["level_id"],
+                "role": "facility",
+                "label": "Equipment",
+                "geometry": {
+                    "shape": "rect",
+                    "x_m": 42.0,
+                    "y_m": 16.0,
+                    "width_m": 4.0,
+                    "height_m": 3.0,
+                    "rotation_deg": 0.0,
+                    "points_m": [],
+                },
+                "metadata": {"inspector_created": True},
+            },
+        }
+
+        draft = compile_react_flow_payload(
+            {
+                "template_id": "single_level_terminal",
+                "nodes": [*payload["react_flow"]["nodes"], draft_node],
+                "edges": payload["react_flow"]["edges"],
+            }
+        )
+        elements_by_id = {
+            element["id"]: element for element in draft["document"]["elements"]
+        }
+
+        self.assertIn("draft_equipment_test", elements_by_id)
+        self.assertEqual("equipment", elements_by_id["draft_equipment_test"]["kind"])
+        self.assertEqual(
+            {"x_m": 42.0, "y_m": 16.0, "width_m": 4.0, "height_m": 3.0},
+            {
+                key: elements_by_id["draft_equipment_test"]["geometry"][key]
+                for key in ("x_m", "y_m", "width_m", "height_m")
+            },
+        )
+
+    def test_design_inspector_compile_exposes_broken_edge_state(self) -> None:
+        payload = build_design_payload("single_level_terminal")
+        draft = compile_react_flow_payload(
+            {
+                "template_id": "single_level_terminal",
+                "nodes": payload["react_flow"]["nodes"],
+                "edges": [],
+            }
+        )
+        issue_codes = {issue["code"] for issue in draft["validation_issues"]}
+
+        self.assertEqual("error", draft["summary"]["status"])
+        self.assertIn("graph.enter_path_missing", issue_codes)
+        self.assertGreater(draft["summary"]["fallback_edges"], 0)
+
+    def test_graph_marks_legacy_endpoint_inference_and_walkable_fallback(self) -> None:
+        document = create_design("single_level_terminal")
+        legacy_document = replace(
+            document,
+            elements=tuple(replace(element, ports=()) for element in document.elements),
+            connections=tuple(
+                replace(connection, source_port_id=None, target_port_id=None)
+                for connection in document.connections
+                if not connection.id.startswith("conn_access_")
+            ),
+        )
+        graph = StationGraph.from_design(legacy_document)
+        diagnostic_codes = {diagnostic.code for diagnostic in graph.compile_diagnostics}
+        fallback_edges = [
+            edge for edge in graph.edges if edge.origin == "walkable_access_fallback"
+        ]
+
+        self.assertIn("graph.connection_endpoint_inferred", diagnostic_codes)
+        self.assertIn("graph.same_level_access_fallback", diagnostic_codes)
+        self.assertTrue(fallback_edges)
+        self.assertTrue(
+            all(
+                edge.detail_id is not None
+                for edge in graph.edges
+                if edge.origin == "design_connection"
+            )
+        )
+
+    def test_graph_uses_explicit_port_refs_without_endpoint_inference(self) -> None:
+        document = create_design("single_level_terminal")
+        elements = tuple(
+            replace(
+                element,
+                ports=(
+                    *element.ports,
+                    DesignPort("public_exit", "walk", level_id="l1_terminal"),
+                ),
+            )
+            if element.id == "entrance_a"
+            else replace(
+                element,
+                ports=(
+                    *element.ports,
+                    DesignPort("hall_entry", "walk", level_id="l1_terminal"),
+                ),
+            )
+            if element.id == "main_hall"
+            else element
+            for element in document.elements
+        )
+        connections = tuple(
+            replace(
+                connection,
+                source_port_id="public_exit",
+                target_port_id="hall_entry",
+            )
+            if connection.id == "conn_entrance_to_hall"
+            else connection
+            for connection in document.connections
+        )
+        graph = StationGraph.from_design(
+            replace(document, elements=elements, connections=connections)
+        )
+        connection_diagnostics = [
+            diagnostic
+            for diagnostic in graph.compile_diagnostics
+            if diagnostic.connection_id == "conn_entrance_to_hall"
+        ]
+        connection_edges = [
+            edge for edge in graph.edges if edge.detail_id == "conn_entrance_to_hall"
+        ]
+
+        self.assertNotIn(
+            "graph.connection_endpoint_inferred",
+            {diagnostic.code for diagnostic in connection_diagnostics},
+        )
+        self.assertTrue(connection_edges)
+        self.assertTrue(all(edge.origin == "design_connection" for edge in connection_edges))
+
+    def test_validation_reports_invalid_design_port_references(self) -> None:
+        document = create_design("single_level_terminal")
+        elements = tuple(
+            replace(
+                element,
+                ports=(
+                    DesignPort(
+                        "entry_only",
+                        "walk",
+                        direction="in",
+                        level_id="l1_terminal",
+                    ),
+                ),
+            )
+            if element.id == "entrance_a"
+            else element
+            for element in document.elements
+        )
+        connections = (
+            DesignConnection(
+                "conn_bad_port",
+                "entrance_a",
+                "main_hall",
+                "walk",
+                bidirectional=False,
+                source_port_id="entry_only",
+                target_port_id="missing",
+            ),
+        )
+        document = replace(document, elements=elements, connections=connections)
+        issue_codes = {issue.code for issue in validate_design(document)}
+
+        self.assertIn("connections.source_port_not_output", issue_codes)
+        self.assertIn("connections.unknown_target_port", issue_codes)
 
 
 class PassengerFlowTests(unittest.TestCase):

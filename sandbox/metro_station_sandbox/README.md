@@ -10,6 +10,7 @@ compiled behavior actions.
 Module layout:
 
 - `design/`: editable `StationDesignDocument`, topology templates, validation, and React Flow editor adapter.
+- `design_inspector/`: isolated React Flow design inspector with live validation and graph diagnostics.
 - `station/`: design compilation and station topology: `StationGraph`, `LayoutGraph`, `RuntimeStationLayout`, geometry safety, scenario config, route catalog.
 - `planning/`: passenger intent/state/action model, graph-aware plan factory, progress monitoring, and selection helpers.
 - `agents/`: Mesa agent classes split by domain: passenger behavior, platform/train transit resources, admin staff guidance, and shared base classes.
@@ -52,8 +53,17 @@ The intended ownership boundary is:
 
 Current architecture guarantees:
 
-- `StationGraph` only uses explicit `DesignConnection` records plus service edges derived from facilities.
-- Same-level walk edges are never inferred from distance. Missing connections are validation errors.
+- `StationGraph` uses explicit `DesignConnection` records plus service edges
+  derived from facilities as the authoritative process graph.
+- Built-in design templates emit standard graph ports and explicit access
+  connections for entrances, gates, vertical connectors, and platform edges.
+- Gate `service` and `release` ports are directional, so template gate approach
+  and release connections compile as directed graph edges.
+- Built-in templates should compile without `graph.connection_endpoint_inferred`
+  or `graph.same_level_access_fallback` diagnostics.
+- Same-level walkable access edges are compatibility fallback edges. They are
+  tagged as `walkable_access_fallback` and emitted through graph compile diagnostics.
+- Missing explicit process connections are validation errors.
 - Passenger routing is level-aware, so overlapping vertical connector nodes on different levels do not alias each other.
 - Platform choice is explicit through `CHOOSE_PLATFORM`, then route and boarding-door selection are filtered by `line_id`, `direction`, and `platform_id`.
 
@@ -66,6 +76,10 @@ Official runtime:
   `window.JPS_TRACKS`, the data format consumed by the visual demo renderer.
 - `visual_demo/animation_demo.html`: the only user-facing renderer. It plays
   `visual_demo/assets/passenger_tracks_jps.js`.
+- `design_inspector/inspector.html`: a sandbox-only station editor/diagnostic
+  surface. It uses React Flow for canvas state, then posts nodes/edges back to
+  Python so `StationDesignDocument` validation and `StationGraph` compilation
+  remain authoritative.
 - `visual_demo/tracks/`: retained as the high-fidelity continuous JuPedSim
   reference generator and diagnostic surface.
 
@@ -85,6 +99,18 @@ Open:
 
 ```text
 http://127.0.0.1:8765/animation_demo.html
+```
+
+Run and serve the station design inspector:
+
+```powershell
+python -m sandbox.metro_station_sandbox.app --serve-inspector --port 8766
+```
+
+Open:
+
+```text
+http://127.0.0.1:8766/inspector.html
 ```
 
 The app writes:

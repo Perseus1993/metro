@@ -6,10 +6,12 @@ from typing import Any
 from .schema import (
     DesignConnection,
     DesignElement,
+    DesignPort,
     ElementGeometry,
     QueueSpec,
     StationDesignDocument,
 )
+from .templates import _with_standard_ports
 
 
 LEVEL_GAP_Y = 130.0
@@ -101,6 +103,31 @@ def apply_react_flow_positions(
     return replace(document, elements=elements, queues=queues)
 
 
+def apply_react_flow_nodes(
+    document: StationDesignDocument,
+    nodes: list[dict[str, Any]],
+) -> StationDesignDocument:
+    """Apply React Flow node edits and create inspector-dropped draft elements.
+
+    Existing template elements remain authoritative. React Flow can move existing movable
+    elements and append explicit inspector draft nodes; it cannot silently delete built-in
+    domain elements by omitting them from the UI payload.
+    """
+
+    document = apply_react_flow_positions(document, nodes)
+    known_element_ids = {element.id for element in document.elements}
+    draft_elements: list[DesignElement] = []
+    for node in nodes:
+        draft_element = _draft_element_from_node(document, node, known_element_ids)
+        if draft_element is None:
+            continue
+        draft_elements.append(draft_element)
+        known_element_ids.add(draft_element.id)
+    if not draft_elements:
+        return document
+    return replace(document, elements=(*document.elements, *draft_elements))
+
+
 def apply_react_flow_edges(
     document: StationDesignDocument,
     edges: list[dict[str, Any]],
@@ -120,6 +147,8 @@ def apply_react_flow_edges(
                 kind=data.get("kind", "walk"),
                 bidirectional=data.get("bidirectional", True),
                 metadata=data.get("metadata", {}),
+                source_port_id=edge.get("sourceHandle"),
+                target_port_id=edge.get("targetHandle"),
             )
         )
     return replace(document, connections=tuple(connections))
@@ -141,12 +170,17 @@ def _element_node(element: DesignElement) -> dict[str, Any]:
         "data": {
             "element_id": element.id,
             "kind": element.kind,
+            "level_id": element.level_id,
             "role": element.role,
             "label": element.label,
             "connects_levels": list(element.connects_levels),
             "capacity": element.capacity,
             "queue_policy": element.queue_policy,
+            "ports": [port.as_dict() for port in element.ports],
             "geometry": element.geometry.as_dict(),
+            "gate_direction": element.gate_direction,
+            "direction": element.direction,
+            "line_id": element.line_id,
         },
         "draggable": element.movable,
         "selectable": True,
@@ -167,6 +201,7 @@ def _queue_node(queue: QueueSpec) -> dict[str, Any]:
         "data": {
             "queue_id": queue.id,
             "owner_element_id": queue.owner_element_id,
+            "level_id": queue.level_id,
             "kind": queue.kind,
             "label": queue.label,
             "capacity": queue.capacity,
@@ -186,6 +221,8 @@ def _connection_edge(connection: DesignConnection) -> dict[str, Any]:
         "id": f"edge:{connection.id}",
         "source": f"element:{connection.source_id}",
         "target": f"element:{connection.target_id}",
+        "sourceHandle": connection.source_port_id,
+        "targetHandle": connection.target_port_id,
         "type": "smoothstep",
         "data": {
             "kind": connection.kind,
@@ -225,6 +262,103 @@ def _apply_queue_position(
         return queue
     geometry = queue.geometry.moved_to(float(position.get("x", 0.0)), float(position.get("y", 0.0)))
     return replace(queue, geometry=geometry)
+
+
+def _draft_element_from_node(
+    document: StationDesignDocument,
+    node: dict[str, Any],
+    known_element_ids: set[str],
+) -> DesignElement | None:
+    data = node.get("data") if isinstance(node.get("data"), dict) else {}
+    if not data.get("inspector_created"):
+        return None
+
+    element_id = _unprefix(str(node.get("id", "")), ("element:",))
+    if not element_id or element_id in known_element_ids:
+        return None
+
+    kind = str(data.get("kind") or "")
+    if kind != "platform_edge" and kind not in set(document.constraints.allowed_facility_kinds):
+        return None
+
+    level_id = _draft_level_id(document, node, data)
+    geometry = _draft_geometry(node, data)
+    metadata = data.get("metadata") if isinstance(data.get("metadata"), dict) else {}
+    ports = tuple(
+        DesignPort.from_dict(port)
+        for port in data.get("ports", ())
+        if isinstance(port, dict)
+    )
+    element = DesignElement(
+        id=element_id,
+        kind=kind,
+        level_id=level_id,
+        geometry=geometry,
+        label=str(data.get("label") or element_id),
+        role=str(data.get("role") or "facility"),
+        movable=True,
+        resizable=bool(data.get("resizable", True)),
+        connects_levels=tuple(data.get("connects_levels") or ()),
+        capacity=_optional_positive_int(data.get("capacity")),
+        queue_policy=data.get("queue_policy") if isinstance(data.get("queue_policy"), dict) else {},
+        ports=ports,
+        metadata={**metadata, "inspector_created": True},
+        gate_direction=data.get("gate_direction"),
+        direction=data.get("direction"),
+        line_id=data.get("line_id"),
+    )
+    return _with_standard_ports(element)
+
+
+def _draft_level_id(
+    document: StationDesignDocument,
+    node: dict[str, Any],
+    data: dict[str, Any],
+) -> str:
+    level_id = data.get("level_id")
+    if level_id:
+        return str(level_id)
+    parent_id = str(node.get("parentId") or "")
+    if parent_id.startswith("level:"):
+        return parent_id.removeprefix("level:")
+    return document.levels[0].id
+
+
+def _draft_geometry(node: dict[str, Any], data: dict[str, Any]) -> ElementGeometry:
+    position = node.get("position") if isinstance(node.get("position"), dict) else {}
+    raw_geometry = data.get("geometry") if isinstance(data.get("geometry"), dict) else {}
+    style = node.get("style") if isinstance(node.get("style"), dict) else {}
+    width = _number(node.get("width"), _number(style.get("width"), raw_geometry.get("width_m", 4.0)))
+    height = _number(
+        node.get("height"),
+        _number(style.get("height"), raw_geometry.get("height_m", 3.0)),
+    )
+    return ElementGeometry(
+        shape=str(raw_geometry.get("shape") or "rect"),
+        x_m=_number(position.get("x"), raw_geometry.get("x_m", 0.0)),
+        y_m=_number(position.get("y"), raw_geometry.get("y_m", 0.0)),
+        width_m=max(width, 0.5),
+        height_m=max(height, 0.5),
+        rotation_deg=_number(raw_geometry.get("rotation_deg"), 0.0),
+        points_m=tuple(tuple(point) for point in raw_geometry.get("points_m", ())),
+    )
+
+
+def _optional_positive_int(value: Any) -> int | None:
+    if value is None:
+        return None
+    try:
+        parsed = int(value)
+    except (TypeError, ValueError):
+        return None
+    return parsed if parsed > 0 else None
+
+
+def _number(value: Any, default: float) -> float:
+    try:
+        return float(value)
+    except (TypeError, ValueError):
+        return float(default)
 
 
 def _level_offsets(document: StationDesignDocument) -> dict[str, float]:

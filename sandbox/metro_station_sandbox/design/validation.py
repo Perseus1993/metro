@@ -2,7 +2,20 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
-from .schema import StationDesignDocument
+from .schema import DesignElement, StationDesignDocument
+
+
+PORT_KINDS = {
+    "walk",
+    "queue",
+    "service",
+    "release",
+    "vertical",
+    "platform",
+    "fare_unpaid",
+    "fare_paid",
+}
+PORT_DIRECTIONS = {"in", "out", "bidirectional"}
 
 
 @dataclass(frozen=True)
@@ -97,6 +110,7 @@ def validate_design(document: StationDesignDocument) -> list[ValidationIssue]:
     known_levels = set(level_ids)
     allowed_facilities = set(constraints.allowed_facility_kinds)
     known_elements = set(element_ids)
+    elements_by_id = document.element_by_id()
 
     for index, element in enumerate(document.elements):
         path = f"elements[{index}]"
@@ -123,6 +137,7 @@ def validate_design(document: StationDesignDocument) -> list[ValidationIssue]:
                 )
             )
         issues.extend(_validate_geometry(element.geometry, f"{path}.geometry", document))
+        issues.extend(_validate_element_ports(element, path, known_levels, document))
         if element.kind == "gate":
             if element.gate_direction not in {"entry", "exit", "bidirectional"}:
                 issues.append(
@@ -260,11 +275,202 @@ def validate_design(document: StationDesignDocument) -> list[ValidationIssue]:
                     f"{connection.id} references unknown target {connection.target_id!r}",
                 )
             )
+        if connection.source_id in known_elements and connection.target_id in known_elements:
+            issues.extend(_validate_connection_ports(connection, path, elements_by_id))
 
     if not any(issue.severity == "error" for issue in issues):
         issues.extend(_validate_graph_reachability(document))
 
     return issues
+
+
+def _validate_element_ports(
+    element: DesignElement,
+    path: str,
+    known_levels: set[str],
+    document: StationDesignDocument,
+) -> list[ValidationIssue]:
+    issues: list[ValidationIssue] = []
+    port_ids = [port.id for port in element.ports]
+    for port_id in _duplicates(port_ids):
+        issues.append(
+            _issue(
+                "error",
+                "ports.duplicate_id",
+                f"{path}.ports",
+                f"{element.id} has duplicate port id {port_id!r}",
+            )
+        )
+
+    for index, port in enumerate(element.ports):
+        port_path = f"{path}.ports[{index}]"
+        if not port.id:
+            issues.append(
+                _issue("error", "ports.missing_id", f"{port_path}.id", "port id is required")
+            )
+        if port.kind not in PORT_KINDS:
+            issues.append(
+                _issue(
+                    "error",
+                    "ports.invalid_kind",
+                    f"{port_path}.kind",
+                    f"{element.id}.{port.id} port kind {port.kind!r} is not supported",
+                )
+            )
+        if port.direction not in PORT_DIRECTIONS:
+            issues.append(
+                _issue(
+                    "error",
+                    "ports.invalid_direction",
+                    f"{port_path}.direction",
+                    f"{element.id}.{port.id} port direction must be in, out, or bidirectional",
+                )
+            )
+        if port.level_id is not None:
+            issues.extend(_validate_port_level(element, port.level_id, port_path, known_levels))
+        if port.position_m is not None:
+            issues.extend(_validate_points((port.position_m,), f"{port_path}.position_m", document))
+    return issues
+
+
+def _validate_port_level(
+    element: DesignElement,
+    port_level_id: str,
+    port_path: str,
+    known_levels: set[str],
+) -> list[ValidationIssue]:
+    if port_level_id not in known_levels:
+        return [
+            _issue(
+                "error",
+                "ports.unknown_level",
+                f"{port_path}.level_id",
+                f"{element.id} port references unknown level {port_level_id!r}",
+            )
+        ]
+
+    if element.role == "vertical_connector":
+        if port_level_id in element.connects_levels:
+            return []
+        return [
+            _issue(
+                "error",
+                "ports.level_not_connected",
+                f"{port_path}.level_id",
+                f"{element.id} port level {port_level_id!r} is not in connects_levels",
+            )
+        ]
+
+    if port_level_id == element.level_id:
+        return []
+    return [
+        _issue(
+            "error",
+            "ports.level_mismatch",
+            f"{port_path}.level_id",
+            f"{element.id} port level {port_level_id!r} must match element level {element.level_id!r}",
+        )
+    ]
+
+
+def _validate_connection_ports(
+    connection,
+    path: str,
+    elements_by_id: dict[str, DesignElement],
+) -> list[ValidationIssue]:
+    issues: list[ValidationIssue] = []
+    source = elements_by_id[connection.source_id]
+    target = elements_by_id[connection.target_id]
+    source_port = _port_by_id(source).get(connection.source_port_id)
+    target_port = _port_by_id(target).get(connection.target_port_id)
+
+    if connection.source_port_id is not None and source_port is None:
+        issues.append(
+            _issue(
+                "error",
+                "connections.unknown_source_port",
+                f"{path}.source_port_id",
+                f"{connection.id} references unknown source port "
+                f"{connection.source_id}.{connection.source_port_id}",
+            )
+        )
+    if connection.target_port_id is not None and target_port is None:
+        issues.append(
+            _issue(
+                "error",
+                "connections.unknown_target_port",
+                f"{path}.target_port_id",
+                f"{connection.id} references unknown target port "
+                f"{connection.target_id}.{connection.target_port_id}",
+            )
+        )
+
+    if source_port is not None and source_port.direction == "in":
+        issues.append(
+            _issue(
+                "error",
+                "connections.source_port_not_output",
+                f"{path}.source_port_id",
+                f"{connection.id} cannot start from input-only port {source.id}.{source_port.id}",
+            )
+        )
+    if target_port is not None and target_port.direction == "out":
+        issues.append(
+            _issue(
+                "error",
+                "connections.target_port_not_input",
+                f"{path}.target_port_id",
+                f"{connection.id} cannot target output-only port {target.id}.{target_port.id}",
+            )
+        )
+    if connection.bidirectional:
+        issues.extend(
+            _validate_bidirectional_ports(
+                connection,
+                path,
+                source,
+                source_port,
+                target,
+                target_port,
+            )
+        )
+    return issues
+
+
+def _validate_bidirectional_ports(
+    connection,
+    path: str,
+    source: DesignElement,
+    source_port,
+    target: DesignElement,
+    target_port,
+) -> list[ValidationIssue]:
+    issues: list[ValidationIssue] = []
+    if source_port is not None and source_port.direction != "bidirectional":
+        issues.append(
+            _issue(
+                "error",
+                "connections.source_port_not_bidirectional",
+                f"{path}.source_port_id",
+                f"{connection.id} is bidirectional but "
+                f"{source.id}.{source_port.id} is {source_port.direction}",
+            )
+        )
+    if target_port is not None and target_port.direction != "bidirectional":
+        issues.append(
+            _issue(
+                "error",
+                "connections.target_port_not_bidirectional",
+                f"{path}.target_port_id",
+                f"{connection.id} is bidirectional but "
+                f"{target.id}.{target_port.id} is {target_port.direction}",
+            )
+        )
+    return issues
+
+
+def _port_by_id(element: DesignElement):
+    return {port.id: port for port in element.ports}
 
 
 def _validate_geometry(

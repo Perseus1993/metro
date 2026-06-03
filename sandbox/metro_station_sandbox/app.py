@@ -8,6 +8,7 @@ from .runtime.data_loader import load_station_hour_profile
 from .design.templates import create_design
 from .runtime.mesa_model import MetroStationModel
 from .station.scenario import StationSandboxScenario
+from .design_inspector import serve_design_inspector
 from .visual_demo.config import ROOT as VISUAL_DEMO_ROOT
 from .visual_demo.config import TRACKS_JS
 from .visual_demo.mesa_export import write_mesa_visual_tracks_js
@@ -81,6 +82,11 @@ def build_parser() -> argparse.ArgumentParser:
         action="store_true",
         help="Serve animation_demo.html over local HTTP after exporting tracks.",
     )
+    parser.add_argument(
+        "--serve-inspector",
+        action="store_true",
+        help="Serve the React Flow station design inspector without running simulation.",
+    )
     parser.add_argument("--host", default="127.0.0.1", help="Host for --serve.")
     parser.add_argument("--port", type=int, default=8765, help="Port for --serve.")
     parser.add_argument(
@@ -132,6 +138,10 @@ def visual_demo_url(host: str, port: int) -> str:
 
 def main() -> None:
     args = build_parser().parse_args()
+    if args.serve_inspector:
+        serve_design_inspector(args.host, args.port)
+        return
+
     tracks_out = args.out or args.tracks_out
     if args.out is not None:
         print("[SANDBOX] --out is deprecated; writing animation_demo tracks there.")

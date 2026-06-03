@@ -35,6 +35,7 @@ def geometry_payload(scenario: StationSandboxScenario) -> dict[str, Any]:
                     "gate_direction": element.gate_direction,
                     "direction": element.direction,
                     "line_id": element.line_id,
+                    "ports": [port.as_dict() for port in element.ports],
                     "geometry": element.geometry.as_dict(),
                 }
                 for element in document.elements
@@ -57,6 +58,8 @@ def geometry_payload(scenario: StationSandboxScenario) -> dict[str, Any]:
                     "target_id": connection.target_id,
                     "kind": connection.kind,
                     "bidirectional": connection.bidirectional,
+                    "source_port_id": connection.source_port_id,
+                    "target_port_id": connection.target_port_id,
                 }
                 for connection in document.connections
             ],
@@ -83,8 +86,13 @@ def geometry_payload(scenario: StationSandboxScenario) -> dict[str, Any]:
                     "kind": edge.kind,
                     "facility_stage": edge.facility_stage,
                     "level_change": edge.level_change,
+                    "origin": edge.origin,
+                    "detail_id": edge.detail_id,
                 }
                 for edge in station_graph.edges
+            ],
+            "graph_diagnostics": [
+                diagnostic.as_dict() for diagnostic in station_graph.compile_diagnostics
             ],
         }
 

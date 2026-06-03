@@ -4,7 +4,7 @@ from dataclasses import dataclass, field
 from typing import Any, Literal
 
 
-SCHEMA_VERSION = "metro-station-design/v1"
+SCHEMA_VERSION = "metro-station-design/v2"
 
 ElementKind = Literal[
     "entrance",
@@ -23,6 +23,17 @@ ElementKind = Literal[
 QueueKind = Literal["lane", "grid", "holding_area"]
 ConnectionKind = Literal["walk", "vertical", "service"]
 GeometryShape = Literal["rect", "polygon", "polyline", "point"]
+PortDirection = Literal["in", "out", "bidirectional"]
+PortKind = Literal[
+    "walk",
+    "queue",
+    "service",
+    "release",
+    "vertical",
+    "platform",
+    "fare_unpaid",
+    "fare_paid",
+]
 
 
 @dataclass(frozen=True)
@@ -158,6 +169,37 @@ class ElementGeometry:
 
 
 @dataclass(frozen=True)
+class DesignPort:
+    """Stable semantic connection point exposed by an editable station element."""
+
+    id: str
+    kind: PortKind
+    direction: PortDirection = "bidirectional"
+    level_id: str | None = None
+    position_m: tuple[float, float] | None = None
+    label: str = ""
+    metadata: dict[str, Any] = field(default_factory=dict)
+
+    def as_dict(self) -> dict[str, Any]:
+        return {
+            "id": self.id,
+            "kind": self.kind,
+            "direction": self.direction,
+            "level_id": self.level_id,
+            "position_m": list(self.position_m) if self.position_m is not None else None,
+            "label": self.label,
+            "metadata": self.metadata,
+        }
+
+    @classmethod
+    def from_dict(cls, payload: dict[str, Any]) -> DesignPort:
+        values = dict(payload)
+        if values.get("position_m") is not None:
+            values["position_m"] = tuple(values["position_m"])
+        return cls(**values)
+
+
+@dataclass(frozen=True)
 class QueueSpec:
     id: str
     owner_element_id: str
@@ -205,6 +247,7 @@ class DesignElement:
     connects_levels: tuple[str, ...] = ()
     capacity: int | None = None
     queue_policy: dict[str, Any] = field(default_factory=dict)
+    ports: tuple[DesignPort, ...] = ()
     metadata: dict[str, Any] = field(default_factory=dict)
     gate_direction: str | None = None
     direction: str | None = None
@@ -223,6 +266,7 @@ class DesignElement:
             "connects_levels": list(self.connects_levels),
             "capacity": self.capacity,
             "queue_policy": self.queue_policy,
+            "ports": [port.as_dict() for port in self.ports],
             "metadata": self.metadata,
             "gate_direction": self.gate_direction,
             "direction": self.direction,
@@ -234,6 +278,7 @@ class DesignElement:
         values = dict(payload)
         values["geometry"] = ElementGeometry.from_dict(values["geometry"])
         values["connects_levels"] = tuple(values.get("connects_levels", ()))
+        values["ports"] = tuple(DesignPort.from_dict(item) for item in values.get("ports", ()))
         metadata = dict(values.get("metadata", {}))
         values.setdefault("gate_direction", metadata.get("gate_direction"))
         values.setdefault("direction", metadata.get("direction"))
@@ -249,6 +294,8 @@ class DesignConnection:
     kind: ConnectionKind = "walk"
     bidirectional: bool = True
     metadata: dict[str, Any] = field(default_factory=dict)
+    source_port_id: str | None = None
+    target_port_id: str | None = None
 
     def as_dict(self) -> dict[str, Any]:
         return {
@@ -258,6 +305,8 @@ class DesignConnection:
             "kind": self.kind,
             "bidirectional": self.bidirectional,
             "metadata": self.metadata,
+            "source_port_id": self.source_port_id,
+            "target_port_id": self.target_port_id,
         }
 
     @classmethod

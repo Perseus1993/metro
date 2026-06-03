@@ -14,7 +14,13 @@ from ..design.helpers import (
     platform_line_id as _platform_line_id,
     vertical_direction as _vertical_direction,
 )
-from ..design.schema import DesignElement, QueueSpec, StationDesignDocument
+from ..design.schema import (
+    DesignConnection,
+    DesignElement,
+    DesignPort,
+    QueueSpec,
+    StationDesignDocument,
+)
 from .geometry import (
     document_walkable_geometry,
     element_representative_point,
@@ -48,6 +54,32 @@ class GraphEdge:
     level_change: bool
     bidirectional: bool = False
     facility_stage: str | None = None
+    origin: str = "unknown"
+    detail_id: str | None = None
+
+
+@dataclass(frozen=True)
+class GraphCompileDiagnostic:
+    severity: str
+    code: str
+    message: str
+    connection_id: str | None = None
+    element_id: str | None = None
+    from_node: str | None = None
+    to_node: str | None = None
+    metadata: dict[str, Any] = field(default_factory=dict)
+
+    def as_dict(self) -> dict[str, Any]:
+        return {
+            "severity": self.severity,
+            "code": self.code,
+            "message": self.message,
+            "connection_id": self.connection_id,
+            "element_id": self.element_id,
+            "from_node": self.from_node,
+            "to_node": self.to_node,
+            "metadata": self.metadata,
+        }
 
 
 @dataclass(frozen=True)
@@ -63,6 +95,11 @@ class StationGraph:
     edges: tuple[GraphEdge, ...]
     element_node_ids: dict[str, tuple[str, ...]]
     primary_node_by_element_id: dict[str, str]
+    compile_diagnostics: tuple[GraphCompileDiagnostic, ...] = field(
+        default=(),
+        compare=False,
+        repr=False,
+    )
     source_document: StationDesignDocument | None = field(default=None, compare=False, repr=False)
 
     def __post_init__(self) -> None:
@@ -85,6 +122,7 @@ class StationGraph:
         levels_by_id = document.level_by_id()
         elements_by_id = document.element_by_id()
         walkable_geometry = document_walkable_geometry(document)
+        diagnostics: list[GraphCompileDiagnostic] = []
 
         def add_node(node: GraphNode, *, primary: bool = False) -> None:
             nodes[node.node_id] = node
@@ -205,8 +243,22 @@ class StationGraph:
             target = elements_by_id.get(connection.target_id)
             if source is None or target is None:
                 continue
-            source_node = _connection_node_id(source, target, primary_node_by_element_id)
-            target_node = _connection_node_id(target, source, primary_node_by_element_id)
+            source_node = _connection_node_id_for_connection(
+                connection,
+                source,
+                target,
+                "source",
+                primary_node_by_element_id,
+                diagnostics,
+            )
+            target_node = _connection_node_id_for_connection(
+                connection,
+                target,
+                source,
+                "target",
+                primary_node_by_element_id,
+                diagnostics,
+            )
             if source_node in nodes and target_node in nodes:
                 edge_kind = "walk" if connection.kind == "vertical" else connection.kind
                 _add_edge(
@@ -216,16 +268,39 @@ class StationGraph:
                     target_node,
                     kind=edge_kind,
                     bidirectional=connection.bidirectional,
+                    origin="design_connection",
+                    detail_id=connection.id,
+                )
+            else:
+                diagnostics.append(
+                    GraphCompileDiagnostic(
+                        "error",
+                        "graph.connection_node_missing",
+                        f"{connection.id} could not resolve graph nodes for "
+                        f"{connection.source_id}->{connection.target_id}",
+                        connection_id=connection.id,
+                        metadata={
+                            "source_node": source_node,
+                            "target_node": target_node,
+                        },
+                    )
                 )
 
         if include_walkable_access_edges:
-            _add_same_level_walkable_access_edges(edges, nodes, document, walkable_geometry)
+            _add_same_level_walkable_access_edges(
+                edges,
+                nodes,
+                document,
+                walkable_geometry,
+                diagnostics,
+            )
 
         return cls(
             nodes=nodes,
             edges=tuple(edges),
             element_node_ids={key: tuple(value) for key, value in element_node_ids.items()},
             primary_node_by_element_id=primary_node_by_element_id,
+            compile_diagnostics=tuple(diagnostics),
             source_document=document,
         )
 
@@ -436,17 +511,39 @@ def _add_edge(
     kind: str,
     bidirectional: bool = False,
     facility_stage: str | None = None,
+    origin: str,
+    detail_id: str | None = None,
 ) -> None:
     source = nodes[from_node]
     target = nodes[to_node]
     cost = _distance(source.position, target.position)
     level_change = source.level_id != target.level_id
     edges.append(
-        GraphEdge(from_node, to_node, kind, cost, level_change, bidirectional, facility_stage)
+        GraphEdge(
+            from_node,
+            to_node,
+            kind,
+            cost,
+            level_change,
+            bidirectional,
+            facility_stage,
+            origin,
+            detail_id,
+        )
     )
     if bidirectional:
         edges.append(
-            GraphEdge(to_node, from_node, kind, cost, level_change, bidirectional, facility_stage)
+            GraphEdge(
+                to_node,
+                from_node,
+                kind,
+                cost,
+                level_change,
+                bidirectional,
+                facility_stage,
+                origin,
+                detail_id,
+            )
         )
 
 
@@ -464,6 +561,8 @@ def _add_gate_service_edges(
             f"gate:{element.id}:paid",
             kind="service",
             facility_stage=FacilityStage.ENTRY_GATE.value,
+            origin="facility_service",
+            detail_id=element.id,
         )
     if direction in {"exit", "bidirectional"}:
         _add_edge(
@@ -473,6 +572,8 @@ def _add_gate_service_edges(
             f"gate:{element.id}:unpaid",
             kind="service",
             facility_stage=FacilityStage.EXIT_GATE.value,
+            origin="facility_service",
+            detail_id=element.id,
         )
     if direction == "bidirectional":
         _add_edge(
@@ -482,6 +583,8 @@ def _add_gate_service_edges(
             f"gate:{element.id}:entry",
             kind="walk",
             bidirectional=True,
+            origin="facility_internal",
+            detail_id=element.id,
         )
         _add_edge(
             edges,
@@ -490,6 +593,8 @@ def _add_gate_service_edges(
             f"gate:{element.id}:exit",
             kind="walk",
             bidirectional=True,
+            origin="facility_internal",
+            detail_id=element.id,
         )
 
 
@@ -516,6 +621,8 @@ def _add_vertical_service_edges(
                 lower_node,
                 kind="vertical",
                 facility_stage=FacilityStage.VERTICAL_TRANSFER.value,
+                origin="facility_service",
+                detail_id=element.id,
             )
         if direction in {"up", "both"}:
             _add_edge(
@@ -525,6 +632,8 @@ def _add_vertical_service_edges(
                 upper_node,
                 kind="vertical",
                 facility_stage=FacilityStage.VERTICAL_TRANSFER.value,
+                origin="facility_service",
+                detail_id=element.id,
             )
 
 
@@ -533,6 +642,7 @@ def _add_same_level_walkable_access_edges(
     nodes: dict[str, GraphNode],
     document: StationDesignDocument,
     walkable_geometry,
+    diagnostics: list[GraphCompileDiagnostic],
 ) -> None:
     """Connect physical access points to their same-level walkable floor.
 
@@ -547,9 +657,34 @@ def _add_same_level_walkable_access_edges(
     def add_walk_edge(from_node: str, to_node: str) -> None:
         if from_node == to_node or (from_node, to_node) in edge_pairs:
             return
-        _add_edge(edges, nodes, from_node, to_node, kind="walk", bidirectional=True)
+        _add_edge(
+            edges,
+            nodes,
+            from_node,
+            to_node,
+            kind="walk",
+            bidirectional=True,
+            origin="walkable_access_fallback",
+        )
         edge_pairs.add((from_node, to_node))
         edge_pairs.add((to_node, from_node))
+        source = nodes[from_node]
+        target = nodes[to_node]
+        diagnostics.append(
+            GraphCompileDiagnostic(
+                "warning",
+                "graph.same_level_access_fallback",
+                f"implicit same-level walkable access edge added: {from_node}->{to_node}",
+                element_id=source.element_id or target.element_id,
+                from_node=from_node,
+                to_node=to_node,
+                metadata={
+                    "source_element_id": source.element_id,
+                    "target_element_id": target.element_id,
+                    "level_id": source.level_id,
+                },
+            )
+        )
 
     for level in document.levels:
         level_nodes = [node for node in nodes.values() if node.level_id == level.id]
@@ -560,6 +695,8 @@ def _add_same_level_walkable_access_edges(
         level_domain = level_walkable_geometry(document, level.id, walkable_geometry)
         for node in level_nodes:
             if not _needs_same_level_floor_access(node):
+                continue
+            if _has_same_level_zone_access(node, zone_nodes, edge_pairs):
                 continue
             candidates = [
                 zone
@@ -572,6 +709,8 @@ def _add_same_level_walkable_access_edges(
             add_walk_edge(node.node_id, nearest.node_id)
 
         for left in zone_nodes:
+            if _has_same_level_zone_access(left, zone_nodes, edge_pairs):
+                continue
             candidates = [
                 right
                 for right in zone_nodes
@@ -596,6 +735,17 @@ def _needs_same_level_floor_access(node: GraphNode) -> bool:
     )
 
 
+def _has_same_level_zone_access(
+    node: GraphNode,
+    zone_nodes: list[GraphNode],
+    edge_pairs: set[tuple[str, str]],
+) -> bool:
+    return any(
+        (node.node_id, zone.node_id) in edge_pairs or (zone.node_id, node.node_id) in edge_pairs
+        for zone in zone_nodes
+    )
+
+
 def _same_level_walk_segment_supported(level_domain, start: Point, end: Point) -> bool:
     if level_domain.is_empty:
         return False
@@ -603,6 +753,115 @@ def _same_level_walk_segment_supported(level_domain, start: Point, end: Point) -
     if segment.length <= 0.001:
         return True
     return level_domain.buffer(0.05).covers(segment)
+
+
+def _connection_node_id_for_connection(
+    connection: DesignConnection,
+    element: DesignElement,
+    other: DesignElement,
+    endpoint: str,
+    primary_node_by_element_id: dict[str, str],
+    diagnostics: list[GraphCompileDiagnostic],
+) -> str:
+    port_id = (
+        connection.source_port_id if endpoint == "source" else connection.target_port_id
+    )
+    if port_id is None:
+        diagnostics.append(
+            GraphCompileDiagnostic(
+                "info",
+                "graph.connection_endpoint_inferred",
+                f"{connection.id} {endpoint} endpoint uses legacy element-to-node inference",
+                connection_id=connection.id,
+                element_id=element.id,
+                metadata={"endpoint": endpoint},
+            )
+        )
+        return _connection_node_id(element, other, primary_node_by_element_id)
+
+    port_node_id = _connection_node_id_for_port(element, port_id, primary_node_by_element_id)
+    if port_node_id is not None:
+        return port_node_id
+
+    diagnostics.append(
+        GraphCompileDiagnostic(
+            "warning",
+            "graph.port_endpoint_fallback",
+            f"{connection.id} {endpoint} port {element.id}.{port_id} "
+            "could not be mapped to a graph node; legacy inference was used",
+            connection_id=connection.id,
+            element_id=element.id,
+            metadata={"endpoint": endpoint, "port_id": port_id},
+        )
+    )
+    return _connection_node_id(element, other, primary_node_by_element_id)
+
+
+def _connection_node_id_for_port(
+    element: DesignElement,
+    port_id: str,
+    primary_node_by_element_id: dict[str, str],
+) -> str | None:
+    port = _design_port_by_id(element).get(port_id)
+    if port is None:
+        return None
+
+    graph_node_id = port.metadata.get("graph_node_id")
+    if isinstance(graph_node_id, str) and graph_node_id:
+        return graph_node_id
+
+    if element.role == "vertical_connector":
+        level_id = port.level_id or element.level_id
+        if level_id in element.connects_levels:
+            return f"vertical:{element.id}:{level_id}"
+        return None
+
+    if element.kind == "gate":
+        return _gate_connection_node_id_for_port(element, port)
+
+    return primary_node_by_element_id.get(element.id)
+
+
+def _gate_connection_node_id_for_port(element: DesignElement, port: DesignPort) -> str | None:
+    direction = _gate_direction(element)
+    if port.kind == "service":
+        if direction in {"entry", "bidirectional"}:
+            return f"gate:{element.id}:entry"
+        if direction == "exit":
+            return f"gate:{element.id}:exit"
+    if port.kind == "release":
+        if direction == "exit":
+            return f"gate:{element.id}:unpaid"
+        if direction in {"entry", "bidirectional"}:
+            return f"gate:{element.id}:paid"
+    if port.kind == "fare_unpaid":
+        if port.direction == "out" and direction in {"exit", "bidirectional"}:
+            return f"gate:{element.id}:unpaid"
+        if direction in {"entry", "bidirectional"}:
+            return f"gate:{element.id}:entry"
+        if direction == "exit":
+            return f"gate:{element.id}:unpaid"
+    if port.kind == "fare_paid":
+        if port.direction == "out" and direction in {"entry", "bidirectional"}:
+            return f"gate:{element.id}:paid"
+        if direction in {"exit", "bidirectional"}:
+            return f"gate:{element.id}:exit"
+        if direction == "entry":
+            return f"gate:{element.id}:paid"
+    return _primary_gate_node_id(element)
+
+
+def _primary_gate_node_id(element: DesignElement) -> str | None:
+    direction = _gate_direction(element)
+    if direction in {"entry", "bidirectional"}:
+        return f"gate:{element.id}:paid"
+    if direction == "exit":
+        return f"gate:{element.id}:exit"
+    return None
+
+
+def _design_port_by_id(element: DesignElement) -> dict[str, DesignPort]:
+    return {port.id: port for port in element.ports}
 
 
 def _connection_node_id(

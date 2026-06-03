@@ -4,13 +4,19 @@ from .schema import (
     DesignConnection,
     DesignConstraints,
     DesignElement,
+    DesignPort,
     ElementGeometry,
     LevelSpec,
     QueueSpec,
     SCHEMA_VERSION,
     StationDesignDocument,
 )
-from .react_flow_adapter import apply_react_flow_edges, apply_react_flow_positions, to_react_flow
+from .react_flow_adapter import (
+    apply_react_flow_edges,
+    apply_react_flow_nodes,
+    apply_react_flow_positions,
+    to_react_flow,
+)
 from .templates import TopologyTemplate, create_design, topology_templates
 from .validation import ValidationIssue, validate_design
 
@@ -19,6 +25,7 @@ __all__ = [
     "DesignConnection",
     "DesignConstraints",
     "DesignElement",
+    "DesignPort",
     "ElementGeometry",
     "LevelSpec",
     "QueueSpec",
@@ -26,6 +33,7 @@ __all__ = [
     "TopologyTemplate",
     "ValidationIssue",
     "apply_react_flow_edges",
+    "apply_react_flow_nodes",
     "apply_react_flow_positions",
     "create_design",
     "to_react_flow",
