@@ -18,6 +18,7 @@ export function Canvas({
   error,
   isValidConnection,
   loading,
+  notice,
   onConnect,
   onCanvasDragOver,
   onCanvasDrop,
@@ -66,6 +67,6 @@ export function Canvas({
         }),
       ],
     }),
-    h(CanvasStatus, { key: "canvas-status", compiling, error, loading }),
+    h(CanvasStatus, { key: "canvas-status", compiling, error, loading, notice }),
   ]);
 }

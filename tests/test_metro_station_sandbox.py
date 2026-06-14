@@ -315,6 +315,7 @@ class StationGraphTests(unittest.TestCase):
         catalog = template_catalog_payload()
         self.assertIn("xyflow / React Flow", [item["name"] for item in catalog["reference_wheels"]])
         self.assertIn("equipment", [item["id"] for item in catalog["component_palette"]])
+        self.assertIn("stairs", [item["id"] for item in catalog["component_palette"]])
 
         payload = build_design_payload("single_level_terminal")
         self.assertEqual("ok", payload["summary"]["status"])
@@ -377,6 +378,66 @@ class StationGraphTests(unittest.TestCase):
                 for key in ("x_m", "y_m", "width_m", "height_m")
             },
         )
+
+    def test_design_inspector_compile_accepts_dropped_vertical_connector(self) -> None:
+        payload = build_design_payload("two_level_island_platform")
+        level_node = next(
+            node
+            for node in payload["react_flow"]["nodes"]
+            if node["id"] == "level:b1_concourse"
+        )
+        draft_node = {
+            "id": "element:draft_stairs_test",
+            "type": "verticalConnector",
+            "parentId": level_node["id"],
+            "position": {"x": 58.0, "y": 28.0},
+            "width": 8.0,
+            "height": 12.0,
+            "style": {"width": 8.0, "height": 12.0},
+            "data": {
+                "inspector_created": True,
+                "palette_id": "stairs",
+                "kind": "stairs",
+                "level_id": "b1_concourse",
+                "role": "vertical_connector",
+                "label": "Stairs",
+                "connects_levels": ["b1_concourse", "b2_platform"],
+                "direction": "both",
+                "capacity": 120,
+                "geometry": {
+                    "shape": "rect",
+                    "x_m": 58.0,
+                    "y_m": 28.0,
+                    "width_m": 8.0,
+                    "height_m": 12.0,
+                    "rotation_deg": 0.0,
+                    "points_m": [],
+                },
+                "metadata": {"inspector_created": True},
+            },
+        }
+
+        draft = compile_react_flow_payload(
+            {
+                "template_id": "two_level_island_platform",
+                "nodes": [*payload["react_flow"]["nodes"], draft_node],
+                "edges": payload["react_flow"]["edges"],
+            }
+        )
+        elements_by_id = {
+            element["id"]: element for element in draft["document"]["elements"]
+        }
+        ports_by_id = {
+            port["id"]: port for port in elements_by_id["draft_stairs_test"]["ports"]
+        }
+
+        self.assertEqual("vertical_connector", elements_by_id["draft_stairs_test"]["role"])
+        self.assertEqual(
+            ["b1_concourse", "b2_platform"],
+            elements_by_id["draft_stairs_test"]["connects_levels"],
+        )
+        self.assertIn("level:b1_concourse", ports_by_id)
+        self.assertIn("level:b2_platform", ports_by_id)
 
     def test_design_inspector_compile_exposes_broken_edge_state(self) -> None:
         payload = build_design_payload("single_level_terminal")

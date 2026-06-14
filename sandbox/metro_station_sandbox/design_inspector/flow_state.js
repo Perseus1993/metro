@@ -1,3 +1,5 @@
+const EDITOR_UNITS_PER_METER = 1;
+
 export function normalizeNodes(flowNodes) {
   return flowNodes.map((node) => applyDisplaySize({
     ...node,
@@ -51,8 +53,8 @@ function applyDisplaySize(node) {
 }
 
 function nodeDimensions(node) {
-  const width = Number(node.style?.width || node.width || 80);
-  const height = Number(node.style?.height || node.height || 34);
+  const width = editorDimension(node.style?.width || node.width || 80);
+  const height = editorDimension(node.style?.height || node.height || 34);
   const minimum = minimumDisplaySize(node);
   return {
     ...(node.style || {}),
@@ -112,4 +114,10 @@ function interactionSettings(node) {
     node: { zIndex: 2 },
     style: {},
   };
+}
+
+function editorDimension(value) {
+  const parsed = Number(value);
+  const meters = Number.isFinite(parsed) ? parsed : 0;
+  return meters * EDITOR_UNITS_PER_METER;
 }

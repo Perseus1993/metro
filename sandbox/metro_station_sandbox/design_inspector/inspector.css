@@ -296,6 +296,12 @@ select {
   background: #2a5f91;
 }
 
+.palette-item--escalator .palette-item__icon,
+.palette-item--stairs .palette-item__icon,
+.palette-item--elevator .palette-item__icon {
+  background: #6f5a8d;
+}
+
 .palette-item--shop .palette-item__icon {
   background: #7a5b8f;
 }

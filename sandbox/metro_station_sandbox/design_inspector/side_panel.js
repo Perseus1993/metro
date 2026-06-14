@@ -75,6 +75,9 @@ function componentCode(component) {
   if (component.kind === "platform_edge") {
     return "P";
   }
+  if (component.role === "vertical_connector") {
+    return "V";
+  }
   if (component.kind === "shop") {
     return "S";
   }

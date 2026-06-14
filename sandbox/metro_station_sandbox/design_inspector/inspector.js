@@ -47,6 +47,7 @@ function StationDesignInspector() {
         error: state.error,
         isValidConnection: state.isValidConnection,
         loading: state.loading,
+        notice: state.notice,
         onCanvasDragOver: state.onCanvasDragOver,
         onCanvasDrop: state.onCanvasDrop,
         onConnect: state.onConnect,

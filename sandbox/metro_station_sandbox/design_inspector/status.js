@@ -25,7 +25,7 @@ export function StatusStrip({ payload }) {
   ]);
 }
 
-export function CanvasStatus({ compiling, error, loading }) {
+export function CanvasStatus({ compiling, error, loading, notice }) {
   const pills = [];
   if (loading) {
     pills.push(h("span", { key: "loading", className: "pill" }, "loading"));
@@ -35,6 +35,9 @@ export function CanvasStatus({ compiling, error, loading }) {
   }
   if (error) {
     pills.push(h("span", { key: "error", className: "pill pill--error" }, error));
+  }
+  if (!error && notice) {
+    pills.push(h("span", { key: "notice", className: "pill pill--ok" }, notice));
   }
   return h("div", { className: "canvas-status" }, pills);
 }

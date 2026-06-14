@@ -43,6 +43,7 @@ export function useStationInspectorState(defaultTemplateId) {
   const [compiling, setCompiling] = useState(false);
   const [ready, setReady] = useState(false);
   const [error, setError] = useState("");
+  const [notice, setNotice] = useState("");
 
   useEffect(() => {
     fetchJson("/api/templates")
@@ -63,6 +64,7 @@ export function useStationInspectorState(defaultTemplateId) {
         setNodes(normalizeNodes(data.react_flow.nodes));
         setEdges(normalizeEdges(data.react_flow.edges));
         setError("");
+        setNotice("");
       })
       .catch((exc) => setError(String(exc)))
       .finally(() => {
@@ -138,14 +140,20 @@ export function useStationInspectorState(defaultTemplateId) {
       const flowPosition = screenToFlowPosition({ x: event.clientX, y: event.clientY });
       const levelFrame = levelFrameForPosition(nodes, flowPosition);
       if (!levelFrame) {
-        setError("No level is available for this drop target.");
+        setError("Drop components inside a visible station level.");
+        setNotice("");
         return;
       }
-      setNodes((current) => [
-        ...current,
-        createPaletteNode(component, levelFrame, flowPosition, current),
-      ]);
+      const nextNode = createPaletteNode(component, levelFrame, flowPosition, nodes);
+      if (!nextNode) {
+        setError(`${component.label || component.kind} needs an adjacent level here.`);
+        setNotice("");
+        return;
+      }
+      setNodes((current) => [...current, nextNode]);
+      setSelection({ nodeId: nextNode.id, edgeId: null });
       setError("");
+      setNotice(`Placed ${component.label || component.kind} on ${levelFrame.label || levelFrame.levelId}`);
     },
     [nodes, screenToFlowPosition],
   );
@@ -210,6 +218,7 @@ export function useStationInspectorState(defaultTemplateId) {
     error,
     isValidConnection,
     loading,
+    notice,
     onConnect,
     onCanvasDragOver,
     onCanvasDrop,

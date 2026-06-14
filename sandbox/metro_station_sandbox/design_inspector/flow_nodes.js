@@ -109,9 +109,24 @@ function renderPortHandles(data, port, index, total) {
 }
 
 function portPlacement(geometry, port, index, total) {
-  if (geometry && Array.isArray(port.position_m) && geometry.width_m && geometry.height_m) {
-    const xPct = clamp(((port.position_m[0] - geometry.x_m) / geometry.width_m) * 100, 8, 92);
-    const yPct = clamp(((port.position_m[1] - geometry.y_m) / geometry.height_m) * 100, 8, 92);
+  const metricGeometry = normalizedMetricGeometry(geometry);
+  if (metricGeometry && Array.isArray(port.position_m)) {
+    const xPct = clamp(
+      ((Number(port.position_m[0]) - metricGeometry.x) / metricGeometry.width) * 100,
+      8,
+      92,
+    );
+    const yPct = clamp(
+      ((Number(port.position_m[1]) - metricGeometry.y) / metricGeometry.height) * 100,
+      8,
+      92,
+    );
+    if (!Number.isFinite(xPct) || !Number.isFinite(yPct)) {
+      return fallbackPortPlacement(port, index, total);
+    }
+    if (isInteriorPort(xPct, yPct)) {
+      return fallbackPortPlacement(port, index, total);
+    }
     const distances = [
       ["left", xPct],
       ["right", 100 - xPct],
@@ -122,6 +137,10 @@ function portPlacement(geometry, port, index, total) {
     return sidePlacement(side, xPct, yPct);
   }
 
+  return fallbackPortPlacement(port, index, total);
+}
+
+function fallbackPortPlacement(port, index, total) {
   const offset = Math.round(((index + 1) / (total + 1)) * 100);
   if (port.direction === "in") {
     return sidePlacement("left", 0, offset);
@@ -130,6 +149,24 @@ function portPlacement(geometry, port, index, total) {
     return sidePlacement("right", 100, offset);
   }
   return sidePlacement(index % 2 === 0 ? "top" : "bottom", offset, 0);
+}
+
+function normalizedMetricGeometry(geometry) {
+  if (!geometry) {
+    return null;
+  }
+  const x = Number(geometry.x_m);
+  const y = Number(geometry.y_m);
+  const width = Number(geometry.width_m);
+  const height = Number(geometry.height_m);
+  if (![x, y, width, height].every(Number.isFinite) || width <= 0 || height <= 0) {
+    return null;
+  }
+  return { x, y, width, height };
+}
+
+function isInteriorPort(xPct, yPct) {
+  return xPct > 20 && xPct < 80 && yPct > 20 && yPct < 80;
 }
 
 function sidePlacement(side, xPct, yPct) {
