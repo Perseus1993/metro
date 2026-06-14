@@ -1,6 +1,6 @@
 import React from "react";
 
-import { beginComponentDrag } from "./component_palette.js";
+import { beginComponentDrag } from "./component_palette.js?v=ops-config-1";
 
 const h = React.createElement;
 

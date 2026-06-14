@@ -2,11 +2,11 @@ import React from "react";
 import { createRoot } from "react-dom/client";
 import { ReactFlowProvider } from "@xyflow/react";
 
-import { Canvas } from "./canvas.js";
-import { useStationInspectorState } from "./inspector_state.js";
-import { RightPanel } from "./right_panel.js";
-import { LeftPanel } from "./side_panel.js";
-import { TopBar } from "./top_bar.js";
+import { Canvas } from "./canvas.js?v=ops-config-1";
+import { useStationInspectorState } from "./inspector_state.js?v=ops-config-1";
+import { RightPanel } from "./right_panel.js?v=ops-config-1";
+import { LeftPanel } from "./side_panel.js?v=ops-config-1";
+import { TopBar } from "./top_bar.js?v=ops-config-1";
 
 const h = React.createElement;
 const DEFAULT_TEMPLATE_ID = "visual_demo_station";
@@ -60,6 +60,9 @@ function StationDesignInspector() {
       h(RightPanel, {
         key: "right",
         clearEdges: state.clearEdges,
+        onOperationChange: state.onOperationChange,
+        operationSchema: state.operationSchema,
+        operations: state.operations,
         payload: state.payload,
         selectedEdge: state.selectedEdge,
         selectedNode: state.selectedNode,

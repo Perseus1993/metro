@@ -1,6 +1,6 @@
 import React from "react";
 
-import { StatusStrip } from "./status.js";
+import { StatusStrip } from "./status.js?v=ops-config-1";
 
 const h = React.createElement;
 

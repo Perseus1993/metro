@@ -789,7 +789,7 @@ def _vertical_facility_spec(
         queue_state=AgentState.QUEUEING_VERTICAL.value,
         service_state=AgentState.RIDING_VERTICAL.value,
         release_route=(position, exit_position),
-        speed_units_per_tick=_vertical_speed(element),
+        speed_units_per_tick=_vertical_speed(element, scenario),
         entry_level_id=level_pair[0],
         exit_level_id=level_pair[1],
     )
@@ -1190,9 +1190,9 @@ def _default_vertical_service_rate(element: DesignElement) -> int:
     return 75
 
 
-def _vertical_speed(element: DesignElement) -> float:
+def _vertical_speed(element: DesignElement, scenario: StationSandboxScenario) -> float:
     if element.kind == FacilityKind.ELEVATOR.value:
-        return 4.2
+        return scenario.elevator_speed_units_per_tick
     if element.kind == FacilityKind.STAIRS.value:
-        return 1.55
-    return 2.3
+        return scenario.stairs_speed_units_per_tick
+    return scenario.escalator_speed_units_per_tick

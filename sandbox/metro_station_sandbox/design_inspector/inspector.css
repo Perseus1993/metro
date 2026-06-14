@@ -39,6 +39,7 @@ body {
 }
 
 button,
+input,
 select {
   font: inherit;
 }
@@ -600,9 +601,77 @@ select {
 }
 
 .diagnostic-list,
+.operation-groups,
 .origin-list {
   display: grid;
   gap: 8px;
+}
+
+.operation-group {
+  display: grid;
+  gap: 6px;
+}
+
+.operation-group__label {
+  color: var(--muted);
+  font-size: 11px;
+  font-weight: 720;
+  text-transform: uppercase;
+}
+
+.operation-fields {
+  display: grid;
+  gap: 6px;
+}
+
+.operation-field {
+  display: grid;
+  grid-template-columns: minmax(92px, 1fr) minmax(124px, auto);
+  align-items: center;
+  gap: 8px;
+  min-height: 34px;
+  padding: 6px 8px;
+  border: 1px solid var(--line);
+  border-radius: 7px;
+  background: #ffffff;
+}
+
+.operation-field__label {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--ink);
+  font-size: 12px;
+  font-weight: 650;
+}
+
+.operation-field__control {
+  display: grid;
+  grid-template-columns: 78px 42px;
+  align-items: center;
+  gap: 6px;
+}
+
+.operation-field__input {
+  width: 78px;
+  height: 26px;
+  border: 1px solid var(--line);
+  border-radius: 5px;
+  background: #fffcf7;
+  color: var(--ink);
+  padding: 0 6px;
+  font-size: 12px;
+}
+
+.operation-field__input:focus {
+  outline: 2px solid rgba(42, 95, 145, 0.18);
+  border-color: #7d99b5;
+}
+
+.operation-field__unit {
+  color: var(--muted);
+  font-size: 11px;
+  white-space: nowrap;
 }
 
 .diagnostic-row,

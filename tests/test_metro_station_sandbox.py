@@ -316,14 +316,40 @@ class StationGraphTests(unittest.TestCase):
         self.assertIn("xyflow / React Flow", [item["name"] for item in catalog["reference_wheels"]])
         self.assertIn("equipment", [item["id"] for item in catalog["component_palette"]])
         self.assertIn("stairs", [item["id"] for item in catalog["component_palette"]])
+        operation_field_ids = {
+            field["id"]
+            for group in catalog["operations_schema"]
+            for field in group["fields"]
+        }
+        self.assertIn("entry_count_hour", operation_field_ids)
+        self.assertIn("elevator_cycle_seconds", operation_field_ids)
 
         payload = build_design_payload("single_level_terminal")
         self.assertEqual("ok", payload["summary"]["status"])
+        self.assertEqual(8683, payload["operations"]["entry_count_hour"])
         self.assertEqual(0, payload["summary"]["fallback_edges"])
         self.assertGreater(len(payload["react_flow"]["nodes"]), 0)
         self.assertTrue(
             any(node.get("data", {}).get("ports") for node in payload["react_flow"]["nodes"])
         )
+
+    def test_design_inspector_compile_normalizes_operations(self) -> None:
+        draft = compile_react_flow_payload(
+            {
+                "template_id": "single_level_terminal",
+                "operations": {
+                    "entry_count_hour": "1234",
+                    "gate_service_persons_per_min": "-7",
+                    "elevator_cycle_seconds": "18.5",
+                    "train_headway_seconds": "9999",
+                },
+            }
+        )
+
+        self.assertEqual(1234, draft["operations"]["entry_count_hour"])
+        self.assertEqual(1, draft["operations"]["gate_service_persons_per_min"])
+        self.assertEqual(18.5, draft["operations"]["elevator_cycle_seconds"])
+        self.assertEqual(1800, draft["operations"]["train_headway_seconds"])
 
     def test_design_inspector_compile_accepts_dropped_component_node(self) -> None:
         payload = build_design_payload("single_level_terminal")
@@ -787,6 +813,35 @@ class IntegrationSurfaceTests(unittest.TestCase):
         )
         with self.assertRaises(TypeError):
             FacilityProcessAgent(model, spec=model.gates[0].spec)
+
+    def test_design_vertical_speeds_follow_scenario_operations(self) -> None:
+        scenario = replace(
+            scenario_for("two_level_island_platform"),
+            elevator_speed_units_per_tick=7.5,
+            escalator_speed_units_per_tick=3.1,
+            stairs_speed_units_per_tick=1.2,
+        )
+        model = MetroStationModel(scenario, seed=4)
+
+        elevator = next(
+            transport
+            for transport in model.vertical_transports
+            if isinstance(transport, ElevatorProcessAgent)
+        )
+        escalator = next(
+            transport
+            for transport in model.vertical_transports
+            if isinstance(transport, EscalatorProcessAgent)
+        )
+        stairs = next(
+            transport
+            for transport in model.vertical_transports
+            if isinstance(transport, StairsProcessAgent)
+        )
+
+        self.assertEqual(7.5, elevator.spec.speed_units_per_tick)
+        self.assertEqual(3.1, escalator.spec.speed_units_per_tick)
+        self.assertEqual(1.2, stairs.spec.speed_units_per_tick)
 
     def test_elevator_runtime_batches_passengers_by_cabin_cycle(self) -> None:
         scenario = replace(

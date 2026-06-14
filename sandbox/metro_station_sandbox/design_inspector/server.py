@@ -16,6 +16,7 @@ from ..design.react_flow_adapter import (
 from ..design.templates import create_design, topology_templates
 from ..design.validation import validate_design
 from ..station.graph import StationGraph
+from .operations import default_operations, normalize_operations, operation_schema_payload
 
 
 ROOT = Path(__file__).resolve().parent
@@ -149,6 +150,8 @@ def template_catalog_payload() -> dict[str, Any]:
         "default_template_id": DEFAULT_TEMPLATE_ID,
         "templates": [template.as_dict() for template in topology_templates()],
         "component_palette": list(COMPONENT_PALETTE),
+        "operations_schema": operation_schema_payload(),
+        "default_operations": default_operations(),
         "reference_wheels": [
             {
                 "name": "xyflow / React Flow",
@@ -182,16 +185,18 @@ def build_design_payload(template_id: str) -> dict[str, Any]:
 def compile_react_flow_payload(payload: dict[str, Any]) -> dict[str, Any]:
     template_id = str(payload.get("template_id") or DEFAULT_TEMPLATE_ID)
     document = create_design(template_id)
+    operations = normalize_operations(payload.get("operations"))
     nodes = payload.get("nodes")
     edges = payload.get("edges")
     if isinstance(nodes, list):
         document = apply_react_flow_nodes(document, nodes)
     if isinstance(edges, list):
         document = apply_react_flow_edges(document, edges)
-    return document_payload(document)
+    return document_payload(document, operations=operations)
 
 
-def document_payload(document) -> dict[str, Any]:
+def document_payload(document, *, operations: Any = None) -> dict[str, Any]:
+    normalized_operations = normalize_operations(operations)
     flow = to_react_flow(document)
     validation_issues = [issue.as_dict() for issue in validate_design(document)]
     graph_payload = _compile_graph_payload(document)
@@ -205,6 +210,7 @@ def document_payload(document) -> dict[str, Any]:
 
     return {
         "document": document.as_dict(),
+        "operations": normalized_operations,
         "react_flow": flow,
         "validation_issues": validation_issues,
         "graph": graph_payload,
@@ -291,6 +297,10 @@ def _summary_status(
 
 
 class DesignInspectorHandler(SimpleHTTPRequestHandler):
+    def end_headers(self) -> None:
+        self.send_header("Cache-Control", "no-store")
+        super().end_headers()
+
     def do_GET(self) -> None:
         parsed = urlparse(self.path)
         if parsed.path in {"", "/"}:
@@ -340,6 +350,5 @@ class DesignInspectorHandler(SimpleHTTPRequestHandler):
         self.send_response(status)
         self.send_header("Content-Type", "application/json; charset=utf-8")
         self.send_header("Content-Length", str(len(body)))
-        self.send_header("Cache-Control", "no-store")
         self.end_headers()
         self.wfile.write(body)

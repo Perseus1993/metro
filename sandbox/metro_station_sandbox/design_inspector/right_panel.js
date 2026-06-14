@@ -1,14 +1,30 @@
 import React from "react";
 
+import { OperationsPanel } from "./operations_panel.js?v=ops-config-1";
+
 const h = React.createElement;
 
-export function RightPanel({ clearEdges, payload, selectedEdge, selectedNode }) {
+export function RightPanel({
+  clearEdges,
+  onOperationChange,
+  operationSchema,
+  operations,
+  payload,
+  selectedEdge,
+  selectedNode,
+}) {
   const summary = payload?.summary || {};
   const issues = [
     ...(payload?.validation_issues || []),
     ...(payload?.graph?.diagnostics || []),
   ];
   return h("aside", { className: "inspector" }, [
+    h(OperationsPanel, {
+      key: "operations",
+      onOperationChange,
+      operations,
+      schema: operationSchema,
+    }),
     h("section", { key: "metrics", className: "section" }, [
       h("h2", { key: "title", className: "section__title" }, "Compile State"),
       h("div", { key: "grid", className: "metric-grid" }, [

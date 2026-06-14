@@ -124,6 +124,9 @@ class StationSandboxScenario:
     audit_print_events: bool = True
     boarding_speed_multiplier: float = 4.0
     elevator_preference_share: float = 0.08
+    escalator_speed_units_per_tick: float = 2.3
+    stairs_speed_units_per_tick: float = 1.55
+    elevator_speed_units_per_tick: float = 4.2
     elevator_cabin_capacity_persons: int = 12
     elevator_boarding_seconds: float = 5.0
     elevator_cycle_seconds: float = 35.0

@@ -11,25 +11,25 @@ import {
   useReactFlow,
 } from "@xyflow/react";
 
-import { fetchJson } from "./api.js";
+import { fetchJson } from "./api.js?v=ops-config-1";
 import {
   acceptsComponentDrag,
   createPaletteNode,
   levelFrameForPosition,
   readDraggedComponent,
-} from "./component_palette.js";
+} from "./component_palette.js?v=ops-config-1";
 import {
   decorateEdges,
   inferConnectionData,
   slimEdges,
   validateConnection,
-} from "./flow_edges.js";
+} from "./flow_edges.js?v=ops-config-1";
 import {
   decorateNodes,
   normalizeEdges,
   normalizeNodes,
   slimNodes,
-} from "./flow_state.js";
+} from "./flow_state.js?v=ops-config-1";
 
 export function useStationInspectorState(defaultTemplateId) {
   const { screenToFlowPosition } = useReactFlow();
@@ -38,6 +38,7 @@ export function useStationInspectorState(defaultTemplateId) {
   const [payload, setPayload] = useState(null);
   const [nodes, setNodes] = useState([]);
   const [edges, setEdges] = useState([]);
+  const [operations, setOperations] = useState({});
   const [selection, setSelection] = useState({ nodeId: null, edgeId: null });
   const [loading, setLoading] = useState(true);
   const [compiling, setCompiling] = useState(false);
@@ -63,6 +64,7 @@ export function useStationInspectorState(defaultTemplateId) {
         setPayload(data);
         setNodes(normalizeNodes(data.react_flow.nodes));
         setEdges(normalizeEdges(data.react_flow.edges));
+        setOperations(data.operations || {});
         setError("");
         setNotice("");
       })
@@ -91,15 +93,19 @@ export function useStationInspectorState(defaultTemplateId) {
         template_id: templateId,
         nodes: slimNodes(nodes),
         edges: slimEdges(edges),
+        operations,
       }),
     })
       .then((data) => {
         setPayload(data);
+        setOperations((current) =>
+          sameOperationValues(current, data.operations) ? current : data.operations || current,
+        );
         setError("");
       })
       .catch((exc) => setError(String(exc)))
       .finally(() => setCompiling(false));
-  }, [edges, loading, nodes, ready, templateId]);
+  }, [edges, loading, nodes, operations, ready, templateId]);
 
   useEffect(() => {
     if (!ready || loading) {
@@ -203,6 +209,11 @@ export function useStationInspectorState(defaultTemplateId) {
     setSelection({ nodeId: null, edgeId: null });
   }, []);
 
+  const onOperationChange = useCallback((fieldId, value) => {
+    setOperations((current) => ({ ...current, [fieldId]: value }));
+    setNotice("");
+  }, []);
+
   const resetTemplate = useCallback(() => {
     loadDesign(templateId);
   }, [loadDesign, templateId]);
@@ -224,7 +235,10 @@ export function useStationInspectorState(defaultTemplateId) {
     onCanvasDrop,
     onEdgesChange,
     onNodesChange,
+    onOperationChange,
     onSelectionChange,
+    operationSchema: catalog?.operations_schema || [],
+    operations,
     payload,
     resetTemplate,
     selectedEdge,
@@ -232,4 +246,17 @@ export function useStationInspectorState(defaultTemplateId) {
     setTemplateId,
     templateId,
   };
+}
+
+function sameOperationValues(left, right) {
+  if (!right || typeof right !== "object") {
+    return true;
+  }
+  const keys = new Set([...Object.keys(left || {}), ...Object.keys(right)]);
+  for (const key of keys) {
+    if (String(left?.[key] ?? "") !== String(right[key] ?? "")) {
+      return false;
+    }
+  }
+  return true;
 }

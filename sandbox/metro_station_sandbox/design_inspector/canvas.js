@@ -6,8 +6,8 @@ import {
   ReactFlow,
 } from "@xyflow/react";
 
-import { miniMapColor, nodeTypes } from "./flow_nodes.js";
-import { CanvasStatus } from "./status.js";
+import { miniMapColor, nodeTypes } from "./flow_nodes.js?v=ops-config-1";
+import { CanvasStatus } from "./status.js?v=ops-config-1";
 
 const h = React.createElement;
 
