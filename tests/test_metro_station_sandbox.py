@@ -1,17 +1,25 @@
 from __future__ import annotations
 
 import unittest
+from math import inf, nan
+from math import hypot
 from random import Random
 from dataclasses import replace
+from time import monotonic, sleep
 from types import SimpleNamespace
+from unittest.mock import patch
 
 from shapely.geometry import LineString, Point
 
 from sandbox.metro_station_sandbox.planning.plan import (
     AgentIntent,
+    AgentPlan,
     AgentState,
+    CROWD_INTERACTION_STATES,
     FacilityStage,
+    PASSIVE_STATES,
     RouteKey,
+    WALKING_STATES,
 )
 from sandbox.metro_station_sandbox.agents import PassengerAgent
 from sandbox.metro_station_sandbox.planning.behavior import (
@@ -30,6 +38,9 @@ from sandbox.metro_station_sandbox.design import (
 from sandbox.metro_station_sandbox.design_inspector.server import (
     build_design_payload,
     compile_react_flow_payload,
+    simulate_design_payload,
+    simulation_job_payload,
+    start_simulation_job,
     template_catalog_payload,
 )
 from sandbox.metro_station_sandbox.station.payload import geometry_payload
@@ -37,7 +48,7 @@ from sandbox.metro_station_sandbox.facilities.filters import (
     filter_boarding_doors_for_passenger,
     filter_platforms_for_passenger,
 )
-from sandbox.metro_station_sandbox.facilities.process import QueueLayout
+from sandbox.metro_station_sandbox.facilities.process import FacilityKind, QueueLayout
 from sandbox.metro_station_sandbox.facilities.runtime import (
     BoardingDoorProcessAgent,
     ElevatorProcessAgent,
@@ -46,9 +57,11 @@ from sandbox.metro_station_sandbox.facilities.runtime import (
     GateProcessAgent,
     StairsProcessAgent,
 )
+from sandbox.metro_station_sandbox.facilities.vertical import EscalatorMode
 from sandbox.metro_station_sandbox.movement.jps_adapter import JuPedSimAdapter
 from sandbox.metro_station_sandbox.movement.backend import (
     BatchedJuPedSimMovementBackend,
+    JuPedSimMovementBackend,
     MovementBackend,
     MovementResult,
 )
@@ -73,6 +86,10 @@ from sandbox.metro_station_sandbox.visual_demo.generate_jps_tracks import (
     post_gate_portal_radius,
     queue_field_switching_is_enabled,
 )
+from sandbox.metro_station_sandbox.visual_demo.tracks.vertical_choice import (
+    VerticalChoiceOption,
+    vertical_choice_probabilities,
+)
 from sandbox.metro_station_sandbox.visual_demo.queue_runtime import (
     QUEUE_CAPTURE_APRONS_N,
     NativeQueueRuntime,
@@ -88,6 +105,29 @@ from sandbox.metro_station_sandbox.visual_demo.specs import FACILITY_QUEUES, GAT
 class InstantMovementBackend(MovementBackend):
     def move(self, passenger: PassengerAgent) -> MovementResult:
         return MovementResult(passenger.unique_id, passenger.target, reached=True)
+
+
+class LinearMovementBackend(MovementBackend):
+    def __init__(self, *, step_units: float = 4.0) -> None:
+        self.step_units = step_units
+        self.move_count = 0
+
+    def move(self, passenger: PassengerAgent) -> MovementResult:
+        self.move_count += 1
+        x, y = passenger.pos
+        tx, ty = passenger.target
+        distance = hypot(tx - x, ty - y)
+        if distance <= 0.001 or distance <= self.step_units:
+            return MovementResult(passenger.unique_id, passenger.target, reached=True)
+        ratio = self.step_units / distance
+        return MovementResult(
+            passenger.unique_id,
+            (
+                x + (tx - x) * ratio,
+                y + (ty - y) * ratio,
+            ),
+            reached=False,
+        )
 
 
 def scenario_for(template_id: str, *, minutes: int = 1, admins: int = 0) -> StationSandboxScenario:
@@ -351,6 +391,50 @@ class StationGraphTests(unittest.TestCase):
         self.assertEqual(18.5, draft["operations"]["elevator_cycle_seconds"])
         self.assertEqual(1800, draft["operations"]["train_headway_seconds"])
 
+    def test_design_inspector_simulate_returns_trajectory_summary(self) -> None:
+        result = simulate_design_payload(
+            {
+                "template_id": "single_level_terminal",
+                "entry_count_hour": 60,
+                "exit_count_hour": 0,
+                "minutes": 1,
+                "seed": 42,
+            }
+        )
+
+        self.assertEqual("ok", result["status"], result.get("error"))
+        self.assertIn("completion_rate", result["metrics"])
+        self.assertIn(result["trajectory_report"]["pass_fail"], {"pass", "warn", "fail"})
+
+    def test_design_inspector_simulation_job_reports_progress(self) -> None:
+        job = start_simulation_job(
+            {
+                "template_id": "single_level_terminal",
+                "entry_count_hour": 30,
+                "exit_count_hour": 0,
+                "minutes": 1,
+                "tick_seconds": 10,
+                "seed": 42,
+            }
+        )
+        self.assertIn(job["status"], {"queued", "running"})
+        self.assertEqual(0, job["step"])
+
+        deadline = monotonic() + 15.0
+        state = job
+        while monotonic() < deadline:
+            latest = simulation_job_payload(job["job_id"])
+            self.assertIsNotNone(latest)
+            state = latest
+            if state["status"] in {"done", "error"}:
+                break
+            sleep(0.05)
+
+        self.assertEqual("done", state["status"], state.get("error"))
+        self.assertEqual(state["total_steps"], state["step"])
+        self.assertGreater(state["total_steps"], 0)
+        self.assertEqual("ok", state["result"]["status"])
+
     def test_design_inspector_compile_accepts_dropped_component_node(self) -> None:
         payload = build_design_payload("single_level_terminal")
         level_node = next(
@@ -596,6 +680,113 @@ class StationGraphTests(unittest.TestCase):
 
 
 class PassengerFlowTests(unittest.TestCase):
+    def test_scenario_rejects_invalid_runtime_divisors(self) -> None:
+        base_kwargs = {
+            "station_name": "invalid",
+            "hour": 18,
+            "minutes": 1,
+            "tick_seconds": 5,
+            "group_size": 1,
+            "entry_count_hour": 1,
+            "exit_count_hour": 0,
+            "source_label": "unit",
+            "sample_hours": 1,
+            "station_design": create_design("single_level_terminal"),
+        }
+
+        for field, value in {
+            "tick_seconds": 0,
+            "group_size": 0,
+            "crowd_radius_units": 0.0,
+            "walk_units_per_tick": inf,
+            "jupedsim_target_radius_units": nan,
+        }.items():
+            with self.subTest(field=field):
+                kwargs = {**base_kwargs, field: value}
+                with self.assertRaisesRegex(ValueError, field):
+                    StationSandboxScenario(**kwargs)
+
+    def test_model_reports_missing_required_entry_gates(self) -> None:
+        scenario = scenario_for("single_level_terminal")
+        compiled_without_facilities = SimpleNamespace(facilities=())
+
+        with patch(
+            "sandbox.metro_station_sandbox.runtime.mesa_model.DesignCompiler.compile",
+            return_value=compiled_without_facilities,
+        ):
+            with self.assertRaisesRegex(ValueError, "entry gate facility"):
+                MetroStationModel(scenario, movement_backend=InstantMovementBackend())
+
+    def test_empty_facility_choice_records_audit_without_crashing(self) -> None:
+        scenario = replace(
+            scenario_for("two_level_island_platform"),
+            audit_enabled=True,
+            audit_print_events=False,
+        )
+        model = MetroStationModel(scenario, movement_backend=InstantMovementBackend())
+        passenger = PassengerAgent(
+            model,
+            group_size=1,
+            created_step=0,
+            intent=AgentIntent.ENTER_AND_BOARD,
+        )
+
+        model.request_facility_choice(passenger, "missing_stage")
+
+        self.assertEqual(1, model.audit.counts["facility_stage_has_no_candidates"])
+        self.assertEqual("no_facility_candidates:missing_stage", passenger.last_replan_reason)
+
+    def test_complete_departure_removes_platform_waiting_reference(self) -> None:
+        model = MetroStationModel(
+            scenario_for("two_level_island_platform"),
+            movement_backend=InstantMovementBackend(),
+        )
+        passenger = PassengerAgent(
+            model,
+            group_size=1,
+            created_step=0,
+            intent=AgentIntent.TRANSFER,
+        )
+        model.passengers.append(passenger)
+        model.platform.join_waiting(passenger)
+
+        model.complete_departure(passenger, boarded=False)
+
+        self.assertNotIn(passenger, model.platform.waiting)
+
+    def test_elevator_finalize_releases_cabin_passengers(self) -> None:
+        model = MetroStationModel(
+            scenario_for("two_level_island_platform"),
+            movement_backend=InstantMovementBackend(),
+        )
+        elevator = next(
+            facility
+            for facility in model.vertical_transports
+            if isinstance(facility, ElevatorProcessAgent)
+        )
+        passenger = PassengerAgent(
+            model,
+            group_size=1,
+            created_step=0,
+            intent=AgentIntent.ENTER_AND_BOARD,
+        )
+        model.passengers.append(passenger)
+        elevator.cabin_passengers = [passenger]
+        elevator.cabin_load_persons = 1
+        elevator.cabin_state = "moving"
+        elevator._begin_passive_vertical_service(passenger)
+
+        elevator.finalize()
+
+        self.assertFalse(passenger.passive_facility_service)
+        self.assertEqual([], elevator.cabin_passengers)
+        self.assertEqual(elevator.spec.exit_position, passenger.pos)
+
+    def test_jupedsim_backend_preserves_strict_parameter(self) -> None:
+        backend = JuPedSimMovementBackend(JuPedSimAdapter(), strict=False)
+
+        self.assertFalse(backend.strict)
+
     def test_visual_demo_initial_positions_stay_on_intent_level(self) -> None:
         scenario = scenario_for("visual_demo_station")
         model = MetroStationModel(
@@ -712,6 +903,407 @@ class PassengerFlowTests(unittest.TestCase):
         self.assertEqual("platform:default:down", passenger.assigned_platform_id)
         self.assertEqual(1, model.boarded_persons)
 
+    def test_queue_and_platform_layout_use_lightweight_passive_motion(self) -> None:
+        backend = LinearMovementBackend(step_units=0.25)
+        model = MetroStationModel(
+            scenario_for("two_level_island_platform"),
+            seed=18,
+            movement_backend=backend,
+        )
+        model.spawn_schedule.clear()
+
+        queued = PassengerAgent(
+            model,
+            group_size=1,
+            created_step=0,
+            intent=AgentIntent.ENTER_AND_BOARD,
+        )
+        queued.pos = (1.0, 1.0)
+        model.passengers.append(queued)
+        model.gates[0].join_queue(queued)
+        queued_start = queued.pos
+
+        model.gates[0]._layout_queue()
+
+        self.assertEqual(0, backend.move_count)
+        self.assertNotEqual(queued_start, queued.pos)
+
+        waiting = PassengerAgent(
+            model,
+            group_size=1,
+            created_step=0,
+            intent=AgentIntent.TRANSFER,
+        )
+        waiting.pos = (1.0, 1.0)
+        model.passengers.append(waiting)
+        model.platform.join_waiting(waiting)
+        waiting_start = waiting.pos
+
+        model.platform._layout_waiting()
+
+        self.assertEqual(0, backend.move_count)
+        self.assertNotEqual(waiting_start, waiting.pos)
+
+    def test_facility_service_states_do_not_enter_movement_backend(self) -> None:
+        backend = LinearMovementBackend(step_units=0.25)
+        model = MetroStationModel(
+            scenario_for("two_level_island_platform"),
+            seed=22,
+            movement_backend=backend,
+        )
+        model.spawn_schedule.clear()
+        passengers: list[PassengerAgent] = []
+        for state in (
+            AgentState.PASSING_GATE.value,
+            AgentState.RIDING_VERTICAL.value,
+            AgentState.BOARDING_TRAIN.value,
+            AgentState.PASSING_EXIT_GATE.value,
+            AgentState.QUEUEING_GATE.value,
+        ):
+            passenger = PassengerAgent(
+                model,
+                group_size=1,
+                created_step=0,
+                intent=AgentIntent.ENTER_AND_BOARD,
+            )
+            passenger.state = state
+            passenger.set_target((passenger.pos[0] + 5.0, passenger.pos[1]))
+            passengers.append(passenger)
+
+        walking = PassengerAgent(
+            model,
+            group_size=1,
+            created_step=0,
+            intent=AgentIntent.ENTER_AND_BOARD,
+        )
+        walking.state = AgentState.WALKING_TO_VERTICAL.value
+        walking.set_target((walking.pos[0] + 5.0, walking.pos[1]))
+        passengers.append(walking)
+
+        results = backend.step_all(passengers)
+
+        self.assertEqual(1, backend.move_count)
+        self.assertEqual([(walking, results[0][1])], results)
+        self.assertIn(walking.state, WALKING_STATES)
+
+    def test_gate_service_completes_inside_facility_process(self) -> None:
+        backend = LinearMovementBackend(step_units=0.25)
+        model = MetroStationModel(
+            scenario_for("two_level_island_platform"),
+            seed=23,
+            movement_backend=backend,
+        )
+        model.spawn_schedule.clear()
+        gate = model.gates[0]
+        passenger = PassengerAgent(
+            model,
+            group_size=1,
+            created_step=0,
+            intent=AgentIntent.ENTER_AND_BOARD,
+        )
+        model.passengers.append(passenger)
+        gate.join_queue(passenger)
+        passenger.pos = gate.spec.queue_layout.slot(0)
+
+        gate.step()
+
+        self.assertEqual(0, backend.move_count)
+        self.assertEqual(1, gate.served_persons)
+        self.assertEqual(AgentState.WALKING_TO_VERTICAL.value, passenger.state)
+        self.assertEqual(gate.spec.exit_position, passenger.pos)
+        self.assertEqual(1, len(model.facility_service_events))
+        self.assertEqual(gate.facility_id, model.facility_service_events[0].facility_id)
+
+    def test_same_tick_gate_release_uses_spaced_positions_and_times(self) -> None:
+        model = MetroStationModel(
+            scenario_for("two_level_island_platform"),
+            seed=24,
+            movement_backend=LinearMovementBackend(step_units=0.25),
+        )
+        model.spawn_schedule.clear()
+        gate = model.gates[0]
+        passengers = [
+            PassengerAgent(
+                model,
+                group_size=1,
+                created_step=0,
+                intent=AgentIntent.ENTER_AND_BOARD,
+            )
+            for _ in range(4)
+        ]
+        model.passengers.extend(passengers)
+        for index, passenger in enumerate(passengers):
+            gate.join_queue(passenger)
+            passenger.pos = gate.spec.queue_layout.slot(index)
+
+        gate.step()
+
+        self.assertEqual(4, gate.served_persons)
+        self.assertTrue(
+            all(passenger.state == AgentState.WALKING_TO_VERTICAL.value for passenger in passengers)
+        )
+        min_distance = (
+            model.scenario.jupedsim_agent_radius_units
+            * model.scenario.jupedsim_clearance_multiplier
+        )
+        for left_index, left in enumerate(passengers):
+            for right in passengers[left_index + 1 :]:
+                self.assertGreaterEqual(
+                    hypot(left.pos[0] - right.pos[0], left.pos[1] - right.pos[1]),
+                    min_distance,
+                )
+
+        events = model.facility_service_events
+        self.assertEqual(4, len(events))
+        self.assertEqual(
+            sorted(event.end_time for event in events),
+            [event.end_time for event in events],
+        )
+        self.assertEqual(
+            4,
+            len({tuple(round(value, 3) for value in event.end_position) for event in events}),
+        )
+
+    def test_jupedsim_local_starts_keep_overlap_neighbors_as_adjusted_obstacles(self) -> None:
+        model = MetroStationModel(
+            scenario_for("two_level_island_platform"),
+            seed=25,
+            movement_backend=LinearMovementBackend(step_units=0.25),
+        )
+        model.spawn_schedule.clear()
+        gate = model.gates[0]
+        passenger = PassengerAgent(
+            model,
+            group_size=1,
+            created_step=0,
+            intent=AgentIntent.ENTER_AND_BOARD,
+        )
+        neighbor = PassengerAgent(
+            model,
+            group_size=1,
+            created_step=0,
+            intent=AgentIntent.ENTER_AND_BOARD,
+        )
+        passenger.state = AgentState.WALKING_TO_VERTICAL.value
+        neighbor.state = AgentState.WALKING_TO_VERTICAL.value
+        passenger.current_level_id = gate.spec.exit_level_id
+        neighbor.current_level_id = gate.spec.exit_level_id
+        passenger.pos = gate.spec.exit_position
+        neighbor.pos = gate.spec.exit_position
+        passenger.set_target((gate.spec.exit_position[0] + 5.0, gate.spec.exit_position[1]))
+        neighbor.set_target((gate.spec.exit_position[0] + 5.0, gate.spec.exit_position[1]))
+        model.passengers.extend([passenger, neighbor])
+        model.rebuild_spatial_index()
+        backend = JuPedSimMovementBackend(
+            SimpleNamespace(status=SimpleNamespace(available=True, message="ok")),
+            strict=False,
+        )
+
+        starts = backend._local_starts(passenger)
+
+        self.assertEqual(2, len(starts))
+        self.assertEqual(passenger.pos, starts[0])
+        self.assertNotEqual(passenger.pos, starts[1])
+
+    def test_facility_waits_until_queue_head_reaches_service_slot(self) -> None:
+        model = MetroStationModel(
+            scenario_for("visual_demo_station"),
+            seed=26,
+            movement_backend=LinearMovementBackend(step_units=0.25),
+        )
+        model.spawn_schedule.clear()
+        transport = model.vertical_transports[0]
+        passenger = PassengerAgent(
+            model,
+            group_size=1,
+            created_step=0,
+            intent=AgentIntent.ENTER_AND_BOARD,
+        )
+        model.passengers.append(passenger)
+        transport.join_queue(passenger)
+        passenger.pos = (1.0, 1.0)
+
+        transport.step()
+
+        self.assertEqual(AgentState.QUEUEING_VERTICAL.value, passenger.state)
+        self.assertEqual([passenger], transport.queue)
+        self.assertEqual([], model.facility_service_events)
+
+    def test_boarding_door_service_departs_without_door_crowd_state(self) -> None:
+        scenario = replace(
+            scenario_for("two_level_island_platform"),
+            audit_enabled=True,
+            audit_print_events=False,
+        )
+        model = MetroStationModel(scenario, seed=19, movement_backend=InstantMovementBackend())
+        model.spawn_schedule.clear()
+        train = model.train
+        train.state = "boarding"
+        train.close_step = model.step_index + 20
+        passenger = PassengerAgent(
+            model,
+            group_size=1,
+            created_step=0,
+            intent=AgentIntent.ENTER_AND_BOARD,
+        )
+        model.passengers.append(passenger)
+        door = model.boarding_doors[0]
+        door.join_queue(passenger)
+        passenger.pos = door.spec.queue_layout.slot(0)
+
+        door.step(train)
+
+        self.assertIn(AgentState.BOARDING_TRAIN.value, PASSIVE_STATES)
+        self.assertNotIn(AgentState.BOARDING_TRAIN.value, CROWD_INTERACTION_STATES)
+        self.assertEqual(AgentState.DEPARTED.value, passenger.state)
+        self.assertNotIn(passenger, model.passengers)
+        self.assertEqual(1, model.boarded_persons)
+        self.assertEqual(1, train.current_load_persons)
+        self.assertEqual(1, door.served_persons)
+
+    def test_progress_monitor_replans_stalled_service_transition(self) -> None:
+        scenario = replace(
+            scenario_for("two_level_island_platform"),
+            audit_enabled=True,
+            audit_print_events=False,
+            progress_stall_seconds=5.0,
+        )
+        model = MetroStationModel(scenario, seed=20, movement_backend=LinearMovementBackend())
+        model.spawn_schedule.clear()
+        passenger = PassengerAgent(
+            model,
+            group_size=1,
+            created_step=0,
+            intent=AgentIntent.ENTER_AND_BOARD,
+        )
+        model.passengers.append(passenger)
+        gate = model.gates[0]
+        passenger.begin_facility_service(gate.spec)
+        passenger.pos = (gate.spec.position[0] - 3.0, gate.spec.position[1])
+
+        model.progress_monitor.observe(model, [passenger])
+        model.step_index = 2
+        model.progress_monitor.observe(model, [passenger])
+
+        self.assertEqual(
+            1,
+            model.audit.summary().get("passenger_replanned_service_transition"),
+        )
+        self.assertEqual("service_transition_stalled", passenger.last_replan_reason)
+        self.assertEqual(AgentState.WALKING_TO_VERTICAL.value, passenger.state)
+        self.assertEqual(gate.spec.exit_position, passenger.pos)
+
+    def test_progress_monitor_recovers_stalled_vertical_service(self) -> None:
+        scenario = replace(
+            scenario_for("two_level_island_platform"),
+            audit_enabled=True,
+            audit_print_events=False,
+            progress_stall_seconds=5.0,
+        )
+        model = MetroStationModel(scenario, seed=24, movement_backend=LinearMovementBackend())
+        model.spawn_schedule.clear()
+        passenger = PassengerAgent(
+            model,
+            group_size=1,
+            created_step=0,
+            intent=AgentIntent.ENTER_AND_BOARD,
+        )
+        model.passengers.append(passenger)
+        transport = model.vertical_transports[0]
+        passenger.begin_facility_service(transport.spec)
+
+        model.progress_monitor.observe(model, [passenger])
+        model.step_index = 2
+        model.progress_monitor.observe(model, [passenger])
+
+        self.assertEqual(
+            1,
+            model.audit.summary().get("passenger_replanned_service_transition"),
+        )
+        self.assertEqual("service_transition_stalled", passenger.last_replan_reason)
+        self.assertEqual(AgentState.WALKING_TO_PLATFORM.value, passenger.state)
+        self.assertEqual(transport.spec.exit_position, passenger.pos)
+
+    def test_progress_monitor_recovers_stalled_exit_gate_service(self) -> None:
+        scenario = replace(
+            scenario_for("two_level_island_platform"),
+            audit_enabled=True,
+            audit_print_events=False,
+            progress_stall_seconds=5.0,
+        )
+        model = MetroStationModel(scenario, seed=25, movement_backend=LinearMovementBackend())
+        model.spawn_schedule.clear()
+        passenger = PassengerAgent(
+            model,
+            group_size=1,
+            created_step=0,
+            intent=AgentIntent.EXIT_STATION,
+        )
+        model.passengers.append(passenger)
+        gate = model.exit_gates[0]
+        passenger.begin_facility_service(gate.spec)
+
+        model.progress_monitor.observe(model, [passenger])
+        model.step_index = 2
+        model.progress_monitor.observe(model, [passenger])
+
+        self.assertEqual(
+            1,
+            model.audit.summary().get("passenger_replanned_service_transition"),
+        )
+        self.assertEqual("service_transition_stalled", passenger.last_replan_reason)
+        self.assertEqual(AgentState.DEPARTED.value, passenger.state)
+        self.assertNotIn(passenger, model.passengers)
+
+    def test_generated_passengers_clear_without_runtime_replans(self) -> None:
+        scenario = replace(
+            scenario_for("visual_demo_station", minutes=12),
+            audit_enabled=True,
+            audit_print_events=False,
+            entry_count_hour=0,
+            exit_count_hour=0,
+            initial_train_offset_seconds=5,
+            train_headway_seconds=90,
+            train_dwell_seconds=60,
+            queue_replan_wait_seconds=999.0,
+            progress_stall_seconds=60.0,
+        )
+        backend = LinearMovementBackend(step_units=4.0)
+        model = MetroStationModel(scenario, seed=21, movement_backend=backend)
+        model.spawn_schedule.clear()
+        passengers: list[PassengerAgent] = []
+        for intent, count in (
+            (AgentIntent.ENTER_AND_BOARD, 10),
+            (AgentIntent.EXIT_STATION, 6),
+            (AgentIntent.TRANSFER, 4),
+        ):
+            for _ in range(count):
+                passenger = PassengerAgent(
+                    model,
+                    group_size=1,
+                    created_step=0,
+                    intent=intent,
+                )
+                passengers.append(passenger)
+                model.passengers.append(passenger)
+
+        for _ in range(240):
+            model.step()
+            if not model.passengers:
+                break
+
+        self.assertFalse(model.passengers)
+        self.assertEqual(14, model.boarded_persons)
+        self.assertGreater(backend.move_count, 0)
+        recovery_codes = {
+            code
+            for code in model.audit.summary()
+            if code.startswith("passenger_replanned")
+            or code.startswith("passenger_replan")
+            or code == "passenger_completed_stalled_boarding"
+        }
+        self.assertEqual(set(), recovery_codes)
+
 
 class IntegrationSurfaceTests(unittest.TestCase):
     def test_render_payload_includes_compiled_station_graph(self) -> None:
@@ -748,6 +1340,38 @@ class IntegrationSurfaceTests(unittest.TestCase):
         self.assertEqual(1, len(positions))
         self.assertGreater(positions[0][0], 1.5)
         self.assertAlmostEqual(2.5, positions[0][1], delta=0.2)
+
+    def test_jupedsim_backend_keeps_agent_in_persistent_session(self) -> None:
+        scenario = replace(
+            scenario_for("single_level_terminal"),
+            jupedsim_iterations_per_tick=10,
+        )
+        model = MetroStationModel(scenario, seed=31)
+        if not model.jupedsim.status.available:
+            self.skipTest(model.jupedsim.status.message)
+        self.assertIsInstance(model.movement_backend, BatchedJuPedSimMovementBackend)
+
+        passenger = PassengerAgent(
+            model,
+            group_size=1,
+            created_step=0,
+            intent=AgentIntent.ENTER_AND_BOARD,
+        )
+        self.assertGreater(
+            hypot(passenger.target[0] - passenger.pos[0], passenger.target[1] - passenger.pos[1]),
+            scenario.jupedsim_target_radius_units,
+        )
+
+        first = model.movement_backend.step_all([passenger])
+        passenger.apply_movement_result(first[0][1])
+        session_key = model.movement_backend._session_keys_by_passenger[int(passenger.unique_id)]
+        session = model.movement_backend._sessions[session_key]
+        sim_agent_id = session._agent_ids[int(passenger.unique_id)]
+
+        second = model.movement_backend.step_all([passenger])
+
+        self.assertEqual(1, len(second))
+        self.assertEqual(sim_agent_id, session._agent_ids[int(passenger.unique_id)])
 
     def test_frame_metrics_include_jupedsim_operational_model(self) -> None:
         scenario = replace(
@@ -865,8 +1489,9 @@ class IntegrationSurfaceTests(unittest.TestCase):
             for _ in range(3)
         ]
         model.passengers.extend(passengers)
-        for passenger in passengers:
+        for index, passenger in enumerate(passengers):
             elevator.join_queue(passenger)
+            passenger.pos = elevator.spec.queue_layout.slot(index)
 
         elevator.step()
 
@@ -879,9 +1504,11 @@ class IntegrationSurfaceTests(unittest.TestCase):
         elevator.step()
 
         self.assertEqual(1, len(elevator.queue))
-        self.assertEqual(2, elevator.served_persons)
+        self.assertEqual(0, elevator.served_persons)
         self.assertEqual(1, elevator.departed_cabins)
         self.assertEqual("moving", elevator.cabin_state)
+        self.assertTrue(all(passenger.passive_facility_service for passenger in passengers[:2]))
+        self.assertEqual(1, len(model.facility_service_events))
 
         for _ in range(elevator.cycle_steps):
             elevator.step()
@@ -894,9 +1521,105 @@ class IntegrationSurfaceTests(unittest.TestCase):
 
         elevator.step()
 
-        self.assertEqual(3, elevator.served_persons)
+        self.assertEqual(2, elevator.served_persons)
         self.assertEqual(2, elevator.departed_cabins)
         self.assertEqual("moving", elevator.cabin_state)
+
+        for _ in range(elevator.cycle_steps):
+            elevator.step()
+
+        self.assertEqual(3, elevator.served_persons)
+        self.assertEqual("idle", elevator.cabin_state)
+
+    def test_escalator_mode_controls_capacity_and_availability(self) -> None:
+        model = MetroStationModel(scenario_for("two_level_island_platform"), seed=9)
+        escalator = next(
+            transport
+            for transport in model.vertical_transports
+            if isinstance(transport, EscalatorProcessAgent)
+        )
+
+        stand_capacity = escalator.effective_service_persons_per_min
+        escalator.set_mode(EscalatorMode.WALK)
+
+        self.assertGreater(escalator.effective_service_persons_per_min, stand_capacity)
+        self.assertTrue(escalator.is_available_for_choice)
+
+        escalator.set_mode(EscalatorMode.BLOCKED)
+
+        self.assertEqual(0, escalator.effective_service_persons_per_min)
+        self.assertFalse(escalator.is_open)
+        self.assertFalse(escalator.is_available_for_choice)
+
+    def test_escalator_service_is_passive_until_ride_duration_completes(self) -> None:
+        model = MetroStationModel(
+            scenario_for("two_level_island_platform"),
+            seed=10,
+            movement_backend=InstantMovementBackend(),
+        )
+        model.spawn_schedule.clear()
+        escalator = next(
+            transport
+            for transport in model.vertical_transports
+            if isinstance(transport, EscalatorProcessAgent)
+        )
+        passenger = PassengerAgent(
+            model,
+            group_size=1,
+            created_step=0,
+            intent=AgentIntent.ENTER_AND_BOARD,
+        )
+        passenger.plan = AgentPlan.for_intent(AgentIntent.ENTER_AND_BOARD)
+        model.passengers.append(passenger)
+        escalator.join_queue(passenger)
+        passenger.pos = escalator.spec.queue_layout.slot(0)
+
+        escalator.step()
+
+        self.assertEqual(0, len(escalator.queue))
+        self.assertTrue(passenger.passive_facility_service)
+        self.assertEqual(AgentState.RIDING_VERTICAL.value, passenger.state)
+        self.assertEqual(1, len(model.facility_service_events))
+
+        remaining_steps = escalator.active_rides[0].remaining_steps
+        for _ in range(remaining_steps):
+            escalator.step()
+
+        self.assertFalse(passenger.passive_facility_service)
+        self.assertEqual(AgentState.WALKING_TO_PLATFORM.value, passenger.state)
+        self.assertEqual(1, escalator.served_persons)
+
+    def test_stairs_bidirectional_conflict_reduces_effective_capacity(self) -> None:
+        model = MetroStationModel(scenario_for("two_level_island_platform"), seed=11)
+        stairs = [
+            transport
+            for transport in model.vertical_transports
+            if isinstance(transport, StairsProcessAgent)
+        ]
+        self.assertGreaterEqual(len(stairs), 2)
+        down = next(stair for stair in stairs if stair.spec.direction == "down")
+        up = next(stair for stair in stairs if stair.spec.direction == "up")
+
+        unloaded_capacity = down.effective_service_persons_per_min
+        for _ in range(6):
+            passenger = PassengerAgent(
+                model,
+                group_size=1,
+                created_step=0,
+                intent=AgentIntent.EXIT_STATION,
+            )
+            up.join_queue(passenger)
+
+        self.assertLess(down.effective_service_persons_per_min, unloaded_capacity)
+        self.assertGreater(up.fatigue_cost, down.fatigue_cost)
+
+    def test_vertical_specs_include_type_specific_config(self) -> None:
+        model = MetroStationModel(scenario_for("two_level_island_platform"), seed=12)
+        configs = {transport.spec.kind: transport.spec.vertical_config for transport in model.vertical_transports}
+
+        self.assertIsNotNone(configs[FacilityKind.ESCALATOR.value].escalator)
+        self.assertIsNotNone(configs[FacilityKind.ELEVATOR.value].elevator)
+        self.assertIsNotNone(configs[FacilityKind.STAIRS.value].stairs)
 
 
 class ExtractedUtilityTests(unittest.TestCase):
@@ -912,6 +1635,29 @@ class ExtractedUtilityTests(unittest.TestCase):
         ]
 
         self.assertEqual(["cheap"] * 20, picks)
+
+    def test_vertical_choice_model_prefers_easy_escalator_over_nearby_stairs(self) -> None:
+        origin = (0.861, 0.765)
+        options = (
+            VerticalChoiceOption("up_escalator_2", "escalator", (0.815, 0.716)),
+            VerticalChoiceOption("stairs_up", "stairs", (0.850, 0.708)),
+        )
+
+        probabilities = vertical_choice_probabilities(origin, options)
+
+        self.assertGreater(probabilities["up_escalator_2"], 0.98)
+        self.assertLess(probabilities["stairs_up"], 0.02)
+
+    def test_vertical_choice_model_still_uses_nearest_escalator_bank(self) -> None:
+        origin = (0.251, 0.765)
+        options = (
+            VerticalChoiceOption("up_escalator_1", "escalator", (0.288, 0.716)),
+            VerticalChoiceOption("up_escalator_2", "escalator", (0.815, 0.716)),
+        )
+
+        probabilities = vertical_choice_probabilities(origin, options)
+
+        self.assertGreater(probabilities["up_escalator_1"], 0.99)
 
     def test_progress_monitor_replans_overdue_queue_to_alternative_facility(self) -> None:
         scenario = replace(

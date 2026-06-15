@@ -3,6 +3,7 @@ from __future__ import annotations
 from collections import Counter, defaultdict
 from math import cos as math_cos
 from math import sin as math_sin
+from collections.abc import Callable
 from typing import Any
 
 import mesa
@@ -18,6 +19,7 @@ from ..station.compiler import DesignCompiler
 from ..facilities.choice import DefaultFacilityChoicePolicy, FacilityChoicePolicy, StaffGuidedPolicy
 from ..facilities.filters import filter_boarding_doors_for_platform, filter_platforms_for_passenger
 from ..facilities.runtime import FacilityProcessAgent, facility_agent_for_spec
+from ..facilities.service_events import FacilityServiceEvent
 from ..station.geometry import level_walkable_geometry, project_to_safe_point
 from ..movement.jps_adapter import JuPedSimAdapter
 from .metrics import (
@@ -62,6 +64,8 @@ class MetroStationModel(mesa.Model):
         self.spawned_persons = 0
         self.spawned_persons_by_intent: Counter[str] = Counter()
         self.frames: list[dict[str, Any]] = []
+        self.facility_service_events: list[FacilityServiceEvent] = []
+        self._facility_service_event_id = 0
         self.snapshot_builder = SnapshotBuilder()
         self.audit = AuditLogger(
             enabled=scenario.audit_enabled,
@@ -86,7 +90,7 @@ class MetroStationModel(mesa.Model):
         self.facilities = [facility_agent_for_spec(self, spec) for spec in self.layout_graph.facilities]
         self.facilities_by_id = {facility.facility_id: facility for facility in self.facilities}
         self.gates = self._facilities_for_stage(FacilityStage.ENTRY_GATE)
-        self.gate = self.gates[0]
+        self.gate = self._require_first(self.gates, "entry gate facility")
         self.exit_gates = self._facilities_for_stage(FacilityStage.EXIT_GATE)
         self.vertical_transports = self._facilities_for_stage(FacilityStage.VERTICAL_TRANSFER)
         self.boarding_doors = self._facilities_for_stage(FacilityStage.BOARDING_DOOR)
@@ -101,7 +105,7 @@ class MetroStationModel(mesa.Model):
             for platform_id, line_id, direction in platform_descriptors
         ]
         self.platforms_by_id = {platform.platform_id: platform for platform in self.platforms}
-        self.platform = self.platforms[0]
+        self.platform = self._require_first(self.platforms, "platform descriptor")
         self.trains = [
             TrainAgent(
                 self,
@@ -112,7 +116,7 @@ class MetroStationModel(mesa.Model):
             for platform_id, line_id, direction in platform_descriptors
         ]
         self.trains_by_platform_id = {train.platform_id: train for train in self.trains}
-        self.train = self.trains[0]
+        self.train = self._require_first(self.trains, "train service")
         self.admin_agents = [
             AdminAgent(
                 self,
@@ -139,6 +143,30 @@ class MetroStationModel(mesa.Model):
                 "average_walk_speed_factor": average_walk_speed_factor,
             }
         )
+
+    @property
+    def current_time_seconds(self) -> float:
+        return self.step_index * self.scenario.tick_seconds
+
+    def _require_first(self, items: list[Any], label: str) -> Any:
+        if items:
+            return items[0]
+        design_id = getattr(self.scenario.station_design, "id", "<unknown>")
+        raise ValueError(f"Station design {design_id!r} must define at least one {label}")
+
+    def next_facility_service_event_id(self) -> int:
+        self._facility_service_event_id += 1
+        return self._facility_service_event_id
+
+    def record_facility_service_event(self, event: FacilityServiceEvent) -> None:
+        self.facility_service_events.append(event)
+
+    def passenger_has_active_facility_service(self, passenger: PassengerAgent) -> bool:
+        facility_id = passenger.assigned_facility_id or passenger.current_goal.facility_id
+        if facility_id is None:
+            return False
+        facility = self.facilities_by_id.get(facility_id)
+        return bool(facility is not None and facility.has_active_service(passenger))
 
     def _build_movement_backend(self) -> MovementBackend:
         requested = self.scenario.movement_backend_name
@@ -224,7 +252,26 @@ class MetroStationModel(mesa.Model):
                     "state": passenger.state,
                 },
             )
-        facility = self.facility_choice_policy.choose(self, passenger, stage_value, candidates)
+            passenger.last_replan_reason = f"no_facility_candidates:{stage_value}"
+            return
+        try:
+            facility = self.facility_choice_policy.choose(self, passenger, stage_value, candidates)
+        except ValueError as exc:
+            self.audit.record(
+                "facility_choice_failed",
+                source="facility_choice",
+                severity="error",
+                step=self.step_index,
+                context={
+                    "stage": stage_value,
+                    "passenger_id": passenger.unique_id,
+                    "intent": passenger.intent,
+                    "state": passenger.state,
+                    "error": str(exc),
+                },
+            )
+            passenger.last_replan_reason = f"facility_choice_failed:{stage_value}"
+            return
         facility.join_queue(passenger)
 
     def join_platform(self, passenger: PassengerAgent) -> None:
@@ -345,6 +392,8 @@ class MetroStationModel(mesa.Model):
     def complete_departure(self, passenger: PassengerAgent, *, boarded: bool = True) -> None:
         if passenger.state == AgentState.DEPARTED.value:
             return
+        self.movement_backend.remove_passenger(passenger)
+        self._remove_from_platform_waiting(passenger)
         passenger.state = AgentState.DEPARTED.value
         passenger.boarded_step = self.step_index
         minutes = (self.step_index - passenger.created_step) * self.scenario.tick_seconds / 60.0
@@ -366,6 +415,10 @@ class MetroStationModel(mesa.Model):
                 },
             )
         passenger.remove()
+
+    def _remove_from_platform_waiting(self, passenger: PassengerAgent) -> None:
+        for platform in self.platforms:
+            platform.waiting = [waiting for waiting in platform.waiting if waiting is not passenger]
 
     def active_passengers(self) -> list[PassengerAgent]:
         return [
@@ -482,26 +535,6 @@ class MetroStationModel(mesa.Model):
         factor = 1.0 / (1.0 + scenario.density_slowdown_strength * density_load)
         return max(scenario.min_walk_speed_factor, min(1.0, factor))
 
-    def repulsion_vector(self, passenger: PassengerAgent) -> tuple[float, float]:
-        scenario = self.scenario
-        rx = 0.0
-        ry = 0.0
-        for _other, dx, dy, dist in self.nearby_passengers(
-            passenger, scenario.personal_space_units
-        ):
-            unit_x = dx / dist
-            unit_y = dy / dist
-            overlap = (scenario.personal_space_units - dist) / scenario.personal_space_units
-            rx += unit_x * overlap * scenario.repulsion_strength
-            ry += unit_y * overlap * scenario.repulsion_strength
-
-        magnitude = (rx * rx + ry * ry) ** 0.5
-        if magnitude > scenario.max_repulsion_units_per_tick:
-            scale = scenario.max_repulsion_units_per_tick / magnitude
-            rx *= scale
-            ry *= scale
-        return rx, ry
-
     def crowding_index(self) -> float:
         active = self.active_passengers()
         if not active:
@@ -552,11 +585,29 @@ class MetroStationModel(mesa.Model):
         if self.step_index >= self.scenario.horizon_steps:
             self.running = False
 
-    def run(self) -> list[dict[str, Any]]:
+    def run(
+        self,
+        progress_callback: Callable[[int, int], None] | None = None,
+    ) -> list[dict[str, Any]]:
         self.running = True
+        total_steps = int(self.scenario.horizon_steps)
+        if progress_callback is not None:
+            progress_callback(self.step_index, total_steps)
         while self.running:
             self.step()
+            if progress_callback is not None:
+                progress_callback(self.step_index, total_steps)
+        self._finalize_facilities()
         return self.frames
+
+    def _finalize_facilities(self) -> None:
+        for facility in self.facilities:
+            finalize = getattr(facility, "finalize", None)
+            if not callable(finalize):
+                continue
+            finalize()
+        if self.frames:
+            self.frames[-1] = self.snapshot()
 
     def snapshot(self) -> dict[str, Any]:
         return self.snapshot_builder.build(self).to_dict()

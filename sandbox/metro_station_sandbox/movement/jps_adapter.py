@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from math import hypot
+from math import cos, hypot, sin, tau
 from typing import Any
 
 from ..station.geometry import project_to_safe_point
@@ -12,6 +12,254 @@ class JuPedSimStatus:
     available: bool
     message: str
     version: str | None = None
+
+
+@dataclass(frozen=True)
+class _JourneyTarget:
+    stage_id: int
+    journey_id: int
+    position: tuple[float, float]
+
+
+class JuPedSimWalkingSession:
+    """Long-lived JuPedSim simulation for one physical walking domain."""
+
+    def __init__(
+        self,
+        adapter: "JuPedSimAdapter",
+        *,
+        width: float,
+        height: float,
+        walkable_area,
+        operational_model: str,
+        agent_radius: float,
+        target_radius: float,
+    ) -> None:
+        if adapter._jps is None:
+            raise RuntimeError(adapter.status.message)
+        self._adapter = adapter
+        self._jps = adapter._jps
+        self.geometry = adapter.build_walkable_area(width, height, walkable_area)
+        self.operational_model = operational_model
+        self.agent_radius = float(agent_radius)
+        self.target_radius = float(target_radius)
+        self._simulation = self._jps.Simulation(
+            model=adapter._model_for_name(operational_model),
+            geometry=self.geometry,
+        )
+        self._targets: dict[tuple[float, float, float], _JourneyTarget] = {}
+        self._agent_ids: dict[int, int] = {}
+        self._passenger_ids: dict[int, int] = {}
+        self._agent_targets: dict[int, tuple[float, float, float]] = {}
+
+    @property
+    def agent_count(self) -> int:
+        return int(self._simulation.agent_count())
+
+    def active_passenger_ids(self) -> set[int]:
+        return set(self._agent_ids)
+
+    def sync_passengers(self, keep_passenger_ids: set[int]) -> None:
+        for passenger_id in list(self._agent_ids):
+            if passenger_id not in keep_passenger_ids:
+                self.remove_passenger(passenger_id)
+
+    def remove_passenger(self, passenger_id: int) -> None:
+        passenger_key = int(passenger_id)
+        sim_id = self._agent_ids.pop(passenger_key, None)
+        self._agent_targets.pop(passenger_key, None)
+        if sim_id is None:
+            return
+        self._passenger_ids.pop(int(sim_id), None)
+        try:
+            self._simulation.mark_agent_for_removal(int(sim_id))
+        except Exception:
+            return
+
+    def place_agent(
+        self,
+        *,
+        passenger_id: int,
+        position: tuple[float, float],
+        target: tuple[float, float],
+    ) -> tuple[float, float]:
+        current_position = self.position_for(passenger_id)
+        if current_position is not None:
+            distance = hypot(current_position[0] - position[0], current_position[1] - position[1])
+            if distance <= max(0.01, self.agent_radius):
+                self.ensure_agent(passenger_id=passenger_id, position=position, target=target)
+                return current_position
+            self.remove_passenger(passenger_id)
+        return self._add_agent(passenger_id=passenger_id, position=position, target=target)
+
+    def ensure_agent(
+        self,
+        *,
+        passenger_id: int,
+        position: tuple[float, float],
+        target: tuple[float, float],
+    ) -> tuple[float, float]:
+        passenger_key = int(passenger_id)
+        target_key = self._target_key(target)
+        target_info = self._journey_for_target(target)
+        sim_id = self._agent_ids.get(passenger_key)
+        agent = self._agent_for_id(sim_id) if sim_id is not None else None
+        if agent is None:
+            if sim_id is not None:
+                self._forget_agent(passenger_key, int(sim_id))
+            return self._add_agent(passenger_id=passenger_key, position=position, target=target)
+
+        agent_position = (float(agent.position[0]), float(agent.position[1]))
+        drift = hypot(agent_position[0] - position[0], agent_position[1] - position[1])
+        if drift > max(2.0, self.target_radius * 4.0):
+            self.remove_passenger(passenger_key)
+            return self._add_agent(passenger_id=passenger_key, position=position, target=target)
+
+        if self._agent_targets.get(passenger_key) != target_key:
+            self._simulation.switch_agent_journey(
+                int(sim_id),
+                target_info.journey_id,
+                target_info.stage_id,
+            )
+            self._agent_targets[passenger_key] = target_key
+        return agent_position
+
+    def iterate(self, iterations: int) -> None:
+        for _ in range(max(1, int(iterations))):
+            if self._simulation.agent_count() <= 0:
+                break
+            self._simulation.iterate()
+        self._drop_missing_agents()
+
+    def position_for(self, passenger_id: int) -> tuple[float, float] | None:
+        passenger_key = int(passenger_id)
+        sim_id = self._agent_ids.get(passenger_key)
+        agent = self._agent_for_id(sim_id) if sim_id is not None else None
+        if agent is None:
+            if sim_id is not None:
+                self._forget_agent(passenger_key, int(sim_id))
+            return None
+        return (float(agent.position[0]), float(agent.position[1]))
+
+    def _add_agent(
+        self,
+        *,
+        passenger_id: int,
+        position: tuple[float, float],
+        target: tuple[float, float],
+    ) -> tuple[float, float]:
+        passenger_key = int(passenger_id)
+        target_key = self._target_key(target)
+        target_info = self._journey_for_target(target)
+        last_error: Exception | None = None
+        for candidate in self._placement_candidates(position, passenger_key):
+            safe_position = self._safe_agent_candidate(candidate)
+            if safe_position is None:
+                continue
+            try:
+                sim_id = int(
+                    self._simulation.add_agent(
+                        self._adapter._agent_parameters_for_name(
+                            self.operational_model,
+                            journey_id=target_info.journey_id,
+                            stage_id=target_info.stage_id,
+                            position=safe_position,
+                            target=target_info.position,
+                            radius=self.agent_radius,
+                        )
+                    )
+                )
+            except Exception as exc:
+                last_error = exc
+                continue
+            self._agent_ids[passenger_key] = sim_id
+            self._passenger_ids[sim_id] = passenger_key
+            self._agent_targets[passenger_key] = target_key
+            return safe_position
+
+        raise RuntimeError(
+            f"JuPedSim could not place passenger {passenger_key} near {position!r}."
+        ) from last_error
+
+    def _journey_for_target(self, target: tuple[float, float]) -> _JourneyTarget:
+        target_key = self._target_key(target)
+        existing = self._targets.get(target_key)
+        if existing is not None:
+            return existing
+        stage_position = self._safe_waypoint_position(target)
+        stage_id = int(self._simulation.add_waypoint_stage(stage_position, self.target_radius))
+        journey_id = int(self._simulation.add_journey(self._jps.JourneyDescription([stage_id])))
+        target_info = _JourneyTarget(stage_id=stage_id, journey_id=journey_id, position=stage_position)
+        self._targets[target_key] = target_info
+        return target_info
+
+    def _target_key(self, target: tuple[float, float]) -> tuple[float, float, float]:
+        return (round(float(target[0]), 3), round(float(target[1]), 3), round(self.target_radius, 3))
+
+    def _safe_waypoint_position(self, target: tuple[float, float]) -> tuple[float, float]:
+        from shapely import Point
+
+        if not self.geometry.covers(Point(target)):
+            raise RuntimeError(f"JuPedSim waypoint target {target!r} is outside the walkable area.")
+        return project_to_safe_point(
+            self.geometry,
+            target,
+            clearance=max(0.02, min(self.agent_radius, self.target_radius * 0.25)),
+            require_inside=False,
+        )
+
+    def _safe_agent_candidate(
+        self,
+        candidate: tuple[float, float],
+    ) -> tuple[float, float] | None:
+        from shapely import Point
+
+        safe_position = project_to_safe_point(
+            self.geometry,
+            candidate,
+            clearance=max(0.02, self.agent_radius * 1.05),
+            require_inside=False,
+        )
+        if not self.geometry.covers(Point(safe_position)):
+            return None
+        return safe_position
+
+    def _placement_candidates(
+        self,
+        position: tuple[float, float],
+        passenger_id: int,
+    ):
+        yield position
+        spacing = max(0.35, self.agent_radius * 2.4)
+        angle_offset = ((passenger_id * 1103515245) % 6283) / 1000.0
+        for ring in range(1, 7):
+            count = 8 if ring <= 3 else 12
+            distance = spacing * (1.0 + 0.55 * (ring - 1))
+            for index in range(count):
+                angle = angle_offset + tau * (index / count) + ring * 0.19
+                yield (
+                    position[0] + cos(angle) * distance,
+                    position[1] + sin(angle) * distance,
+                )
+
+    def _agent_for_id(self, sim_id: int | None):
+        if sim_id is None:
+            return None
+        try:
+            return self._simulation.agent(int(sim_id))
+        except Exception:
+            return None
+
+    def _forget_agent(self, passenger_id: int, sim_id: int) -> None:
+        self._agent_ids.pop(int(passenger_id), None)
+        self._agent_targets.pop(int(passenger_id), None)
+        self._passenger_ids.pop(int(sim_id), None)
+
+    def _drop_missing_agents(self) -> None:
+        live_sim_ids = {int(agent.id) for agent in self._simulation.agents()}
+        for passenger_id, sim_id in list(self._agent_ids.items()):
+            if int(sim_id) not in live_sim_ids:
+                self._forget_agent(passenger_id, int(sim_id))
 
 
 class JuPedSimAdapter:
@@ -50,6 +298,26 @@ class JuPedSimAdapter:
         from shapely import Polygon
 
         return Polygon([(0.0, 0.0), (width, 0.0), (width, height), (0.0, height)])
+
+    def create_walking_session(
+        self,
+        *,
+        width: float,
+        height: float,
+        walkable_area,
+        operational_model: str,
+        agent_radius: float,
+        target_radius: float,
+    ) -> JuPedSimWalkingSession:
+        return JuPedSimWalkingSession(
+            self,
+            width=width,
+            height=height,
+            walkable_area=walkable_area,
+            operational_model=operational_model,
+            agent_radius=agent_radius,
+            target_radius=target_radius,
+        )
 
     def simulate_walk_segment(
         self,

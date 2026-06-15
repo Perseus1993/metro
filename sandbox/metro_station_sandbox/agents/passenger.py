@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from math import hypot
+
 import mesa
 from shapely.geometry import Point as ShapelyPoint
 
@@ -8,6 +10,7 @@ from ..facilities.process import FacilitySpec
 from ..movement.backend import MovementResult
 from ..planning.plan import (
     PASSIVE_STATES,
+    WALKING_STATES,
     AgentIntent,
     FacilityStage,
     PlanAction,
@@ -59,6 +62,7 @@ class PassengerAgent(MovableAgent):
         self.avoided_facility_ids_by_stage: dict[str, set[str]] = {}
         self.last_replan_reason: str | None = None
         self.progress_age_seconds: float = 0.0
+        self.passive_facility_service = False
         preference_draw = self.model.random.random()
         self.prefers_elevator = preference_draw < self.model.scenario.elevator_preference_share
         self.prefers_stairs = (
@@ -237,6 +241,49 @@ class PassengerAgent(MovableAgent):
     def move_toward_target(self) -> bool:
         return self.apply_movement_result(self.model.movement_backend.move(self))
 
+    def move_directly_toward_target(self, max_distance: float | None = None) -> bool:
+        """Move passive layout states without invoking the crowd movement backend."""
+        x, y = self.pos
+        tx, ty = self.target
+        distance = hypot(tx - x, ty - y)
+        if distance <= 0.001:
+            return self._finish_current_target()
+
+        step = (
+            float(max_distance)
+            if max_distance is not None
+            else float(self.model.scenario.walk_units_per_tick)
+        )
+        if step <= 0.0 or distance <= max(step, self.model.scenario.jupedsim_target_radius_units):
+            self.pos = self._project_direct_layout_position(self.target)
+            return self._finish_current_target()
+
+        ratio = step / distance
+        self.pos = self._project_direct_layout_position(
+            (
+                x + (tx - x) * ratio,
+                y + (ty - y) * ratio,
+            )
+        )
+        return False
+
+    def _project_direct_layout_position(self, position: Point) -> Point:
+        candidate = self.model.clamp_position(position)
+        try:
+            domain = self.model.jupedsim_walkable_area(self.current_level_id)
+        except Exception:
+            return candidate
+        if domain.covers(ShapelyPoint(candidate)):
+            return candidate
+        return self.model.clamp_position(
+            project_to_safe_point(
+                domain,
+                candidate,
+                clearance=self.model.scenario.jupedsim_agent_radius_units,
+                require_inside=False,
+            )
+        )
+
     def apply_movement_result(self, result: MovementResult) -> bool:
         self.pos = self.model.clamp_position(result.position)
         if not result.reached:
@@ -244,6 +291,8 @@ class PassengerAgent(MovableAgent):
         return self._finish_current_target()
 
     def enter_facility_queue(self, spec: FacilitySpec) -> None:
+        self.model.movement_backend.remove_passenger(self)
+        self.passive_facility_service = False
         self.state = spec.queue_state
         self.assigned_facility_id = spec.facility_id
         if spec.entry_level_id is not None:
@@ -259,7 +308,10 @@ class PassengerAgent(MovableAgent):
         )
 
     def begin_facility_service(self, spec: FacilitySpec) -> None:
+        self.model.movement_backend.remove_passenger(self)
+        self.passive_facility_service = False
         self.state = spec.service_state
+        self.plan.align_to_trigger_state(self.state)
         self.assigned_facility_id = spec.facility_id
         if spec.exit_level_id is not None:
             self.current_level_id = spec.exit_level_id
@@ -286,7 +338,7 @@ class PassengerAgent(MovableAgent):
             self.assigned_direction = spec.direction
 
     def step(self) -> None:
-        if self.state in PASSIVE_STATES:
+        if self.state in PASSIVE_STATES or self.state not in WALKING_STATES:
             return
 
         reached = self.move_toward_target()
