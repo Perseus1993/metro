@@ -6,12 +6,17 @@ const h = React.createElement;
 
 export function RightPanel({
   clearEdges,
+  compiling,
   onOperationChange,
   operationSchema,
   operations,
   payload,
+  runSimulation,
   selectedEdge,
   selectedNode,
+  simProgress,
+  simResult,
+  simulating,
 }) {
   const summary = payload?.summary || {};
   const issues = [
@@ -34,6 +39,21 @@ export function RightPanel({
         h(Metric, { key: "fallback", value: summary.fallback_edges || 0, label: "fallback" }),
       ]),
     ]),
+    h("section", { key: "simulation", className: "section" }, [
+      h("h2", { key: "title", className: "section__title" }, "Simulation"),
+      h(
+        "button",
+        {
+          key: "run",
+          className: "button button--primary",
+          onClick: runSimulation,
+          disabled: simulating || compiling,
+        },
+        simulating ? "Simulating..." : "Simulate",
+      ),
+      simProgress ? h(SimulationProgress, { key: "progress", progress: simProgress }) : null,
+      simResult ? h(SimulationResult, { key: "result", result: simResult }) : null,
+    ]),
     h("section", { key: "selection", className: "section" }, [
       h("h2", { key: "title", className: "section__title" }, "Selection"),
       h(SelectionDetails, { key: "details", selectedEdge, selectedNode }),
@@ -52,6 +72,95 @@ export function RightPanel({
       h(DiagnosticList, { key: "diagnostics", issues }),
     ]),
   ]);
+}
+
+function SimulationProgress({ progress }) {
+  const numericProgress = Number(progress.progress || 0);
+  const percentValue = Number.isFinite(numericProgress)
+    ? Math.max(0, Math.min(100, numericProgress * 100))
+    : 0;
+  const total = Number(progress.total_steps || 0);
+  const step = Number(progress.step || 0);
+  const label = total > 0 ? `${step}/${total}` : progress.status || "queued";
+  return h("div", { className: "simulation-progress" }, [
+    h("div", { key: "meta", className: "simulation-progress__meta" }, [
+      h("span", { key: "status" }, progress.status || "queued"),
+      h("span", { key: "steps" }, label),
+    ]),
+    h("div", { key: "track", className: "simulation-progress__track" }, [
+      h("div", {
+        key: "bar",
+        className: "simulation-progress__bar",
+        style: { width: `${percentValue.toFixed(1)}%` },
+      }),
+    ]),
+  ]);
+}
+
+function SimulationResult({ result }) {
+  if (result.status === "error") {
+    return h("div", { className: "simulation-result simulation-result--error" }, [
+      h("span", { key: "status", className: "pill pill--error" }, "error"),
+      h("div", { key: "message", className: "simulation-result__message" }, result.error || "Simulation failed"),
+    ]);
+  }
+
+  const report = result.trajectory_report || {};
+  const metrics = result.metrics || {};
+  const passFail = report.pass_fail || "n/a";
+  const pillClass =
+    passFail === "pass"
+      ? "pill pill--ok"
+      : passFail === "warn"
+        ? "pill pill--warning"
+        : "pill pill--error";
+  return h("div", { className: "simulation-result" }, [
+    h("span", { key: "status", className: pillClass }, passFail),
+    h("div", { key: "grid", className: "metric-grid metric-grid--compact" }, [
+      h(Metric, {
+        key: "completion",
+        value: percent(report.completion_rate),
+        label: "completion",
+      }),
+      h(Metric, {
+        key: "remaining",
+        value: metrics.remaining_agents ?? metrics.station_persons ?? 0,
+        label: "remaining",
+      }),
+      h(Metric, {
+        key: "stuck",
+        value: report.stuck_agents ?? 0,
+        label: "stuck",
+      }),
+      h(Metric, {
+        key: "vertical",
+        value: metrics.vertical_queue_persons ?? 0,
+        label: "vertical q",
+      }),
+    ]),
+    h(IssueList, { key: "issues", issues: report.issues || [] }),
+  ]);
+}
+
+function IssueList({ issues }) {
+  if (!issues.length) {
+    return h("div", { className: "empty" }, "No trajectory issues");
+  }
+  return h(
+    "div",
+    { className: "simulation-issues" },
+    issues.map((issue, index) =>
+      h("div", { key: index, className: "simulation-issue" }, String(issue)),
+    ),
+  );
+}
+
+function percent(value) {
+  const numeric = Number(value);
+  if (!Number.isFinite(numeric)) {
+    return "n/a";
+  }
+  return `${(numeric * 100).toFixed(1)}%`;
 }
 
 function Metric({ value, label }) {

@@ -5,8 +5,6 @@ from math import hypot
 from typing import TYPE_CHECKING
 
 import mesa
-
-from ..planning.plan import FacilityStage
 from .process import FacilitySpec
 from .runtime_base import FacilityProcessAgent
 from .service_events import FacilityServiceEvent

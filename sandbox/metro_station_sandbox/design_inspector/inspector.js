@@ -41,6 +41,7 @@ function StationDesignInspector() {
       }),
       h(Canvas, {
         key: "canvas",
+        canvasMode: state.canvasMode,
         compiling: state.compiling,
         displayEdges: state.displayEdges,
         displayNodes: state.displayNodes,
@@ -55,6 +56,7 @@ function StationDesignInspector() {
         onNodesChange: state.onNodesChange,
         onSelectionChange: state.onSelectionChange,
         payload: state.payload,
+        setCanvasMode: state.setCanvasMode,
         templateId: state.templateId,
       }),
       h(RightPanel, {
@@ -64,8 +66,13 @@ function StationDesignInspector() {
         operationSchema: state.operationSchema,
         operations: state.operations,
         payload: state.payload,
+        runSimulation: state.runSimulation,
         selectedEdge: state.selectedEdge,
         selectedNode: state.selectedNode,
+        simProgress: state.simProgress,
+        simResult: state.simResult,
+        simulating: state.simulating,
+        compiling: state.compiling,
       }),
     ]),
   ]);

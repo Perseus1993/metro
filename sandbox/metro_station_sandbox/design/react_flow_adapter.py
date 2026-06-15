@@ -14,7 +14,7 @@ from .schema import (
 from .templates import _with_standard_ports
 
 
-LEVEL_GAP_Y = 130.0
+LEVEL_GAP_Y = 32.0
 
 
 def to_react_flow(document: StationDesignDocument) -> dict[str, Any]:
@@ -64,7 +64,7 @@ def to_react_flow(document: StationDesignDocument) -> dict[str, Any]:
         "editor_pattern": "document_model_with_editor_adapter",
         "nodes": nodes,
         "edges": edges,
-        "viewport": {"x": 24, "y": 24, "zoom": 6.0},
+        "viewport": {"x": 0, "y": 0, "zoom": 1.0},
         "nodeTypes": [
             "levelGroup",
             "floorZone",
@@ -321,6 +321,9 @@ def _draft_level_id(
     parent_id = str(node.get("parentId") or "")
     if parent_id.startswith("level:"):
         return parent_id.removeprefix("level:")
+    if not document.levels:
+        node_id = node.get("id", "<unknown>")
+        raise ValueError(f"Draft node {node_id!r} cannot be placed because the design has no levels")
     return document.levels[0].id
 
 

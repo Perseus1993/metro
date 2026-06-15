@@ -13,7 +13,7 @@ ROOT_DIR = Path(__file__).resolve().parents[1]
 if str(ROOT_DIR) not in sys.path:
     sys.path.insert(0, str(ROOT_DIR))
 
-from sandbox.metro_station_sandbox.runtime.contracts import diagnostic_truth_payload
+from sandbox.metro_station_sandbox.runtime.contracts import diagnostic_truth_payload  # noqa: E402
 
 TRACKS_JS = ROOT_DIR / "sandbox/metro_station_sandbox/visual_demo/assets/passenger_tracks_jps.js"
 W = 1672.0

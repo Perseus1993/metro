@@ -10,8 +10,14 @@ import { miniMapColor, nodeTypes } from "./flow_nodes.js?v=ops-config-1";
 import { CanvasStatus } from "./status.js?v=ops-config-1";
 
 const h = React.createElement;
+const CANVAS_MODES = [
+  { id: "overview", label: "Overview" },
+  { id: "queues", label: "Queues" },
+  { id: "connections", label: "Connections" },
+];
 
 export function Canvas({
+  canvasMode,
   compiling,
   displayEdges,
   displayNodes,
@@ -26,9 +32,11 @@ export function Canvas({
   onNodesChange,
   onSelectionChange,
   payload,
+  setCanvasMode,
   templateId,
 }) {
-  return h("main", { className: "canvas-shell" }, [
+  const shellClassName = ["canvas-shell", `canvas-shell--${canvasMode}`].join(" ");
+  return h("main", { className: shellClassName }, [
     h(ReactFlow, {
       key: templateId,
       nodes: displayNodes,
@@ -43,15 +51,16 @@ export function Canvas({
       isValidConnection,
       connectionMode: "loose",
       nodesDraggable: true,
-      nodesConnectable: true,
+      nodesConnectable: canvasMode === "connections",
       elementsSelectable: true,
       selectNodesOnDrag: false,
       panOnDrag: [1, 2],
       nodeDragThreshold: 1,
       fitView: true,
-      minZoom: 1.6,
-      maxZoom: 10,
-      defaultViewport: payload?.react_flow?.viewport || { x: 24, y: 24, zoom: 6 },
+      fitViewOptions: { padding: 0.24, maxZoom: 3.2 },
+      minZoom: 0.2,
+      maxZoom: 6,
+      defaultViewport: payload?.react_flow?.viewport || { x: 0, y: 0, zoom: 1 },
       deleteKeyCode: ["Backspace", "Delete"],
       snapToGrid: true,
       snapGrid: [0.5, 0.5],
@@ -67,6 +76,29 @@ export function Canvas({
         }),
       ],
     }),
+    h(CanvasModeSwitch, { key: "mode", canvasMode, setCanvasMode }),
     h(CanvasStatus, { key: "canvas-status", compiling, error, loading, notice }),
   ]);
+}
+
+function CanvasModeSwitch({ canvasMode, setCanvasMode }) {
+  return h(
+    "div",
+    { className: "canvas-mode-switch", role: "toolbar", "aria-label": "Canvas mode" },
+    CANVAS_MODES.map((mode) =>
+      h(
+        "button",
+        {
+          key: mode.id,
+          type: "button",
+          className: [
+            "canvas-mode-switch__button",
+            canvasMode === mode.id ? "canvas-mode-switch__button--active" : "",
+          ].join(" "),
+          onClick: () => setCanvasMode(mode.id),
+        },
+        mode.label,
+      ),
+    ),
+  );
 }

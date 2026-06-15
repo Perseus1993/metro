@@ -2,6 +2,7 @@ import {
   useCallback,
   useEffect,
   useMemo,
+  useRef,
   useState,
 } from "react";
 import {
@@ -39,20 +40,33 @@ export function useStationInspectorState(defaultTemplateId) {
   const [nodes, setNodes] = useState([]);
   const [edges, setEdges] = useState([]);
   const [operations, setOperations] = useState({});
+  const [canvasMode, setCanvasMode] = useState("overview");
   const [selection, setSelection] = useState({ nodeId: null, edgeId: null });
   const [loading, setLoading] = useState(true);
   const [compiling, setCompiling] = useState(false);
   const [ready, setReady] = useState(false);
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
+  const [simulating, setSimulating] = useState(false);
+  const [simProgress, setSimProgress] = useState(null);
+  const [simResult, setSimResult] = useState(null);
+  const pollTimerRef = useRef(null);
+  const mountedRef = useRef(true);
 
   useEffect(() => {
     fetchJson("/api/templates")
       .then((data) => {
+        if (!mountedRef.current) {
+          return;
+        }
         setCatalog(data);
         setTemplateId(data.default_template_id || defaultTemplateId);
       })
-      .catch((exc) => setError(String(exc)));
+      .catch((exc) => {
+        if (mountedRef.current) {
+          setError(String(exc));
+        }
+      });
   }, [defaultTemplateId]);
 
   const loadDesign = useCallback((nextTemplateId) => {
@@ -61,18 +75,39 @@ export function useStationInspectorState(defaultTemplateId) {
     setSelection({ nodeId: null, edgeId: null });
     fetchJson(`/api/design?template=${encodeURIComponent(nextTemplateId)}`)
       .then((data) => {
+        if (!mountedRef.current) {
+          return;
+        }
+        const reactFlow = data.react_flow || {};
         setPayload(data);
-        setNodes(normalizeNodes(data.react_flow.nodes));
-        setEdges(normalizeEdges(data.react_flow.edges));
+        setNodes(normalizeNodes(reactFlow.nodes || []));
+        setEdges(normalizeEdges(reactFlow.edges || []));
         setOperations(data.operations || {});
         setError("");
         setNotice("");
-      })
-      .catch((exc) => setError(String(exc)))
-      .finally(() => {
-        setLoading(false);
         setReady(true);
+      })
+      .catch((exc) => {
+        if (!mountedRef.current) {
+          return;
+        }
+        setError(String(exc));
+        setReady(false);
+      })
+      .finally(() => {
+        if (mountedRef.current) {
+          setLoading(false);
+        }
       });
+  }, []);
+
+  useEffect(() => {
+    return () => {
+      mountedRef.current = false;
+      if (pollTimerRef.current !== null) {
+        window.clearTimeout(pollTimerRef.current);
+      }
+    };
   }, []);
 
   useEffect(() => {
@@ -115,8 +150,20 @@ export function useStationInspectorState(defaultTemplateId) {
     return () => window.clearTimeout(timerId);
   }, [compileDraft, loading, ready]);
 
-  const displayNodes = useMemo(() => decorateNodes(nodes), [nodes]);
-  const displayEdges = useMemo(() => decorateEdges(edges, payload), [edges, payload]);
+  const visibleNodes = useMemo(() => visibleNodesForCanvas(nodes, canvasMode), [canvasMode, nodes]);
+  const visibleNodeIds = useMemo(
+    () => new Set(visibleNodes.map((node) => node.id)),
+    [visibleNodes],
+  );
+  const visibleEdges = useMemo(
+    () =>
+      canvasMode === "connections"
+        ? edges.filter((edge) => visibleNodeIds.has(edge.source) && visibleNodeIds.has(edge.target))
+        : [],
+    [canvasMode, edges, visibleNodeIds],
+  );
+  const displayNodes = useMemo(() => decorateNodes(visibleNodes), [visibleNodes]);
+  const displayEdges = useMemo(() => decorateEdges(visibleEdges, payload), [payload, visibleEdges]);
   const selectedNode = displayNodes.find((node) => node.id === selection.nodeId) || null;
   const selectedEdge = displayEdges.find((edge) => edge.id === selection.edgeId) || null;
 
@@ -218,8 +265,102 @@ export function useStationInspectorState(defaultTemplateId) {
     loadDesign(templateId);
   }, [loadDesign, templateId]);
 
+  const pollSimulationJob = useCallback((jobId) => {
+    if (pollTimerRef.current !== null) {
+      window.clearTimeout(pollTimerRef.current);
+      pollTimerRef.current = null;
+    }
+    const poll = () => {
+      fetchJson(`/api/simulate/jobs/${encodeURIComponent(jobId)}`)
+        .then((data) => {
+          if (!mountedRef.current) {
+            return;
+          }
+          setSimProgress(data);
+          if (data.status === "queued" || data.status === "running") {
+            pollTimerRef.current = window.setTimeout(poll, 500);
+            return;
+          }
+          pollTimerRef.current = null;
+          setSimResult(
+            data.result || {
+              status: "error",
+              error: data.error || "Simulation failed",
+              metrics: {},
+              trajectory_report: null,
+            },
+          );
+          setSimulating(false);
+        })
+        .catch((exc) => {
+          if (!mountedRef.current) {
+            return;
+          }
+          setSimResult({
+            status: "error",
+            error: String(exc),
+            metrics: {},
+            trajectory_report: null,
+          });
+          pollTimerRef.current = null;
+          setSimulating(false);
+        });
+    };
+    poll();
+  }, []);
+
+  const runSimulation = useCallback(() => {
+    if (!ready || loading || simulating) {
+      return;
+    }
+    setSimulating(true);
+    setSimProgress({ status: "queued", step: 0, total_steps: 0, progress: 0 });
+    setSimResult(null);
+    fetchJson("/api/simulate", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        template_id: templateId,
+        nodes: slimNodes(nodes),
+        edges: slimEdges(edges),
+        operations,
+        entry_count_hour: Number(operations?.entry_count_hour ?? 4000),
+        exit_count_hour: Number(operations?.exit_count_hour ?? 2000),
+        minutes: 1,
+        seed: 42,
+      }),
+    })
+      .then((data) => {
+        if (!mountedRef.current) {
+          return;
+        }
+        if (data.job_id) {
+          setSimProgress(data);
+          pollSimulationJob(data.job_id);
+          return;
+        }
+        setSimResult(data);
+        setSimProgress(null);
+        setSimulating(false);
+      })
+      .catch((exc) => {
+        if (!mountedRef.current) {
+          return;
+        }
+        setSimResult({
+          status: "error",
+          error: String(exc),
+          metrics: {},
+          trajectory_report: null,
+        });
+        setSimProgress(null);
+        setSimulating(false);
+      });
+  }, [edges, loading, nodes, operations, pollSimulationJob, ready, simulating, templateId]);
+
   return {
     catalog,
+    canvasMode,
     clearEdges,
     compileDraft,
     compiling,
@@ -241,11 +382,23 @@ export function useStationInspectorState(defaultTemplateId) {
     operations,
     payload,
     resetTemplate,
+    runSimulation,
     selectedEdge,
     selectedNode,
+    setCanvasMode,
     setTemplateId,
+    simProgress,
+    simulating,
+    simResult,
     templateId,
   };
+}
+
+function visibleNodesForCanvas(nodes, canvasMode) {
+  if (canvasMode === "overview") {
+    return nodes.filter((node) => node.type !== "queueLane" && node.type !== "queueGrid");
+  }
+  return nodes;
 }
 
 function sameOperationValues(left, right) {

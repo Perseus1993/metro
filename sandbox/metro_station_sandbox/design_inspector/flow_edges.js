@@ -15,7 +15,10 @@ export function decorateEdges(edges, payload) {
     return {
       ...edge,
       className,
-      style: { strokeWidth: 0.42, stroke: color },
+      animated: false,
+      interactionWidth: 16,
+      zIndex: edge.data?.kind === "vertical" ? -2 : -1,
+      style: { strokeWidth: 1.1, stroke: color },
       markerEnd: bidirectional ? undefined : { type: MarkerType.ArrowClosed, color },
       data: {
         ...(edge.data || {}),
@@ -114,6 +117,15 @@ function edgeClassName(edge, severity, status) {
   }
   if (edge.data?.draft) {
     parts.push("edge-draft");
+  }
+  if (edge.data?.kind === "vertical") {
+    parts.push("edge-vertical");
+  }
+  if (
+    String(edge.sourceHandle || "").startsWith("level:") ||
+    String(edge.targetHandle || "").startsWith("level:")
+  ) {
+    parts.push("edge-level-transfer");
   }
   return parts.join(" ");
 }
