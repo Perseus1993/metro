@@ -6,7 +6,7 @@ import random
 import jupedsim as jps
 from shapely.geometry import Polygon
 
-from ..config import SIM_DURATION, TRAIN_CYCLE, W
+from ..config import SIM_DURATION, TRAIN_CYCLE
 from ..geometry import meters, px
 from ..layout import STATION_LAYOUT
 from ..process_model import PROCESS_MODEL
@@ -41,6 +41,14 @@ from .waypoints import (
     set_band_chain_transitions,
     set_region_flow_transitions,
     transition_to_stage_set,
+)
+from .vertical_choice import VerticalChoiceOption, choose_vertical_option
+
+
+ALIGHTING_VERTICAL_OPTIONS = (
+    VerticalChoiceOption("left", "escalator", (0.288, 0.716)),
+    VerticalChoiceOption("mid", "escalator", (0.815, 0.716)),
+    VerticalChoiceOption("right", "stairs", (0.850, 0.708)),
 )
 
 
@@ -138,7 +146,7 @@ def add_continuous_alighting_journeys(
             stage_registry=stage_registry,
             label_prefix=f"{journey_name}.exit_gate_decision",
             journey=journey_name,
-            band_start_index=0,
+            band_start_index=1,
         )
         for stage_id in post_vertical_chain.stage_ids:
             append_unique_stage(stages, seen, stage_id)
@@ -283,38 +291,28 @@ def add_continuous_alighting_journeys(
     return journeys
 
 
-def alighting_exit_source(vertical_top: tuple[float, float]) -> str:
-    nx = vertical_top[0] / W
-    if nx < 0.50:
-        return "left"
-    if nx < 0.84:
-        return "mid"
-    return "right"
+def choose_alighting_vertical_option(
+    rng: random.Random,
+    door_x: float,
+) -> VerticalChoiceOption:
+    return choose_vertical_option(
+        rng,
+        (door_x, BOARDING_SCREEN_DOOR_Y),
+        ALIGHTING_VERTICAL_OPTIONS,
+    )
 
 
-def alighting_exit_target(door_x: float, door_index: int, slot: int) -> tuple[float, float]:
-    if door_x < 0.50:
+def alighting_exit_target(option_key: str, slot: int) -> tuple[float, float]:
+    if option_key == "left":
         base = (0.288, 0.716)
         spread = (-0.010 + 0.006 * (slot % 4), -0.006 * (slot // 2))
-    elif door_index < 4:
-        base = (0.815, 0.716)
-        spread = (-0.012 + 0.008 * (slot % 4), -0.005 * (slot // 2))
-    elif slot % 2 == 0:
+    elif option_key == "right":
         base = (0.850, 0.708)
         spread = (-0.010 + 0.008 * (slot % 4), -0.004 * (slot // 2))
     else:
         base = (0.815, 0.716)
         spread = (-0.012 + 0.008 * (slot % 4), -0.005 * (slot // 2))
     return px((base[0] + spread[0], base[1] + spread[1]))
-
-
-def alighting_vertical_top(transfer_target: tuple[float, float]) -> tuple[float, float]:
-    nx = transfer_target[0] / W
-    if nx < 0.50:
-        return px((0.276, 0.428))
-    if nx < 0.84:
-        return px((0.776, 0.428))
-    return px((0.892, 0.426))
 
 
 def make_continuous_alighting_spawns(
@@ -328,8 +326,8 @@ def make_continuous_alighting_spawns(
         for door_index, point in enumerate(STATION_LAYOUT.control_points["platform_doors"]):
             door_x = float(point[0])
             for slot in range(5):
-                transfer_target = alighting_exit_target(door_x, door_index, slot)
-                source = alighting_exit_source(alighting_vertical_top(transfer_target))
+                option = choose_alighting_vertical_option(rng, door_x)
+                source = option.key
                 journey_id, first_stage_id = alighting_journeys[source]
                 spawn_time = round(cohort_start + 6.15 + slot * 0.48 + door_index * 0.10, 3)
                 if spawn_time > SIM_DURATION - 4.0:

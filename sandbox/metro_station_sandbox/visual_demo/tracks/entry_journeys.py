@@ -311,9 +311,9 @@ def add_continuous_entry_journey(
                     runtime.spec.exit,
                     normal_hint=(exit_y - head_y, -(exit_x - head_x)),
                     geometry=geometry,
-                    width_m=5.0,
-                    lanes=4,
-                    radius_m=EXIT_CORRIDOR_RADIUS_M * 1.5,
+                    width_m=0.0,
+                    lanes=1,
+                    radius_m=EXIT_CORRIDOR_RADIUS_M * 1.35,
                     facility=runtime.name,
                     journey=journey_name,
                 )

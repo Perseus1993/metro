@@ -3,6 +3,7 @@ from __future__ import annotations
 import math
 import random
 import re
+from dataclasses import replace
 
 import jupedsim as jps
 from shapely.geometry import Point
@@ -15,6 +16,7 @@ from ..config import (
     SAMPLE_DT,
     SIM_DT,
     SIM_DURATION,
+    TRAIN_CYCLE,
     W,
 )
 from ..facilities import elevator_payload
@@ -52,6 +54,7 @@ from .queues import (
 )
 from .replanning import refresh_queue_distance_fields, reroute_stuck_agents
 from .stages import build_stage_geometry_diagnostics, stage_registry_payload
+from .stuck_recovery import recover_stalled_agents
 from .types import (
     AgentProgress,
     QueueReplanTargets,
@@ -121,8 +124,13 @@ def build_tracks() -> dict[str, object]:
     queue_samples: list[dict[str, object]] = []
     debug_samples: list[dict[str, object]] = []
     debug_events: list[dict[str, object]] = []
+    elevator_events: list[dict[str, object]] = []
+    conveyor_events: list[dict[str, object]] = []
     progress_state: dict[int, AgentProgress] = {}
+    recovery_counts: dict[int, int] = {}
     final_time = 0.0
+    elevator_event_id = 0
+    conveyor_event_id = 0
 
     for step in range(max_steps + 1):
         time = step * SIM_DT
@@ -161,29 +169,62 @@ def build_tracks() -> dict[str, object]:
                 added = True
                 break
             if not added:
-                tracks[spawn.agent_id]["skipped"] = True
+                retry_time = round(time + SIM_DT, 3)
+                if retry_time < CLEARANCE_MAX_DURATION:
+                    pending.append(replace(spawn, spawn_time=retry_time))
+                    pending.sort(key=lambda item: item.spawn_time)
+                else:
+                    tracks[spawn.agent_id]["skipped"] = True
 
-        for release in service_native_queues(
+        service_releases = service_native_queues(
             sim,
             native_queues,
             time,
             soft_release_targets,
             stage_registry,
             geometry,
-        ):
+        )
+        elevator_batches: dict[str, list[int]] = {}
+        for release in service_releases:
             runtime = release.runtime
             sim_id = release.sim_id
+            track_id = sim_to_track.get(sim_id)
             debug_events.append(
                 {
                     "time": round(time, 2),
                     "type": "service_release",
                     "sim_id": sim_id,
-                    "track_id": sim_to_track.get(sim_id),
+                    "track_id": track_id,
                     "facility": runtime.name,
                     "mode": release.mode,
                     "release_reachable": release.release_reachable,
                     "release_stage_id": release.release_stage_id,
                 }
+            )
+            if runtime.name == "down_elevator_queue" and track_id is not None:
+                elevator_batches.setdefault(runtime.name, []).append(track_id)
+            elif is_escalator_runtime(runtime.name) and track_id is not None:
+                conveyor_event_id += 1
+                conveyor_events.append(
+                    conveyor_event_payload(
+                        event_id=conveyor_event_id,
+                        facility=runtime.name,
+                        time=time,
+                        track_id=track_id,
+                    )
+                )
+
+        for runtime_name, track_ids in elevator_batches.items():
+            if not track_ids:
+                continue
+            elevator_event_id += 1
+            elevator_events.append(
+                elevator_event_payload(
+                    event_id=elevator_event_id,
+                    facility=runtime_name,
+                    time=time,
+                    track_ids=track_ids,
+                )
             )
 
         if step % debug_every == 0:
@@ -258,6 +299,22 @@ def build_tracks() -> dict[str, object]:
                     time=time,
                 )
             )
+            debug_events.extend(
+                recover_stalled_agents(
+                    sim=sim,
+                    time=time,
+                    progress=progress_state,
+                    stage_advance_targets=stage_advance_targets,
+                    soft_release_targets=soft_release_targets,
+                    stage_registry=stage_registry,
+                    geometry=geometry,
+                    sim_to_track=sim_to_track,
+                    last_positions=last_positions,
+                    recovery_counts=recovery_counts,
+                    runtimes=native_queues,
+                    rng=replan_rng,
+                )
+            )
         if time >= SIM_DURATION and not pending and not any(True for _agent in sim.agents()):
             break
         try:
@@ -318,12 +375,36 @@ def build_tracks() -> dict[str, object]:
             "continuous_station_process_graph + native_queue_service"
         ),
         "geometry": "layout.py",
+        "scenario": {
+            "station_name": "\u5c0f\u5be8",
+            "hour": 18,
+            "minutes": 1,
+            "tick_seconds": 5,
+            "group_size": 1,
+            "entry_count_hour": 8683,
+            "exit_count_hour": 7253,
+            "source_label": "normal_workday_mean",
+            "sample_hours": 143,
+            "movement_backend_name": "jupedsim",
+            "movement_backend": "BatchedJuPedSimMovementBackend",
+            "jupedsim_operational_model": "collision_free_speed",
+            "design_template": "visual_demo_station",
+            "clock_start_seconds": 18 * 3600,
+        },
+        "train_service": {
+            "headway_seconds": TRAIN_CYCLE,
+            "dwell_seconds": 14,
+            "initial_offset_seconds": 0,
+            "capacity_persons": 1200,
+            "boarding_persons_per_min": 900,
+        },
         "layout": layout_payload(),
         "facilities": {
             "elevator": elevator_payload(W, H),
         },
         "queue_layouts": queue_layout_payload(geometry),
         "duration": clearance_audit["final_time_s"],
+        "demo_window_seconds": 55,
         "sample_dt": SAMPLE_DT,
         "clearance_audit": clearance_audit,
         "native_queue_model": {
@@ -348,6 +429,60 @@ def build_tracks() -> dict[str, object]:
             "visual_speed_smoothing": visual_speed_smoothing,
         },
         "queue_samples": queue_samples,
+        "elevator_events": elevator_events,
+        "conveyor_events": conveyor_events,
         "_simulation_debug": simulation_debug,
         "agents": agents,
+    }
+
+
+def elevator_event_payload(
+    *,
+    event_id: int,
+    facility: str,
+    time: float,
+    track_ids: list[int],
+) -> dict[str, object]:
+    board_seconds = 1.6
+    travel_seconds = 7.4
+    unload_seconds = 2.2
+    board_end = time + board_seconds
+    arrive = board_end + travel_seconds
+    end = arrive + unload_seconds
+    return {
+        "id": event_id,
+        "facility": facility,
+        "direction": "down",
+        "from_level": "B1",
+        "to_level": "B2",
+        "start": round(time, 2),
+        "board_end": round(board_end, 2),
+        "arrive": round(arrive, 2),
+        "end": round(end, 2),
+        "count": len(track_ids),
+        "track_ids": sorted(track_ids),
+    }
+
+
+def is_escalator_runtime(name: str) -> bool:
+    return "escalator" in name
+
+
+def conveyor_event_payload(
+    *,
+    event_id: int,
+    facility: str,
+    time: float,
+    track_id: int,
+) -> dict[str, object]:
+    duration = 10.2 if facility.startswith("down_") else 9.6
+    return {
+        "id": event_id,
+        "facility": facility,
+        "kind": "escalator",
+        "direction": "up" if facility.startswith("up_") else "down",
+        "start": round(time, 2),
+        "end": round(time + duration, 2),
+        "count": 1,
+        "track_ids": [track_id],
     }

@@ -11,8 +11,18 @@ import re
 import sys
 from typing import Any
 
-
 REPO_ROOT = Path(__file__).resolve().parents[1]
+if str(REPO_ROOT) not in sys.path:
+    sys.path.insert(0, str(REPO_ROOT))
+
+try:
+    from sandbox.metro_station_sandbox.runtime.contracts import diagnostic_truth_payload
+except ImportError:  # pragma: no cover - standalone script fallback.
+
+    def diagnostic_truth_payload(payload: dict[str, Any]) -> dict[str, Any]:
+        return payload
+
+
 DEFAULT_INPUT = (
     REPO_ROOT
     / "sandbox"
@@ -421,6 +431,22 @@ def build_report(
     }
 
 
+def analyze_tracks(
+    tracks_payload: dict[str, Any],
+    *,
+    config: AnalysisConfig | None = None,
+    input_path: Path | None = None,
+) -> dict[str, Any]:
+    """Analyze an in-memory JPS_TRACKS payload."""
+
+    tracks_payload = diagnostic_truth_payload(tracks_payload)
+    return build_report(
+        tracks_payload,
+        input_path=input_path,
+        config=config or AnalysisConfig(),
+    )
+
+
 def cell_index(x: float, y: float, grid_size_px: float) -> tuple[int, int]:
     if grid_size_px <= 0:
         raise ValueError("grid size must be positive")
@@ -803,7 +829,7 @@ def main(argv: Sequence[str] | None = None) -> int:
             top_n=args.top,
         )
         payload = load_payload(input_path)
-        report = build_report(payload, input_path=input_path, config=config)
+        report = analyze_tracks(payload, input_path=input_path, config=config)
     except Exception as exc:
         print(f"[TRACK ANALYSIS] error: {exc}", file=sys.stderr)
         return 2

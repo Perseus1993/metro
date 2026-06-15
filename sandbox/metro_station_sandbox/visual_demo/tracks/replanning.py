@@ -203,6 +203,16 @@ def reachable_advance_targets(
                 continue
             if not geometry.covers(LineString([position, stage_info.point_m])):
                 continue
+        if stage_info.kind == "waypoint" and stage_info.point_m is not None:
+            distance = math.hypot(
+                position[0] - stage_info.point_m[0],
+                position[1] - stage_info.point_m[1],
+            )
+            reach_radius = max(5.0, (stage_info.radius_m or 0.0) * 2.2)
+            if distance > reach_radius:
+                continue
+            if not geometry.covers(LineString([position, stage_info.point_m])):
+                continue
         reachable.append(stage_id)
     return tuple(reachable)
 

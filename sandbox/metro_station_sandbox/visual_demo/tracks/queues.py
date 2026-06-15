@@ -192,7 +192,11 @@ def soft_release_queue_agents(
         position = (float(agent.position[0]), float(agent.position[1]))
         slot_distance = queue_service_distance_m(runtime, position)
         head_distance = queue_soft_service_distance_m(runtime, position)
-        if min(slot_distance, head_distance) > radius_m:
+        service_distance = head_distance if is_vertical_facility(runtime) else min(
+            slot_distance,
+            head_distance,
+        )
+        if service_distance > radius_m:
             continue
         reachable_targets = (
             targets

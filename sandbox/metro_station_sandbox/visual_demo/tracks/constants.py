@@ -26,6 +26,9 @@ QUEUE_FIELD_DENSITY_RADIUS_CELLS = 2
 QUEUE_FIELD_DENSITY_WEIGHT = 0.45
 QUEUE_ATTRACTIVENESS_FIELD = QueueAttractivenessField()
 
+STUCK_RECOVERY_SECONDS = 18.0
+STUCK_RECOVERY_MAX_PER_TRACK = 4
+
 ENTRY_GATE_CANDIDATES: dict[tuple[str, int], tuple[int, ...]] = {
     ("left", 0): (0, 1, 2),
     ("left", 1): (0, 1, 2),

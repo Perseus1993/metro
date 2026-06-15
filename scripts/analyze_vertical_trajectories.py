@@ -23,6 +23,7 @@ from scripts.analyze_metro_tracks import (
     round_float,
     write_text,
 )
+from sandbox.metro_station_sandbox.runtime.contracts import diagnostic_truth_payload
 
 
 DEFAULT_OUTPUT_DIR = REPO_ROOT / "output" / "vertical_trajectory_analysis"
@@ -554,6 +555,24 @@ def build_report(
     }
 
 
+def analyze_vertical(
+    tracks_payload: dict[str, Any],
+    *,
+    config: TrajectoryConfig | None = None,
+    input_path: Path | None = None,
+) -> dict[str, Any]:
+    """Analyze vertical-connector motion in an in-memory JPS_TRACKS payload."""
+
+    active_config = config or TrajectoryConfig()
+    validate_config(active_config)
+    tracks_payload = diagnostic_truth_payload(tracks_payload)
+    return build_report(
+        tracks_payload,
+        input_path=input_path,
+        config=active_config,
+    )
+
+
 def _is_active_connector_motion(previous: Point, current: Point) -> bool:
     passive_modes = {"enqueued", "waiting"}
     return previous.mode not in passive_modes and current.mode not in passive_modes
@@ -835,7 +854,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         validate_config(config)
         input_path = resolve_input_path(args).resolve()
         payload = load_payload(input_path)
-        report = build_report(payload, input_path=input_path, config=config)
+        report = analyze_vertical(payload, input_path=input_path, config=config)
     except Exception as exc:
         print(f"[VERTICAL TRAJECTORY] error: {exc}", file=sys.stderr)
         return 2

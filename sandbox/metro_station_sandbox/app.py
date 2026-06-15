@@ -3,6 +3,7 @@ from __future__ import annotations
 import argparse
 from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 from .runtime.data_loader import load_station_hour_profile
 from .design.templates import create_design
@@ -12,6 +13,9 @@ from .design_inspector import serve_design_inspector
 from .visual_demo.config import ROOT as VISUAL_DEMO_ROOT
 from .visual_demo.config import TRACKS_JS
 from .visual_demo.mesa_export import write_mesa_visual_tracks_js
+
+if TYPE_CHECKING:
+    from .design.schema import StationDesignDocument
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -24,7 +28,21 @@ def build_parser() -> argparse.ArgumentParser:
         "--minutes",
         type=int,
         default=1,
-        help="Simulated minutes. Keep low unless the station design can contain the demand.",
+        help=(
+            "Demand minutes when --clearance-minutes is set; otherwise total simulated minutes."
+        ),
+    )
+    parser.add_argument(
+        "--demand-minutes",
+        type=int,
+        default=None,
+        help="Minutes over which passenger demand is generated. Defaults to --minutes.",
+    )
+    parser.add_argument(
+        "--clearance-minutes",
+        type=int,
+        default=0,
+        help="Extra minutes to keep simulating after demand generation stops.",
     )
     parser.add_argument(
         "--tick-seconds", type=int, default=5, help="Seconds represented by one step."
@@ -98,16 +116,28 @@ def build_parser() -> argparse.ArgumentParser:
     return parser
 
 
-def make_scenario(args: argparse.Namespace) -> StationSandboxScenario:
+def make_scenario(
+    args: argparse.Namespace,
+    *,
+    station_design: "StationDesignDocument | None" = None,
+) -> StationSandboxScenario:
     profile = load_station_hour_profile(
         args.station,
         args.hour,
         audit_enabled=not args.no_audit,
     )
+    demand_minutes = max(1, int(args.demand_minutes or args.minutes))
+    clearance_minutes = max(0, int(args.clearance_minutes or 0))
+    if args.demand_minutes is not None or clearance_minutes > 0:
+        total_minutes = max(int(args.minutes), demand_minutes + clearance_minutes)
+    else:
+        total_minutes = max(1, int(args.minutes))
+
     return StationSandboxScenario(
         station_name=profile.station_name,
         hour=profile.hour,
-        minutes=args.minutes,
+        minutes=total_minutes,
+        demand_minutes=demand_minutes if demand_minutes != total_minutes else None,
         tick_seconds=args.tick_seconds,
         group_size=args.group_size,
         entry_count_hour=(
@@ -122,7 +152,7 @@ def make_scenario(args: argparse.Namespace) -> StationSandboxScenario:
         ),
         source_label=profile.source_label,
         sample_hours=profile.sample_hours,
-        station_design=create_design(args.design_template),
+        station_design=station_design or create_design(args.design_template),
         movement_backend_name=args.movement_backend,
         jupedsim_operational_model=args.jupedsim_model,
         jupedsim_strict=True,
@@ -154,6 +184,7 @@ def main() -> None:
         scenario=scenario,
         output_path=tracks_out,
         facilities=model.facilities,
+        service_events=model.facility_service_events,
     )
     final = frames[-1]["metrics"] if frames else {}
     print(f"[SANDBOX] station={scenario.station_name} hour={scenario.hour}")

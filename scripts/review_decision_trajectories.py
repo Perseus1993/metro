@@ -4,11 +4,17 @@ import argparse
 import json
 import math
 import re
+import sys
 from collections import Counter
 from pathlib import Path
 from typing import Any
 
 ROOT_DIR = Path(__file__).resolve().parents[1]
+if str(ROOT_DIR) not in sys.path:
+    sys.path.insert(0, str(ROOT_DIR))
+
+from sandbox.metro_station_sandbox.runtime.contracts import diagnostic_truth_payload
+
 TRACKS_JS = ROOT_DIR / "sandbox/metro_station_sandbox/visual_demo/assets/passenger_tracks_jps.js"
 W = 1672.0
 H = 941.0
@@ -61,12 +67,13 @@ DECISION_GRAPHS = {
 def main() -> None:
     args = _parse_args()
     payload = _load_tracks_payload(args.tracks)
-    agents = [agent for agent in payload.get("agents", []) if _points(agent)]
+    review = review_decisions(payload, samples=args.samples)
+    payload = diagnostic_truth_payload(payload)
+    agents = _agents_with_points(payload)
     regions = _decision_regions(payload)
     selected = _select_samples(agents, regions, args.samples)
 
     args.output_dir.mkdir(parents=True, exist_ok=True)
-    review = _build_review(payload, agents, selected, regions)
     json_path = args.output_dir / "decision_trajectory_review.json"
     md_path = args.output_dir / "decision_trajectory_review.md"
     svg_path = args.output_dir / "decision_trajectory_samples.svg"
@@ -116,6 +123,20 @@ def _load_tracks_payload(path: Path) -> dict[str, Any]:
     if not match:
         raise ValueError(f"{path} does not look like a JPS_TRACKS payload")
     return json.loads(match.group(1))
+
+
+def review_decisions(tracks_payload: dict[str, Any], *, samples: int = 6) -> dict[str, Any]:
+    """Review decision-stage target jumps in an in-memory JPS_TRACKS payload."""
+
+    tracks_payload = diagnostic_truth_payload(tracks_payload)
+    agents = _agents_with_points(tracks_payload)
+    regions = _decision_regions(tracks_payload)
+    selected = _select_samples(agents, regions, samples)
+    return _build_review(tracks_payload, agents, selected, regions)
+
+
+def _agents_with_points(payload: dict[str, Any]) -> list[dict[str, Any]]:
+    return [agent for agent in payload.get("agents", []) if _points(agent)]
 
 
 def _build_review(

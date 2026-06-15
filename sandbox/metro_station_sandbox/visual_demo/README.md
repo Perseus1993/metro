@@ -17,8 +17,12 @@ This package contains the station geometry, ABM/JuPedSim passenger tracks, and t
 - `analyze_sim_debug.py`: reads the raw simulation debug JSON and reports likely stuck windows without using the HTML renderer.
 - `animation_demo.html`: standalone HTML Canvas renderer.
 - `record_visual_demo.py`: Playwright + ffmpeg recorder for MP4 export.
+- `generate_passenger_sprite_assets.py`: builds the passenger sprite atlas and frame metadata used by `animation_demo.html`.
 - `assets/station_base.png`: legacy image2 background kept only as a visual reference; the demo now renders the base from geometry.
 - `assets/facility_sprite_sheet.png`: saved facility sprite sheet source asset.
+- `assets/passenger_sprite_atlas.png` and `assets/passenger_sprite_atlas.json`: 10 passenger types, walk/queue actions, four directions, and four frames per action/direction.
+- `assets/passenger_sprite_library.js`: lightweight Canvas runtime for selecting passenger sprite frames from track speed, direction, and diagnostic state.
+- `assets/passenger_style_board_ai.png`: AI-generated style reference board for future handoff or replacement art.
 
 Official run:
 
@@ -33,6 +37,7 @@ python -m sandbox.metro_station_sandbox.visual_demo.generate_jps_tracks
 python -m sandbox.metro_station_sandbox.visual_demo.analyze_sim_debug
 python -m sandbox.metro_station_sandbox.visual_demo.render_geometry_preview
 python -m sandbox.metro_station_sandbox.visual_demo.record_visual_demo --start-sec 4 --duration-sec 42
+python -m sandbox.metro_station_sandbox.visual_demo.generate_passenger_sprite_assets
 ```
 
 The generated track payload includes `layout`, `queue_layouts`, `native_queue_model`, `queue_samples`, and `clearance_audit` so geometry, queues, queue length, targeting pressure, and final evacuation status can be inspected separately from the rendered animation. The generator also writes `output/visual_demo_sim_debug.json`, a renderer-free trace of raw JuPedSim agent positions, named stage ids, stage radii, facility queue states, geometry reachability diagnostics, service releases, and the same clearance audit.
