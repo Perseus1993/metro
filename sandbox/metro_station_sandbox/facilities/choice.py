@@ -46,6 +46,9 @@ class DefaultFacilityChoicePolicy(FacilityChoicePolicy):
         if stage == FacilityStage.VERTICAL_TRANSFER.value:
             candidates = self._vertical_preference_candidates(model, passenger, candidates)
         candidates = self._without_avoided_facilities(passenger, stage, candidates)
+        available = [candidate for candidate in candidates if candidate.is_available_for_choice]
+        if available:
+            candidates = available
         return pick_logit(
             candidates,
             model.random,
@@ -112,7 +115,10 @@ class DefaultFacilityChoicePolicy(FacilityChoicePolicy):
             * model.scenario.tick_seconds
             / 60.0
         )
-        queue_delay_min = facility.queue_persons / max(1, facility.spec.service_persons_per_min)
+        queue_delay_min = facility.queue_persons / max(
+            1.0,
+            facility.effective_service_persons_per_min,
+        )
         return (
             walking_time_min
             + queue_delay_min
@@ -128,10 +134,14 @@ class DefaultFacilityChoicePolicy(FacilityChoicePolicy):
     ) -> float:
         if stage != FacilityStage.VERTICAL_TRANSFER.value:
             return 0.0
+        if not facility.is_available_for_choice:
+            return 999.0
         if passenger.prefers_elevator and facility.spec.kind != FacilityKind.ELEVATOR.value:
             return 1.2
         if passenger.prefers_stairs and facility.spec.kind != FacilityKind.STAIRS.value:
             return 0.8
+        if facility.spec.kind == FacilityKind.STAIRS.value:
+            return float(getattr(facility, "fatigue_cost", 0.0))
         if not passenger.prefers_elevator and facility.spec.kind == FacilityKind.ELEVATOR.value:
             return 0.25
         return 0.0

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, replace
+from math import isfinite
 from pathlib import Path
 from typing import TYPE_CHECKING
 
@@ -109,6 +110,7 @@ class StationSandboxScenario:
     exit_count_hour: int
     source_label: str
     sample_hours: int
+    demand_minutes: int | None = None
     train_headway_seconds: int = 240
     train_dwell_seconds: int = 35
     train_capacity_persons: int = 1200
@@ -130,7 +132,11 @@ class StationSandboxScenario:
     elevator_cabin_capacity_persons: int = 12
     elevator_boarding_seconds: float = 5.0
     elevator_cycle_seconds: float = 35.0
+    elevator_unload_seconds: float = 0.0
     stairs_preference_share: float = 0.18
+    stair_fatigue_cost_up: float = 0.6
+    stair_fatigue_cost_down: float = 0.15
+    stair_bidirectional_conflict_factor: float = 0.3
     crowd_radius_units: float = 2.4
     personal_space_units: float = 0.8
     repulsion_strength: float = 0.16
@@ -168,9 +174,73 @@ class StationSandboxScenario:
     geometry: StationGeometry = StationGeometry()
     station_design: StationDesignDocument | None = None
 
+    def __post_init__(self) -> None:
+        _require_int_at_least("minutes", self.minutes, 1)
+        _require_int_at_least("tick_seconds", self.tick_seconds, 1)
+        _require_int_at_least("group_size", self.group_size, 1)
+        _require_int_at_least("sample_hours", self.sample_hours, 1)
+        if self.demand_minutes is not None:
+            _require_int_at_least("demand_minutes", self.demand_minutes, 1)
+            if int(self.demand_minutes) > int(self.minutes):
+                raise ValueError(
+                    f"demand_minutes must be <= minutes; got {self.demand_minutes!r}"
+                )
+        _require_int_at_least("train_headway_seconds", self.train_headway_seconds, 1)
+        _require_int_at_least("train_dwell_seconds", self.train_dwell_seconds, 1)
+        _require_int_at_least("train_capacity_persons", self.train_capacity_persons, 1)
+        _require_int_at_least("platform_capacity_persons", self.platform_capacity_persons, 1)
+        _require_int_at_least("boarding_persons_per_min", self.boarding_persons_per_min, 0)
+        _require_int_at_least("gate_service_persons_per_min", self.gate_service_persons_per_min, 0)
+        _require_positive("walk_units_per_tick", self.walk_units_per_tick)
+        _require_positive("boarding_speed_multiplier", self.boarding_speed_multiplier)
+        _require_positive("crowd_radius_units", self.crowd_radius_units)
+        _require_positive("personal_space_units", self.personal_space_units)
+        _require_positive("jupedsim_agent_radius_units", self.jupedsim_agent_radius_units)
+        _require_positive("jupedsim_target_radius_units", self.jupedsim_target_radius_units)
+        _require_positive("jupedsim_neighbor_radius_units", self.jupedsim_neighbor_radius_units)
+        _require_int_at_least("jupedsim_iterations_per_tick", self.jupedsim_iterations_per_tick, 1)
+        _require_int_at_least("jupedsim_neighbor_sample_limit", self.jupedsim_neighbor_sample_limit, 0)
+        _require_int_at_least("interaction_sample_limit", self.interaction_sample_limit, 0)
+        _require_int_at_least("crowding_sample_size", self.crowding_sample_size, 1)
+        _require_int_at_least("gate_queue_slots_per_row", self.gate_queue_slots_per_row, 1)
+        _require_int_at_least("vertical_queue_slots_per_row", self.vertical_queue_slots_per_row, 1)
+        _require_int_at_least("boarding_queue_slots_per_row", self.boarding_queue_slots_per_row, 1)
+        _require_int_at_least(
+            "platform_boarding_release_groups_per_door_tick",
+            self.platform_boarding_release_groups_per_door_tick,
+            1,
+        )
+        _require_int_at_least("platform_waiting_slots_per_row", self.platform_waiting_slots_per_row, 1)
+        _require_int_at_least("platform_waiting_row_cycle", self.platform_waiting_row_cycle, 1)
+        _require_int_at_least("elevator_cabin_capacity_persons", self.elevator_cabin_capacity_persons, 1)
+        _require_non_negative("elevator_boarding_seconds", self.elevator_boarding_seconds)
+        _require_positive("elevator_cycle_seconds", self.elevator_cycle_seconds)
+        _require_non_negative("elevator_unload_seconds", self.elevator_unload_seconds)
+
     @property
     def horizon_steps(self) -> int:
         return max(1, int(self.minutes * 60 / self.tick_seconds))
+
+    @property
+    def demand_duration_minutes(self) -> int:
+        return int(self.minutes if self.demand_minutes is None else self.demand_minutes)
+
+    @property
+    def clearance_minutes(self) -> int:
+        return max(0, int(self.minutes) - self.demand_duration_minutes)
+
+    @property
+    def demand_steps(self) -> int:
+        steps = int(self.demand_duration_minutes * 60 / self.tick_seconds)
+        return max(1, min(self.horizon_steps, steps))
+
+    @property
+    def horizon_duration_seconds(self) -> float:
+        return float(self.minutes) * 60.0
+
+    @property
+    def demand_duration_seconds(self) -> float:
+        return float(self.demand_duration_minutes) * 60.0
 
     @property
     def entry_groups(self) -> int:
@@ -181,12 +251,32 @@ class StationSandboxScenario:
         return self._groups_for_hour_count(self.exit_count_hour)
 
     def _groups_for_hour_count(self, count_hour: int) -> int:
-        scenario_count = max(0, int(count_hour)) * (self.minutes / 60.0)
+        scenario_count = max(0, int(count_hour)) * (self.demand_duration_minutes / 60.0)
         return max(0, round(scenario_count / self.group_size))
 
     def with_minutes(self, minutes: int) -> "StationSandboxScenario":
-        return replace(self, minutes=minutes)
+        demand_minutes = self.demand_minutes
+        if demand_minutes is not None:
+            demand_minutes = min(int(demand_minutes), int(minutes))
+        return replace(self, minutes=minutes, demand_minutes=demand_minutes)
 
     def default_output_path(self) -> Path:
         safe_station = "".join(ch if ch.isalnum() else "_" for ch in self.station_name)
         return Path("output") / f"metro_station_sandbox_{safe_station}_{self.hour:02d}.html"
+
+
+def _require_int_at_least(name: str, value: int, minimum: int) -> None:
+    if int(value) < minimum:
+        raise ValueError(f"{name} must be >= {minimum}; got {value!r}")
+
+
+def _require_positive(name: str, value: float) -> None:
+    parsed = float(value)
+    if not isfinite(parsed) or parsed <= 0.0:
+        raise ValueError(f"{name} must be > 0; got {value!r}")
+
+
+def _require_non_negative(name: str, value: float) -> None:
+    parsed = float(value)
+    if not isfinite(parsed) or parsed < 0.0:
+        raise ValueError(f"{name} must be >= 0; got {value!r}")

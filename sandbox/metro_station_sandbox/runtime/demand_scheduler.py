@@ -47,7 +47,7 @@ class DemandScheduler:
     ) -> None:
         if groups <= 0:
             return
-        ticks = self.scenario.horizon_steps
+        ticks = self.scenario.demand_steps
         last_spawn_step = max(0, ticks - 2)
         for index in range(groups):
             base = index * ticks / groups

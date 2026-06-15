@@ -8,6 +8,7 @@ from .facilities.choice import (
     StaffGuidedPolicy,
 )
 from .facilities.process import FacilityKind, FacilitySpec, QueueLayout
+from .facilities.service_events import FacilityServiceEvent
 from .facilities.runtime import (
     BoardingDoorProcessAgent,
     ElevatorProcessAgent,
@@ -17,6 +18,13 @@ from .facilities.runtime import (
     StairsProcessAgent,
     VerticalTransportProcessAgent,
     facility_agent_for_spec,
+)
+from .facilities.vertical import (
+    ElevatorConfig,
+    EscalatorConfig,
+    EscalatorMode,
+    StairsConfig,
+    VerticalFacilityConfig,
 )
 from .movement.backend import (
     BatchedJuPedSimMovementBackend,
@@ -66,15 +74,19 @@ __all__ = [
     "DefaultFacilityChoicePolicy",
     "DemandScheduler",
     "DesignCompiler",
+    "ElevatorConfig",
     "ExplicitReplanPolicy",
     "FacilityChoicePolicy",
     "FacilityKind",
     "FacilityProcessAgent",
+    "FacilityServiceEvent",
     "FacilitySpec",
     "FacilityStage",
     "GateProcessAgent",
     "FrameSnapshot",
     "ElevatorProcessAgent",
+    "EscalatorConfig",
+    "EscalatorMode",
     "EscalatorProcessAgent",
     "BatchedJuPedSimMovementBackend",
     "JuPedSimMovementBackend",
@@ -102,6 +114,7 @@ __all__ = [
     "ServiceAgent",
     "SnapshotBuilder",
     "StaffGuidedPolicy",
+    "StairsConfig",
     "StairsProcessAgent",
     "StationSandboxScenario",
     "StationGraph",
@@ -109,6 +122,7 @@ __all__ = [
     "TrainSnapshot",
     "TrainAgent",
     "VerticalTransportProcessAgent",
+    "VerticalFacilityConfig",
     "BoardingDoorProcessAgent",
     "facility_agent_for_spec",
 ]

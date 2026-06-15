@@ -64,22 +64,32 @@ PASSIVE_STATES = {
     AgentState.QUEUEING_VERTICAL.value,
     AgentState.WAITING_PLATFORM.value,
     AgentState.QUEUEING_DOOR.value,
+    AgentState.BOARDING_TRAIN.value,
     AgentState.QUEUEING_EXIT_GATE.value,
     AgentState.DEPARTED.value,
 }
 
 
-CROWD_INTERACTION_STATES = {
+WALKING_STATES = {
     AgentState.ENTERING_STATION.value,
-    AgentState.PASSING_GATE.value,
     AgentState.WALKING_TO_VERTICAL.value,
-    AgentState.RIDING_VERTICAL.value,
     AgentState.WALKING_TO_PLATFORM.value,
-    AgentState.QUEUEING_DOOR.value,
-    AgentState.BOARDING_TRAIN.value,
     AgentState.WALKING_TO_EXIT_GATE.value,
-    AgentState.PASSING_EXIT_GATE.value,
     AgentState.WALKING_TO_TRANSFER.value,
+}
+
+
+SERVICE_STATES = {
+    AgentState.PASSING_GATE.value,
+    AgentState.RIDING_VERTICAL.value,
+    AgentState.BOARDING_TRAIN.value,
+    AgentState.PASSING_EXIT_GATE.value,
+}
+
+
+CROWD_INTERACTION_STATES = {
+    *WALKING_STATES,
+    AgentState.QUEUEING_DOOR.value,
 }
 
 
@@ -300,6 +310,19 @@ class AgentPlan:
             and self.action_sequence[self.action_index] == action
         ):
             self.action_index += 1
+
+    def align_to_trigger_state(self, state: str | AgentState) -> None:
+        if not self.action_sequence:
+            return
+        state_value = state.value if isinstance(state, AgentState) else str(state)
+        if self.action_index < len(self.action_sequence):
+            current = self.action_sequence[self.action_index]
+            if current.trigger_state is None or current.trigger_state == state_value:
+                return
+        for index in range(self.action_index, len(self.action_sequence)):
+            if self.action_sequence[index].trigger_state == state_value:
+                self.action_index = index
+                return
 
     def assign_facility(self, stage: str | FacilityStage, facility_id: str) -> None:
         stage_value = stage.value if isinstance(stage, FacilityStage) else str(stage)

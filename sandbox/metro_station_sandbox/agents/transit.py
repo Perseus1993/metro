@@ -43,15 +43,12 @@ class TrainAgent(StationAgent):
         return max(0, self.model.scenario.train_capacity_persons - self.current_load_persons)
 
     def step(self) -> None:
-        scenario = self.model.scenario
         step = self.model.step_index
 
         if self.state == "away" and step >= self.next_arrival_step:
             self.state = "boarding"
             self.current_load_persons = 0
-            self.close_step = step + max(
-                1, round(scenario.train_dwell_seconds / scenario.tick_seconds)
-            )
+            self.close_step = step + self._dwell_steps()
             return
 
         if self.state == "boarding" and self.close_step is not None and step >= self.close_step:
@@ -59,10 +56,19 @@ class TrainAgent(StationAgent):
             self.last_departed_load_persons = self.current_load_persons
             self.departed_trains += 1
             self.last_departure_step = step
-            self.next_arrival_step = step + max(
-                1, round(scenario.train_headway_seconds / scenario.tick_seconds)
-            )
+            self.next_arrival_step = step + self._layover_steps()
             self.close_step = None
+
+    def _dwell_steps(self) -> int:
+        scenario = self.model.scenario
+        return max(1, round(scenario.train_dwell_seconds / scenario.tick_seconds))
+
+    def _headway_steps(self) -> int:
+        scenario = self.model.scenario
+        return max(1, round(scenario.train_headway_seconds / scenario.tick_seconds))
+
+    def _layover_steps(self) -> int:
+        return max(1, self._headway_steps() - self._dwell_steps())
 
 
 class PlatformAgent(StationAgent):
@@ -109,13 +115,17 @@ class PlatformAgent(StationAgent):
             self.waiting.append(passenger)
 
     def _layout_waiting(self) -> None:
+        speed = self._waiting_layout_speed_units_per_tick()
         for index, passenger in enumerate(self.waiting):
             passenger.set_target(
                 self.model.layout_graph.platform_waiting_position(index),
                 goal_kind="waiting",
                 goal_label="platform waiting slot",
             )
-            passenger.move_toward_target()
+            passenger.move_directly_toward_target(speed)
+
+    def _waiting_layout_speed_units_per_tick(self) -> float:
+        return max(0.1, float(self.model.scenario.walk_units_per_tick))
 
     def _route_to_boarding_doors(self) -> None:
         for _ in range(self._boarding_release_limit()):
@@ -149,5 +159,4 @@ class PlatformAgent(StationAgent):
 
     def step(self) -> None:
         self._layout_waiting()
-        if self.model.boarding_train_for_platform(self) is not None:
-            self._route_to_boarding_doors()
+        self._route_to_boarding_doors()

@@ -582,8 +582,13 @@ class MetroStationModel(mesa.Model):
         self.datacollector.collect(self)
         self.frames.append(self.snapshot())
         self.step_index += 1
-        if self.step_index >= self.scenario.horizon_steps:
+        if self._should_stop():
             self.running = False
+
+    def _should_stop(self) -> bool:
+        if self.step_index >= self.scenario.horizon_steps:
+            return True
+        return self.step_index >= self.scenario.demand_steps and not self.passengers
 
     def run(
         self,

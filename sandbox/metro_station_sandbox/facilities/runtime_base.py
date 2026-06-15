@@ -106,12 +106,17 @@ class FacilityProcessAgent(ServiceAgent):
             ):
                 break
             passenger = self.queue.pop(0)
-            self._start_service(
-                passenger,
-                train,
-                release_index=release_index,
-                release_count=max(1, release_count),
-            )
+            try:
+                self._start_service(
+                    passenger,
+                    train,
+                    release_index=release_index,
+                    release_count=max(1, release_count),
+                )
+            except RuntimeError:
+                passenger.enter_facility_queue(self.spec)
+                self.queue.insert(0, passenger)
+                break
             self.service_credit -= 1.0
             release_index += 1
 
@@ -269,15 +274,7 @@ class GateProcessAgent(FacilityProcessAgent):
                 self._service_release_positions_this_tick.append(release_position)
                 return release_position
 
-        projected_base = self._project_release_position(base)
-        release_position = self.model.movement_backend.place_passenger(
-            passenger,
-            projected_base,
-            target=projected_base,
-            level_id=self.spec.exit_level_id or self.spec.entry_level_id,
-        )
-        self._service_release_positions_this_tick.append(release_position)
-        return release_position
+        raise RuntimeError(f"No release placement available for {self.facility_id}")
 
     def _release_axes(self) -> tuple[tuple[float, float], tuple[float, float]]:
         sx, sy = self.spec.position
@@ -322,8 +319,16 @@ class GateProcessAgent(FacilityProcessAgent):
         lateral_orders = [column_order]
         if column_order != 0:
             lateral_orders.append(column_order * 2)
-        lateral_orders.extend([0, -1, 1])
-        forward_steps = [row, row + 1, max(0, row - 1), row + 2]
+        lateral_orders.extend([0, -1, 1, -2, 2, -3, 3])
+        forward_steps = [
+            row,
+            row + 1,
+            max(0, row - 1),
+            row + 2,
+            row + 3,
+            row + 4,
+            row + 5,
+        ]
         candidates: list[tuple[float, float]] = []
         seen: set[tuple[int, int]] = set()
         for forward_step in forward_steps:

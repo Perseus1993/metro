@@ -5,7 +5,7 @@ from enum import StrEnum
 from math import hypot
 from typing import TYPE_CHECKING, Any
 
-from .plan import AgentIntent, AgentState, FacilityStage
+from .plan import AgentIntent, AgentState, FacilityStage, SERVICE_STATES, WALKING_STATES
 
 if TYPE_CHECKING:
     from ..agents.passenger import PassengerAgent
@@ -89,21 +89,6 @@ CHOICE_STATES = {
     AgentState.CHOOSING_VERTICAL.value,
     AgentState.CHOOSING_EXIT_GATE.value,
 }
-
-SERVICE_STATES = {
-    AgentState.PASSING_GATE.value,
-    AgentState.RIDING_VERTICAL.value,
-    AgentState.PASSING_EXIT_GATE.value,
-}
-
-WALKING_STATES = {
-    AgentState.ENTERING_STATION.value,
-    AgentState.WALKING_TO_VERTICAL.value,
-    AgentState.WALKING_TO_PLATFORM.value,
-    AgentState.WALKING_TO_EXIT_GATE.value,
-    AgentState.WALKING_TO_TRANSFER.value,
-}
-
 
 def region_goal_for_passenger(passenger: PassengerAgent) -> RegionGoal:
     intent = str(passenger.intent)

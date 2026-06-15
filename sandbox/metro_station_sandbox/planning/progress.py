@@ -4,7 +4,13 @@ from dataclasses import dataclass
 from math import hypot
 from typing import TYPE_CHECKING
 
-from .plan import AgentIntent, AgentState, RouteKey
+from .plan import (
+    SERVICE_STATES as PLAN_SERVICE_STATES,
+    WALKING_STATES as PLAN_WALKING_STATES,
+    AgentIntent,
+    AgentState,
+    RouteKey,
+)
 
 if TYPE_CHECKING:
     from ..agents.passenger import PassengerAgent
@@ -39,6 +45,8 @@ class ExplicitReplanPolicy:
         AgentState.WALKING_TO_EXIT_GATE.value: RouteKey.AFTER_EXIT_VERTICAL.value,
     }
 
+    SERVICE_REPLAN_STATES = PLAN_SERVICE_STATES
+
     def replan(
         self,
         model: MetroStationModel,
@@ -49,6 +57,13 @@ class ExplicitReplanPolicy:
     ) -> bool:
         if passenger.state in self.FACILITY_REPLAN_STATES:
             return self._replan_facility(
+                model,
+                passenger,
+                reason=reason,
+                stalled_seconds=stalled_seconds,
+            )
+        if passenger.state in self.SERVICE_REPLAN_STATES:
+            return self._replan_service_transition(
                 model,
                 passenger,
                 reason=reason,
@@ -179,6 +194,137 @@ class ExplicitReplanPolicy:
         )
         return True
 
+    def _replan_service_transition(
+        self,
+        model: MetroStationModel,
+        passenger: PassengerAgent,
+        *,
+        reason: str,
+        stalled_seconds: float,
+    ) -> bool:
+        if passenger.state == AgentState.BOARDING_TRAIN.value:
+            return self._complete_stalled_boarding(
+                model,
+                passenger,
+                reason=reason,
+                stalled_seconds=stalled_seconds,
+            )
+
+        current_facility = self._current_facility(model, passenger)
+        stage = self._current_stage(passenger, current_facility)
+        if current_facility is None or stage is None:
+            self._record_replan_skipped(
+                model,
+                passenger,
+                reason=reason,
+                stage=stage,
+                skipped_reason="no_current_facility",
+                stalled_seconds=stalled_seconds,
+            )
+            return False
+        attempt_key = f"service:{stage}"
+        attempts = passenger.replan_attempts_by_stage.get(attempt_key, 0)
+        if attempts >= model.scenario.replan_max_attempts_per_stage:
+            self._record_replan_skipped(
+                model,
+                passenger,
+                reason=reason,
+                stage=stage,
+                skipped_reason="max_attempts",
+                stalled_seconds=stalled_seconds,
+            )
+            return False
+
+        passenger.replan_attempts_by_stage[attempt_key] = attempts + 1
+        previous_state = passenger.state
+        self._complete_stalled_service(model, passenger, current_facility)
+        passenger.last_replan_reason = reason
+        passenger.progress_age_seconds = 0.0
+        model.audit.record(
+            "passenger_replanned_service_transition",
+            source="progress_monitor",
+            severity="warning",
+            step=model.step_index,
+            context={
+                "passenger_id": passenger.unique_id,
+                "intent": passenger.intent,
+                "state": previous_state,
+                "recovered_state": passenger.state,
+                "stage": stage,
+                "facility_id": current_facility.facility_id,
+                "reason": reason,
+                "stalled_seconds": round(stalled_seconds, 2),
+                "attempt": passenger.replan_attempts_by_stage[attempt_key],
+            },
+        )
+        return True
+
+    def _complete_stalled_service(
+        self,
+        model: MetroStationModel,
+        passenger: PassengerAgent,
+        facility: FacilityProcessAgent,
+    ) -> None:
+        passenger.passive_facility_service = False
+        passenger.plan.align_to_trigger_state(passenger.state)
+
+        if passenger.state == AgentState.PASSING_EXIT_GATE.value:
+            passenger.set_target(
+                facility.spec.exit_position,
+                goal_kind="being_served",
+                goal_label=facility.spec.label,
+                facility_id=facility.facility_id,
+                stage=facility.spec.stage,
+            )
+            passenger.pos = model.clamp_position(facility.spec.exit_position)
+            passenger.advance_after_movement(True)
+            if passenger.state != AgentState.DEPARTED.value:
+                model.complete_departure(passenger, boarded=False)
+            return
+
+        finish_vertical = getattr(facility, "_finish_vertical_service", None)
+        if passenger.state == AgentState.RIDING_VERTICAL.value and callable(finish_vertical):
+            finish_vertical(passenger)
+            return
+
+        passenger.set_target(
+            facility.spec.exit_position,
+            goal_kind="being_served",
+            goal_label=facility.spec.label,
+            facility_id=facility.facility_id,
+            stage=facility.spec.stage,
+        )
+        passenger.pos = model.clamp_position(facility.spec.exit_position)
+        passenger.advance_after_movement(True)
+
+    def _complete_stalled_boarding(
+        self,
+        model: MetroStationModel,
+        passenger: PassengerAgent,
+        *,
+        reason: str,
+        stalled_seconds: float,
+    ) -> bool:
+        passenger.last_replan_reason = reason
+        passenger.progress_age_seconds = 0.0
+        passenger.advance_after_movement(True)
+        if passenger.state != AgentState.DEPARTED.value:
+            model.complete_departure(passenger, boarded=True)
+        model.audit.record(
+            "passenger_completed_stalled_boarding",
+            source="progress_monitor",
+            severity="warning",
+            step=model.step_index,
+            context={
+                "passenger_id": passenger.unique_id,
+                "intent": passenger.intent,
+                "state": passenger.state,
+                "reason": reason,
+                "stalled_seconds": round(stalled_seconds, 2),
+            },
+        )
+        return True
+
     def _route_key_for_state(self, passenger: PassengerAgent) -> str | None:
         if passenger.state == AgentState.WALKING_TO_VERTICAL.value:
             if passenger.intent in {
@@ -263,13 +409,8 @@ class ProgressMonitor:
     """Track per-passenger progress and trigger explicit replans."""
 
     QUEUE_STATES = ExplicitReplanPolicy.FACILITY_REPLAN_STATES
-    WALKING_STATES = {
-        AgentState.ENTERING_STATION.value,
-        AgentState.WALKING_TO_VERTICAL.value,
-        AgentState.WALKING_TO_PLATFORM.value,
-        AgentState.WALKING_TO_EXIT_GATE.value,
-        AgentState.WALKING_TO_TRANSFER.value,
-    }
+    SERVICE_STATES = ExplicitReplanPolicy.SERVICE_REPLAN_STATES
+    WALKING_STATES = PLAN_WALKING_STATES
 
     def __init__(self, replan_policy: ExplicitReplanPolicy | None = None) -> None:
         self.records: dict[int, PassengerProgressRecord] = {}
@@ -289,9 +430,14 @@ class ProgressMonitor:
             if passenger.state == AgentState.DEPARTED.value:
                 self.records.pop(passenger.unique_id, None)
                 continue
+            if model.passenger_has_active_facility_service(passenger):
+                passenger.progress_age_seconds = 0.0
+                self.records.pop(passenger.unique_id, None)
+                continue
             if (
                 passenger.state not in self.WALKING_STATES
                 and passenger.state not in self.QUEUE_STATES
+                and passenger.state not in self.SERVICE_STATES
             ):
                 passenger.progress_age_seconds = 0.0
                 self.records.pop(passenger.unique_id, None)
@@ -344,9 +490,12 @@ class ProgressMonitor:
         if stalled_seconds < threshold:
             return
 
-        reason = (
-            "queue_wait_timeout" if passenger.state in self.QUEUE_STATES else "movement_stalled"
-        )
+        if passenger.state in self.QUEUE_STATES:
+            reason = "queue_wait_timeout"
+        elif passenger.state in self.SERVICE_STATES:
+            reason = "service_transition_stalled"
+        else:
+            reason = "movement_stalled"
         if self.replan_policy.replan(
             model,
             passenger,

@@ -3,6 +3,8 @@ from .factory import plan_for_station_graph
 from .plan import (
     CROWD_INTERACTION_STATES,
     PASSIVE_STATES,
+    SERVICE_STATES,
+    WALKING_STATES,
     AgentGoal,
     AgentIntent,
     AgentPlan,
@@ -31,6 +33,8 @@ __all__ = [
     "ProgressMonitor",
     "RegionGoal",
     "RouteKey",
+    "SERVICE_STATES",
+    "WALKING_STATES",
     "pick_least_loaded",
     "pick_logit",
     "plan_for_station_graph",

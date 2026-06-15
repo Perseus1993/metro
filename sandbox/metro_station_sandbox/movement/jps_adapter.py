@@ -232,9 +232,9 @@ class JuPedSimWalkingSession:
         yield position
         spacing = max(0.35, self.agent_radius * 2.4)
         angle_offset = ((passenger_id * 1103515245) % 6283) / 1000.0
-        for ring in range(1, 7):
-            count = 8 if ring <= 3 else 12
-            distance = spacing * (1.0 + 0.55 * (ring - 1))
+        for ring in range(1, 13):
+            count = 8 if ring <= 3 else 16
+            distance = spacing * (1.0 + 0.45 * (ring - 1))
             for index in range(count):
                 angle = angle_offset + tau * (index / count) + ring * 0.19
                 yield (

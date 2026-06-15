@@ -4,6 +4,8 @@ from dataclasses import dataclass
 from enum import StrEnum
 from math import hypot
 
+from .vertical import VerticalFacilityConfig
+
 
 Point = tuple[float, float]
 
@@ -119,6 +121,7 @@ class FacilitySpec:
     platform_id: str | None = None
     entry_level_id: str | None = None
     exit_level_id: str | None = None
+    vertical_config: VerticalFacilityConfig | None = None
 
     @property
     def queue_anchor(self) -> Point:

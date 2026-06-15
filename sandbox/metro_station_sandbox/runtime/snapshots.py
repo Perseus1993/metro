@@ -20,6 +20,7 @@ if TYPE_CHECKING:
     from ..agents.passenger import PassengerAgent
     from ..agents.staff import AdminAgent
     from ..agents.transit import TrainAgent
+    from ..facilities.runtime_base import FacilityProcessAgent
     from .mesa_model import MetroStationModel
 
 
@@ -141,6 +142,54 @@ class AdminSnapshot:
             y=round(float(payload["y"]), 3),
             state=str(payload.get("state", "")),
             guided_count=int(payload.get("guided_count", 0) or 0),
+        )
+
+    def to_dict(self) -> dict[str, Any]:
+        return asdict(self)
+
+
+@dataclass(frozen=True)
+class FacilitySnapshot:
+    id: str
+    label: str
+    kind: str
+    stage: str
+    state: str
+    queue_persons: int
+    active_persons: int
+    served_persons: int
+    service_persons_per_min: float
+    queue_capacity: int
+
+    @classmethod
+    def from_facility(cls, facility: FacilityProcessAgent) -> "FacilitySnapshot":
+        spec = facility.spec
+        return cls(
+            id=str(facility.facility_id),
+            label=str(spec.label),
+            kind=str(spec.kind),
+            stage=str(spec.stage),
+            state=str(getattr(facility, "state", "")),
+            queue_persons=int(facility.queue_persons),
+            active_persons=_facility_active_persons(facility),
+            served_persons=int(getattr(facility, "served_persons", 0) or 0),
+            service_persons_per_min=round(float(facility.effective_service_persons_per_min), 3),
+            queue_capacity=_facility_queue_capacity(facility),
+        )
+
+    @classmethod
+    def from_mapping(cls, payload: Mapping[str, Any]) -> "FacilitySnapshot":
+        return cls(
+            id=str(payload.get("id", "")),
+            label=str(payload.get("label", "")),
+            kind=str(payload.get("kind", "")),
+            stage=str(payload.get("stage", "")),
+            state=str(payload.get("state", "")),
+            queue_persons=_int(payload, "queue_persons"),
+            active_persons=_int(payload, "active_persons"),
+            served_persons=_int(payload, "served_persons"),
+            service_persons_per_min=_float(payload, "service_persons_per_min"),
+            queue_capacity=_int(payload, "queue_capacity"),
         )
 
     def to_dict(self) -> dict[str, Any]:
@@ -286,6 +335,7 @@ class FrameSnapshot:
     passengers: tuple[PassengerSnapshot, ...]
     trains: tuple[TrainSnapshot, ...]
     admins: tuple[AdminSnapshot, ...]
+    facilities: tuple[FacilitySnapshot, ...]
     metrics: MetricSnapshot
 
     @classmethod
@@ -311,6 +361,11 @@ class FrameSnapshot:
                 for item in payload.get("admins", [])
                 if isinstance(item, Mapping)
             ),
+            facilities=tuple(
+                FacilitySnapshot.from_mapping(item)
+                for item in payload.get("facilities", [])
+                if isinstance(item, Mapping)
+            ),
             metrics=MetricSnapshot.from_mapping(metrics),
         )
 
@@ -327,6 +382,7 @@ class FrameSnapshot:
             "passengers": [passenger.to_dict() for passenger in self.passengers],
             "trains": [train.to_dict() for train in self.trains],
             "admins": [admin.to_dict() for admin in self.admins],
+            "facilities": [facility.to_dict() for facility in self.facilities],
             "metrics": self.metrics.to_dict(),
         }
 
@@ -351,8 +407,29 @@ class SnapshotBuilder:
             ),
             trains=tuple(TrainSnapshot.from_train(train) for train in model.trains),
             admins=tuple(AdminSnapshot.from_admin(admin) for admin in model.admin_agents),
+            facilities=tuple(
+                FacilitySnapshot.from_facility(facility) for facility in model.facilities
+            ),
             metrics=MetricSnapshot.from_model(model),
         )
+
+
+def _facility_active_persons(facility: FacilityProcessAgent) -> int:
+    cabin_load = getattr(facility, "cabin_load_persons", None)
+    if cabin_load is not None:
+        return int(cabin_load or 0)
+
+    rides = getattr(facility, "active_rides", None)
+    if rides is None:
+        return 0
+    return sum(int(getattr(ride.passenger, "group_size", 1) or 1) for ride in rides)
+
+
+def _facility_queue_capacity(facility: FacilityProcessAgent) -> int:
+    queue_layout = facility.spec.queue_layout
+    if queue_layout.slots:
+        return len(queue_layout.slots)
+    return max(8, min(96, int(queue_layout.per_row) * 4))
 
 
 def _optional_str(value: Any) -> str | None:

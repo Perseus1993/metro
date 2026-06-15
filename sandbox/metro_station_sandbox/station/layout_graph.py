@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from collections.abc import Callable
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from math import cos, hypot, radians, sin
 
 from shapely.geometry import Point as ShapelyPoint
@@ -16,6 +16,12 @@ from ..design.helpers import (
 from ..design.schema import DesignElement, QueueSpec, StationDesignDocument
 from ..design.validation import validate_design
 from ..facilities.process import FacilityKind, FacilitySpec, QueueLayout
+from ..facilities.vertical import (
+    VerticalFacilityConfig,
+    default_elevator_config,
+    default_escalator_config,
+    default_stairs_config,
+)
 from .geometry import (
     dedupe_points,
     document_walkable_geometry,
@@ -152,6 +158,7 @@ class LayoutGraph:
                     legacy_index=index,
                     entry_level_id="B1" if transport.direction in {"down", "both"} else "B2",
                     exit_level_id="B2" if transport.direction in {"down", "both"} else "B1",
+                    vertical_config=_legacy_vertical_config(transport, scenario),
                 )
             )
 
@@ -375,6 +382,28 @@ class LayoutGraph:
         return self.platform_waiting_max_x
 
 
+def _legacy_vertical_config(transport, scenario: StationSandboxScenario) -> VerticalFacilityConfig:
+    if transport.kind == FacilityKind.ELEVATOR.value:
+        return VerticalFacilityConfig(
+            elevator=default_elevator_config(
+                batch_capacity=scenario.elevator_cabin_capacity_persons,
+                boarding_seconds=scenario.elevator_boarding_seconds,
+                travel_seconds=scenario.elevator_cycle_seconds,
+                unload_seconds=scenario.elevator_unload_seconds,
+            )
+        )
+    if transport.kind == FacilityKind.STAIRS.value:
+        return VerticalFacilityConfig(
+            stairs=default_stairs_config(
+                base_capacity_ppm=transport.persons_per_min,
+                fatigue_cost_up=scenario.stair_fatigue_cost_up,
+                fatigue_cost_down=scenario.stair_fatigue_cost_down,
+                bidirectional_conflict_factor=scenario.stair_bidirectional_conflict_factor,
+            )
+        )
+    return VerticalFacilityConfig(escalator=default_escalator_config(transport.persons_per_min))
+
+
 def _layout_nodes_from_station_graph(nodes: dict[str, GraphNode]) -> dict[str, LayoutNode]:
     return {
         node_id: LayoutNode(node.node_id, node.node_id, node.position, node.level_id)
@@ -484,7 +513,7 @@ def _facility_specs_from_station_graph(
                 )
             )
 
-    return facilities
+    return _link_stair_siblings(facilities)
 
 
 def _gate_facility_specs(
@@ -792,7 +821,90 @@ def _vertical_facility_spec(
         speed_units_per_tick=_vertical_speed(element, scenario),
         entry_level_id=level_pair[0],
         exit_level_id=level_pair[1],
+        vertical_config=_build_vertical_config(element, scenario),
     )
+
+
+def _build_vertical_config(
+    element: DesignElement,
+    scenario: StationSandboxScenario,
+) -> VerticalFacilityConfig:
+    service_rate = element.capacity or _default_vertical_service_rate(element)
+    if element.kind == FacilityKind.ELEVATOR.value:
+        return VerticalFacilityConfig(
+            elevator=default_elevator_config(
+                batch_capacity=scenario.elevator_cabin_capacity_persons,
+                boarding_seconds=scenario.elevator_boarding_seconds,
+                travel_seconds=scenario.elevator_cycle_seconds,
+                unload_seconds=scenario.elevator_unload_seconds,
+            )
+        )
+    if element.kind == FacilityKind.STAIRS.value:
+        return VerticalFacilityConfig(
+            stairs=default_stairs_config(
+                base_capacity_ppm=service_rate,
+                fatigue_cost_up=scenario.stair_fatigue_cost_up,
+                fatigue_cost_down=scenario.stair_fatigue_cost_down,
+                bidirectional_conflict_factor=scenario.stair_bidirectional_conflict_factor,
+            )
+        )
+    return VerticalFacilityConfig(escalator=default_escalator_config(service_rate))
+
+
+def _link_stair_siblings(facilities: list[FacilitySpec]) -> list[FacilitySpec]:
+    stairs_by_element: dict[str, list[FacilitySpec]] = {}
+    for facility in facilities:
+        if facility.kind != FacilityKind.STAIRS.value:
+            continue
+        element_key = _vertical_element_key(facility)
+        if element_key is None:
+            continue
+        stairs_by_element.setdefault(element_key, []).append(facility)
+
+    sibling_by_id: dict[str, str] = {}
+    for stairs in stairs_by_element.values():
+        for facility in stairs:
+            sibling = next(
+                (
+                    candidate
+                    for candidate in stairs
+                    if candidate.facility_id != facility.facility_id
+                    and candidate.direction != facility.direction
+                ),
+                None,
+            )
+            if sibling is not None:
+                sibling_by_id[facility.facility_id] = sibling.facility_id
+
+    if not sibling_by_id:
+        return facilities
+
+    linked: list[FacilitySpec] = []
+    for facility in facilities:
+        sibling_id = sibling_by_id.get(facility.facility_id)
+        config = facility.vertical_config
+        stairs = config.stairs if config is not None else None
+        if sibling_id is None or stairs is None:
+            linked.append(facility)
+            continue
+        linked.append(
+            replace(
+                facility,
+                vertical_config=VerticalFacilityConfig(
+                    escalator=config.escalator,
+                    elevator=config.elevator,
+                    stairs=replace(stairs, sibling_facility_id=sibling_id),
+                ),
+            )
+        )
+    return linked
+
+
+def _vertical_element_key(facility: FacilitySpec) -> str | None:
+    parts = facility.facility_id.split(":")
+    if len(parts) < 2 or parts[0] != "vertical":
+        return None
+    return parts[1]
 
 
 def _gate_lane_count(element: DesignElement) -> int:
@@ -1171,7 +1283,10 @@ def _point_distance(a: Point, b: Point) -> float:
 
 
 def _node_position(station_graph: StationGraph, node_id: str) -> Point:
-    return station_graph.nodes[node_id].position
+    node = station_graph.nodes.get(node_id)
+    if node is None:
+        raise ValueError(f"Station graph references missing node {node_id!r}")
+    return node.position
 
 
 def _facility_kind_for_element(element: DesignElement) -> str:
