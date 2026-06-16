@@ -4,7 +4,6 @@ import mesa
 
 from .base import StationAgent
 from .passenger import PassengerAgent
-from ..facilities.runtime import FacilityProcessAgent
 from ..planning.plan import AgentState, FacilityStage
 
 
@@ -102,10 +101,22 @@ class PlatformAgent(StationAgent):
         return max(0, capacity - self.waiting_persons - door_queue)
 
     def join_waiting(self, passenger: PassengerAgent) -> None:
+        self._assign_passenger_platform(passenger)
+        if passenger in self.waiting:
+            self.waiting.remove(passenger)
+
+        doors = self.model.boarding_doors_for_platform(self)
+        if doors:
+            self._sync_passenger_level_to_platform(passenger, doors)
+            passenger.assigned_facility_id = None
+            facility = self.model.request_facility_choice(
+                passenger,
+                FacilityStage.BOARDING_DOOR,
+            )
+            if facility is not None and passenger.state == AgentState.QUEUEING_DOOR.value:
+                return
+
         passenger.state = AgentState.WAITING_PLATFORM.value
-        passenger.assigned_platform_id = self.platform_id
-        passenger.assigned_line_id = self.line_id
-        passenger.assigned_direction = self.direction
         passenger.plan.set_goal(
             kind="waiting",
             label="platform waiting area",
@@ -114,49 +125,90 @@ class PlatformAgent(StationAgent):
         if passenger not in self.waiting:
             self.waiting.append(passenger)
 
+    def _assign_passenger_platform(self, passenger: PassengerAgent) -> None:
+        passenger.assigned_platform_id = self.platform_id
+        passenger.assigned_line_id = self.line_id
+        passenger.assigned_direction = self.direction
+
+    def _sync_passenger_level_to_platform(
+        self,
+        passenger: PassengerAgent,
+        doors,
+    ) -> None:
+        for door in doors:
+            if door.spec.entry_level_id is not None:
+                passenger.current_level_id = door.spec.entry_level_id
+                return
+
     def _layout_waiting(self) -> None:
         speed = self._waiting_layout_speed_units_per_tick()
+        occupied_positions: list[tuple[float, float]] = []
         for index, passenger in enumerate(self.waiting):
             passenger.set_target(
                 self.model.layout_graph.platform_waiting_position(index),
                 goal_kind="waiting",
                 goal_label="platform waiting slot",
             )
-            passenger.move_directly_toward_target(speed)
+            passenger.move_directly_toward_target(
+                speed,
+                occupied_positions=occupied_positions,
+            )
+            occupied_positions.append(passenger.pos)
 
     def _waiting_layout_speed_units_per_tick(self) -> float:
         return max(0.1, float(self.model.scenario.walk_units_per_tick))
 
-    def _route_to_boarding_doors(self) -> None:
-        for _ in range(self._boarding_release_limit()):
-            if not self.waiting:
-                break
-            passenger = self.waiting.pop(0)
-            self.model.request_facility_choice(passenger, FacilityStage.BOARDING_DOOR)
-
-    def _boarding_release_limit(self) -> int:
-        doors = self.model.boarding_doors_for_platform(self)
-        if not doors:
-            return 0
-
-        per_door = max(
-            1,
-            int(self.model.scenario.platform_boarding_release_groups_per_door_tick),
-        )
-        frontage_limit = len(doors) * per_door
-        available_slots = sum(
-            max(0, self._door_queue_capacity(door) - len(door.queue)) for door in doors
-        )
-        if available_slots <= 0:
-            return 0
-        return min(len(self.waiting), frontage_limit, available_slots)
-
-    def _door_queue_capacity(self, door: FacilityProcessAgent) -> int:
-        slots = door.spec.queue_layout.slots
-        if slots:
-            return len(slots)
-        return max(1, self.model.scenario.boarding_queue_slots_per_row * 2)
-
     def step(self) -> None:
+        self._retry_boarding_door_assignment()
+        self._rebalance_closed_boarding_door_queues()
         self._layout_waiting()
-        self._route_to_boarding_doors()
+
+    def _retry_boarding_door_assignment(self) -> None:
+        if not self.waiting:
+            return
+        if not self.model.boarding_doors_for_platform(self):
+            return
+
+        for passenger in tuple(self.waiting):
+            if passenger.state != AgentState.WAITING_PLATFORM.value:
+                self.waiting.remove(passenger)
+                continue
+
+            self._assign_passenger_platform(passenger)
+            self._sync_passenger_level_to_platform(passenger, self.model.boarding_doors_for_platform(self))
+            passenger.assigned_facility_id = None
+            facility = self.model.request_facility_choice(passenger, FacilityStage.BOARDING_DOOR)
+            if facility is None or passenger.state != AgentState.QUEUEING_DOOR.value:
+                continue
+            if passenger in self.waiting:
+                self.waiting.remove(passenger)
+
+    def _rebalance_closed_boarding_door_queues(self) -> None:
+        doors = self.model.boarding_doors_for_platform(self)
+        if len(doors) < 2:
+            return
+        if self.model.boarding_train_for_platform(self) is not None:
+            return
+
+        max_moves = sum(len(door.queue) for door in doors)
+        for _ in range(max_moves):
+            donor = max(doors, key=lambda door: len(door.queue))
+            receiver = min(doors, key=lambda door: len(door.queue))
+            if len(donor.queue) - len(receiver.queue) <= 1:
+                return
+
+            passenger = donor.queue.pop()
+            receiver.join_queue(passenger)
+            passenger.last_replan_reason = "boarding_door_closed_rebalance"
+            self.model.audit.record(
+                "passenger_rebalanced_boarding_door",
+                source="platform",
+                severity="info",
+                step=self.model.step_index,
+                context={
+                    "passenger_id": passenger.unique_id,
+                    "platform_id": self.platform_id,
+                    "from_facility_id": donor.facility_id,
+                    "to_facility_id": receiver.facility_id,
+                },
+            )

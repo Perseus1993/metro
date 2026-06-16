@@ -763,20 +763,13 @@ def _after_vertical_route(
     start: Point,
     passenger: object | None,
 ) -> tuple[Point, ...]:
-    try:
-        return station_graph.route_from_position_to(
-            start,
-            kind="platform",
-            direction=_route_platform_direction(passenger),
-            line_id=_route_platform_line_id(passenger),
-            start_level_id=_route_start_level(passenger),
-        )
-    except ValueError:
-        return station_graph.route_from_position_to(
-            start,
-            kind="zone",
-            start_level_id=_route_start_level(passenger),
-        )
+    return station_graph.route_from_position_to(
+        start,
+        kind="platform",
+        direction=_route_platform_direction(passenger),
+        line_id=_route_platform_line_id(passenger),
+        start_level_id=_route_start_level(passenger),
+    )
 
 
 def _route_platform_direction(passenger: object | None) -> str | tuple[str | None, ...] | None:

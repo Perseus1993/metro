@@ -2450,8 +2450,6 @@
     }
 
     function trainTimeline(t, offset = 0, reverse = false, payloadTrain = null) {
-      const serviceTime = t - TRAIN_INITIAL_OFFSET_SECONDS + offset;
-      const cycleT = ((serviceTime % TRAIN_HEADWAY_SECONDS) + TRAIN_HEADWAY_SECONDS) % TRAIN_HEADWAY_SECONDS;
       const trainW = W * 0.86;
       const targetX = W * 0.065;
       const approachSeconds = Math.min(12, Math.max(5, TRAIN_HEADWAY_SECONDS * 0.12));
@@ -2460,6 +2458,8 @@
         TRAIN_DWELL_SECONDS,
         Math.max(4, TRAIN_HEADWAY_SECONDS - approachSeconds - departSeconds),
       );
+      const serviceTime = t - TRAIN_INITIAL_OFFSET_SECONDS + offset + approachSeconds;
+      const cycleT = ((serviceTime % TRAIN_HEADWAY_SECONDS) + TRAIN_HEADWAY_SECONDS) % TRAIN_HEADWAY_SECONDS;
       const dwellStart = approachSeconds;
       const departStart = dwellStart + dwellSeconds;
       const departEnd = departStart + departSeconds;
@@ -2468,11 +2468,7 @@
       let state = "区间";
       let moving = false;
 
-      if (payloadTrain?.state === "boarding") {
-        x = targetX;
-        doorOpen = 1;
-        state = "开门";
-      } else if (cycleT < approachSeconds) {
+      if (cycleT < approachSeconds) {
         const p = ease(cycleT / approachSeconds);
         x = lerp(-trainW * 0.96, targetX, p);
         state = "进站";
@@ -2483,7 +2479,7 @@
         const openIn = clamp(dwellT / 2.2, 0, 1);
         const closeOut = 1 - clamp((dwellT - Math.max(0, dwellSeconds - 2.4)) / 2.4, 0, 1);
         doorOpen = Math.min(openIn, closeOut);
-        state = doorOpen > 0.12 ? "开门" : "停靠";
+        state = payloadTrain?.state === "boarding" || doorOpen > 0.12 ? "开门" : "停靠";
       } else if (cycleT < departEnd) {
         const p = ease((cycleT - departStart) / departSeconds);
         x = lerp(targetX, W * 1.07, p);

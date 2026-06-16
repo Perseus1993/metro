@@ -43,6 +43,7 @@ class ExplicitReplanPolicy:
         AgentState.ENTERING_STATION.value: RouteKey.ENTRY_GATE_DECISION.value,
         AgentState.WALKING_TO_PLATFORM.value: RouteKey.AFTER_VERTICAL.value,
         AgentState.WALKING_TO_EXIT_GATE.value: RouteKey.AFTER_EXIT_VERTICAL.value,
+        AgentState.WALKING_TO_TRANSFER.value: RouteKey.CURRENT_POSITION.value,
     }
 
     SERVICE_REPLAN_STATES = PLAN_SERVICE_STATES
@@ -128,7 +129,32 @@ class ExplicitReplanPolicy:
         passenger.assigned_facility_id = None
         passenger.last_replan_reason = reason
         passenger.progress_age_seconds = 0.0
-        model.request_facility_choice(passenger, stage)
+        new_facility = model.request_facility_choice(passenger, stage)
+        if new_facility is None:
+            if current_facility is not None:
+                passenger.avoided_facility_ids_by_stage.get(stage, set()).discard(
+                    current_facility.facility_id
+                )
+                current_facility.join_queue(passenger)
+            else:
+                passenger.assigned_facility_id = previous_facility_id
+            passenger.last_replan_reason = f"{reason}:facility_choice_failed_restored"
+            model.audit.record(
+                "passenger_replan_facility_failed_restore",
+                source="progress_monitor",
+                severity="warning",
+                step=model.step_index,
+                context={
+                    "passenger_id": passenger.unique_id,
+                    "intent": passenger.intent,
+                    "stage": stage,
+                    "restored_facility_id": previous_facility_id,
+                    "reason": reason,
+                    "stalled_seconds": round(stalled_seconds, 2),
+                    "attempt": passenger.replan_attempts_by_stage[stage],
+                },
+            )
+            return False
         model.audit.record(
             "passenger_replanned_facility",
             source="progress_monitor",

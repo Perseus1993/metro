@@ -75,6 +75,7 @@ class FacilityProcessAgent(ServiceAgent):
 
     def _layout_queue(self) -> None:
         speed = self._queue_layout_speed_units_per_tick()
+        occupied_positions: list[tuple[float, float]] = []
         for index, passenger in enumerate(self.queue):
             passenger.set_target(
                 self.spec.queue_layout.slot(index),
@@ -83,7 +84,11 @@ class FacilityProcessAgent(ServiceAgent):
                 facility_id=self.spec.facility_id,
                 stage=self.spec.stage,
             )
-            passenger.move_directly_toward_target(speed)
+            passenger.move_directly_toward_target(
+                speed,
+                occupied_positions=occupied_positions,
+            )
+            occupied_positions.append(passenger.pos)
 
     def _queue_layout_speed_units_per_tick(self) -> float:
         return max(0.1, float(self.model.scenario.walk_units_per_tick))
@@ -168,82 +173,6 @@ class FacilityProcessAgent(ServiceAgent):
         passenger.begin_facility_service(self.spec)
         passenger.passive_facility_service = False
         self.served_persons += passenger.group_size
-
-
-class GateProcessAgent(FacilityProcessAgent):
-    """Entry or exit fare-gate process."""
-
-    def _active_state(self) -> str:
-        return "open"
-
-    def _start_service(
-        self,
-        passenger: PassengerAgent,
-        train: TrainAgent | None,
-        *,
-        release_index: int = 0,
-        release_count: int = 1,
-    ) -> None:
-        start_time, board_end_time, end_time = self._service_window_times(
-            release_index,
-            release_count,
-            passenger.group_size,
-        )
-        passenger.begin_facility_service(self.spec)
-        passenger.passive_facility_service = True
-        release_position = self._release_position(passenger, release_index)
-        passenger.set_target(
-            release_position,
-            goal_kind="being_served",
-            goal_label=self.spec.label,
-            facility_id=self.spec.facility_id,
-            stage=self.spec.stage,
-        )
-        passenger.pos = release_position
-        passenger.passive_facility_service = False
-        self.served_persons += passenger.group_size
-        self.model.record_facility_service_event(
-            FacilityServiceEvent(
-                event_id=self.model.next_facility_service_event_id(),
-                facility_id=self.facility_id,
-                facility_kind=FacilityKind.GATE.value,
-                mode=self.spec.stage,
-                passenger_ids=(int(passenger.unique_id),),
-                start_time=start_time,
-                board_end_time=board_end_time,
-                arrive_time=end_time,
-                end_time=end_time,
-                start_position=self.spec.position,
-                end_position=release_position,
-                direction=self.spec.direction,
-                from_level=self.spec.entry_level_id,
-                to_level=self.spec.exit_level_id,
-            )
-        )
-        passenger.advance_after_movement(True)
-
-    def _service_window_times(
-        self,
-        release_index: int,
-        release_count: int,
-        group_size: int,
-    ) -> tuple[float, float, float]:
-        scenario = self.model.scenario
-        window_end = float(self.model.current_time_seconds)
-        window_start = max(0.0, window_end - float(scenario.tick_seconds))
-        slot_count = max(1, int(release_count))
-        slot_time = window_start + (window_end - window_start) * (
-            (max(0, int(release_index)) + 1) / (slot_count + 1)
-        )
-        service_seconds = 60.0 * max(1, int(group_size)) / max(
-            0.001,
-            float(self.effective_service_persons_per_min),
-        )
-        slot_span = (window_end - window_start) / (slot_count + 1)
-        duration = max(0.05, min(service_seconds, slot_span * 0.9))
-        start_time = max(window_start, slot_time - duration)
-        board_end_time = start_time + (slot_time - start_time) * 0.55
-        return start_time, board_end_time, slot_time
 
     def _release_position(
         self,
@@ -370,6 +299,82 @@ class GateProcessAgent(FacilityProcessAgent):
             if hypot(candidate[0] - existing[0], candidate[1] - existing[1]) < min_distance:
                 return False
         return True
+
+
+class GateProcessAgent(FacilityProcessAgent):
+    """Entry or exit fare-gate process."""
+
+    def _active_state(self) -> str:
+        return "open"
+
+    def _start_service(
+        self,
+        passenger: PassengerAgent,
+        train: TrainAgent | None,
+        *,
+        release_index: int = 0,
+        release_count: int = 1,
+    ) -> None:
+        start_time, board_end_time, end_time = self._service_window_times(
+            release_index,
+            release_count,
+            passenger.group_size,
+        )
+        passenger.begin_facility_service(self.spec)
+        passenger.passive_facility_service = True
+        release_position = self._release_position(passenger, release_index)
+        passenger.set_target(
+            release_position,
+            goal_kind="being_served",
+            goal_label=self.spec.label,
+            facility_id=self.spec.facility_id,
+            stage=self.spec.stage,
+        )
+        passenger.pos = release_position
+        passenger.passive_facility_service = False
+        self.served_persons += passenger.group_size
+        self.model.record_facility_service_event(
+            FacilityServiceEvent(
+                event_id=self.model.next_facility_service_event_id(),
+                facility_id=self.facility_id,
+                facility_kind=FacilityKind.GATE.value,
+                mode=self.spec.stage,
+                passenger_ids=(int(passenger.unique_id),),
+                start_time=start_time,
+                board_end_time=board_end_time,
+                arrive_time=end_time,
+                end_time=end_time,
+                start_position=self.spec.position,
+                end_position=release_position,
+                direction=self.spec.direction,
+                from_level=self.spec.entry_level_id,
+                to_level=self.spec.exit_level_id,
+            )
+        )
+        passenger.advance_after_movement(True)
+
+    def _service_window_times(
+        self,
+        release_index: int,
+        release_count: int,
+        group_size: int,
+    ) -> tuple[float, float, float]:
+        scenario = self.model.scenario
+        window_end = float(self.model.current_time_seconds)
+        window_start = max(0.0, window_end - float(scenario.tick_seconds))
+        slot_count = max(1, int(release_count))
+        slot_time = window_start + (window_end - window_start) * (
+            (max(0, int(release_index)) + 1) / (slot_count + 1)
+        )
+        service_seconds = 60.0 * max(1, int(group_size)) / max(
+            0.001,
+            float(self.effective_service_persons_per_min),
+        )
+        slot_span = (window_end - window_start) / (slot_count + 1)
+        duration = max(0.05, min(service_seconds, slot_span * 0.9))
+        start_time = max(window_start, slot_time - duration)
+        board_end_time = start_time + (slot_time - start_time) * 0.55
+        return start_time, board_end_time, slot_time
 
 
 class BoardingDoorProcessAgent(FacilityProcessAgent):

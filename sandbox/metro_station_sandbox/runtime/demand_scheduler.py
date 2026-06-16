@@ -14,6 +14,7 @@ class DemandScheduler:
         self.scenario = scenario
         self.random = rng
         self.spawn_schedule = self._build_spawn_schedule()
+        self.alighting_schedule = self._build_alighting_schedule()
 
     @classmethod
     def from_scenario(cls, scenario: StationSandboxScenario, rng: Any) -> "DemandScheduler":
@@ -25,6 +26,9 @@ class DemandScheduler:
             return Counter({AgentIntent.ENTER_AND_BOARD.value: due})
         return Counter(due)
 
+    def due_alightings(self, step_index: int) -> int:
+        return int(self.alighting_schedule.get(step_index, 0))
+
     def _build_spawn_schedule(self) -> dict[int, Counter[str]]:
         schedule: dict[int, Counter[str]] = defaultdict(Counter)
         self._add_intent_spawn_schedule(
@@ -32,11 +36,17 @@ class DemandScheduler:
             AgentIntent.ENTER_AND_BOARD.value,
             self.scenario.entry_groups,
         )
-        self._add_intent_spawn_schedule(
-            schedule,
-            AgentIntent.EXIT_STATION.value,
-            self.scenario.exit_groups,
-        )
+        return dict(schedule)
+
+    def _build_alighting_schedule(self) -> dict[int, int]:
+        schedule: dict[int, int] = defaultdict(int)
+        release_steps = self._train_dwell_release_steps()
+        if not release_steps:
+            return {}
+
+        for index in range(self.scenario.exit_groups):
+            step = release_steps[index * len(release_steps) // self.scenario.exit_groups]
+            schedule[step] += 1
         return dict(schedule)
 
     def _add_intent_spawn_schedule(
@@ -54,3 +64,36 @@ class DemandScheduler:
             jitter = self.random.uniform(-0.35, 0.35) * ticks / groups
             step = max(0, min(last_spawn_step, int(round(base + jitter))))
             schedule[step][intent] += 1
+
+    def _train_dwell_release_steps(self) -> list[int]:
+        if self.scenario.exit_groups <= 0:
+            return []
+
+        arrivals = self._train_arrival_steps_for_exit_demand()
+        dwell_steps = max(1, round(self.scenario.train_dwell_seconds / self.scenario.tick_seconds))
+        release_steps: list[int] = []
+        for arrival_step in arrivals:
+            for offset in range(dwell_steps):
+                step = arrival_step + offset
+                if step >= self.scenario.horizon_steps:
+                    break
+                release_steps.append(step)
+        return release_steps
+
+    def _train_arrival_steps_for_exit_demand(self) -> list[int]:
+        first_arrival_step = max(
+            1,
+            round(self.scenario.initial_train_offset_seconds / self.scenario.tick_seconds),
+        )
+        if first_arrival_step >= self.scenario.horizon_steps:
+            return []
+
+        headway_steps = max(1, round(self.scenario.train_headway_seconds / self.scenario.tick_seconds))
+        arrivals: list[int] = []
+        step = first_arrival_step
+        while step < self.scenario.horizon_steps:
+            if step <= self.scenario.demand_steps:
+                arrivals.append(step)
+            step += headway_steps
+
+        return arrivals or [first_arrival_step]

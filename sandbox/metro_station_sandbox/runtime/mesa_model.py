@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from collections import Counter, defaultdict
 from math import cos as math_cos
+from math import hypot
 from math import sin as math_sin
 from collections.abc import Callable
 from typing import Any
@@ -12,7 +13,14 @@ from shapely.geometry import Point as ShapelyPoint
 from ..agents.passenger import PassengerAgent
 from ..agents.staff import AdminAgent
 from ..agents.transit import PlatformAgent, TrainAgent
-from ..planning.plan import CROWD_INTERACTION_STATES, AgentPlan, AgentState, FacilityStage, RouteKey
+from ..planning.plan import (
+    CROWD_INTERACTION_STATES,
+    AgentIntent,
+    AgentPlan,
+    AgentState,
+    FacilityStage,
+    RouteKey,
+)
 from .audit import AuditLogger
 from .demand_scheduler import DemandScheduler
 from ..station.compiler import DesignCompiler
@@ -131,6 +139,7 @@ class MetroStationModel(mesa.Model):
         self._jupedsim_level_walkable_areas: dict[str, Any] = {}
         self.demand_scheduler = DemandScheduler.from_scenario(scenario, self.random)
         self.spawn_schedule = self.demand_scheduler.spawn_schedule
+        self.alighting_schedule = self.demand_scheduler.alighting_schedule
         self.datacollector = mesa.DataCollector(
             model_reporters={
                 "station_persons": station_persons,
@@ -210,15 +219,127 @@ class MetroStationModel(mesa.Model):
         due_by_intent = self.demand_scheduler.due_by_intent(self.step_index)
         for intent, count in due_by_intent.items():
             for _ in range(count):
-                passenger = PassengerAgent(
-                    self,
-                    group_size=self.scenario.group_size,
-                    created_step=self.step_index,
-                    intent=intent,
-                )
-                self.passengers.append(passenger)
-                self.spawned_persons += passenger.group_size
-                self.spawned_persons_by_intent[intent] += passenger.group_size
+                self._spawn_passenger(intent)
+
+    def spawn_alighting_passengers(self) -> None:
+        due = self.demand_scheduler.due_alightings(self.step_index)
+        if due <= 0:
+            return
+
+        boarding_trains = [train for train in self.trains if train.is_boarding]
+        if not boarding_trains:
+            self.audit.record(
+                "alighting_demand_without_boarding_train",
+                source="demand_scheduler",
+                severity="warning",
+                step=self.step_index,
+                context={"due_persons": due},
+            )
+            return
+
+        for train, count in zip(
+            boarding_trains,
+            self._split_count(due, len(boarding_trains)),
+            strict=True,
+        ):
+            self._spawn_alighting_passengers_for_train(train, count)
+
+    def _spawn_passenger(
+        self,
+        intent: str | AgentIntent,
+        *,
+        initial_position: tuple[float, float] | None = None,
+        initial_level_id: str | None = None,
+    ) -> PassengerAgent:
+        passenger = PassengerAgent(
+            self,
+            group_size=self.scenario.group_size,
+            created_step=self.step_index,
+            intent=intent,
+            initial_position=initial_position,
+            initial_level_id=initial_level_id,
+        )
+        self.passengers.append(passenger)
+        self.spawned_persons += passenger.group_size
+        self.spawned_persons_by_intent[passenger.intent] += passenger.group_size
+        return passenger
+
+    def _spawn_alighting_passengers_for_train(self, train: TrainAgent, count: int) -> None:
+        if count <= 0:
+            return
+
+        doors = self.boarding_doors_for_train(train)
+        if not doors:
+            self.audit.record(
+                "alighting_train_has_no_doors",
+                source="demand_scheduler",
+                severity="error",
+                step=self.step_index,
+                context={
+                    "train_id": train.unique_id,
+                    "platform_id": train.platform_id,
+                    "due_persons": count,
+                },
+            )
+            return
+
+        door_spawn_counts: Counter[str] = Counter()
+        for index in range(count):
+            door = doors[(index + self.step_index + train.departed_trains) % len(doors)]
+            local_index = door_spawn_counts[door.facility_id]
+            door_spawn_counts[door.facility_id] += 1
+            passenger = self._spawn_passenger(
+                AgentIntent.EXIT_STATION,
+                initial_position=self._alighting_spawn_position(door, local_index),
+                initial_level_id=door.spec.exit_level_id or door.spec.entry_level_id,
+            )
+            passenger.assigned_platform_id = train.platform_id
+            passenger.assigned_line_id = train.line_id
+            passenger.assigned_direction = train.direction
+
+    def _alighting_spawn_position(
+        self,
+        door: FacilityProcessAgent,
+        local_index: int,
+    ) -> tuple[float, float]:
+        base_x, base_y = door.spec.exit_position
+        anchor_x, anchor_y = door.spec.queue_anchor
+        inward_x = anchor_x - base_x
+        inward_y = anchor_y - base_y
+        length = hypot(inward_x, inward_y)
+        if length <= 0.001:
+            inward_x, inward_y = 0.0, -1.0
+        else:
+            inward_x /= length
+            inward_y /= length
+
+        side_x = -inward_y
+        side_y = inward_x
+        spacing = max(0.35, self.scenario.jupedsim_agent_radius_units * 2.2)
+        lane = local_index % 4
+        row = local_index // 4
+        side_offset = (lane - 1.5) * spacing
+        inward_offset = 0.35 + row * max(0.25, self.scenario.jupedsim_agent_radius_units * 1.8)
+        raw = (
+            base_x + inward_x * inward_offset + side_x * side_offset,
+            base_y + inward_y * inward_offset + side_y * side_offset,
+        )
+        level_id = door.spec.exit_level_id or door.spec.entry_level_id
+        try:
+            return project_to_safe_point(
+                self.jupedsim_walkable_area(level_id),
+                self.clamp_position(raw),
+                clearance=max(0.02, self.scenario.jupedsim_agent_radius_units * 1.05),
+                require_inside=False,
+            )
+        except Exception:
+            return self.clamp_position(raw)
+
+    def _split_count(self, count: int, buckets: int) -> list[int]:
+        if buckets <= 0:
+            return []
+        base, remainder = divmod(max(0, count), buckets)
+        return [base + (1 if index < remainder else 0) for index in range(buckets)]
 
     def plan_for_intent(self, intent) -> AgentPlan:
         station_graph = self.layout_graph.station_graph
@@ -234,9 +355,128 @@ class MetroStationModel(mesa.Model):
         self,
         passenger: PassengerAgent,
         stage: str | FacilityStage,
-    ) -> None:
+    ) -> FacilityProcessAgent | None:
         """Choose the next facility through one policy hook."""
 
+        facility = self._choose_facility_for_stage(passenger, stage)
+        if facility is None:
+            return None
+        passenger.plan.assign_facility(facility.spec.stage, facility.facility_id)
+        facility.join_queue(passenger)
+        return facility
+
+    def preselect_facility_choice(
+        self,
+        passenger: PassengerAgent,
+        stage: str | FacilityStage,
+    ) -> FacilityProcessAgent | None:
+        facility = self._choose_facility_for_stage(passenger, stage)
+        if facility is None:
+            return None
+        passenger.plan.assign_facility(facility.spec.stage, facility.facility_id)
+        return facility
+
+    def join_preselected_facility_queue(
+        self,
+        passenger: PassengerAgent,
+        stage: str | FacilityStage,
+    ) -> bool:
+        stage_value = stage.value if isinstance(stage, FacilityStage) else str(stage)
+        facility_id = passenger.plan.chosen_facilities.get(stage_value)
+        if facility_id is None:
+            return False
+        if facility_id in passenger.avoided_facility_ids_by_stage.get(stage_value, set()):
+            return False
+        facility = self.facilities_by_id.get(facility_id)
+        if facility is None or facility.spec.stage != stage_value:
+            return False
+        if not facility.is_available_for_choice:
+            return False
+        facility.join_queue(passenger)
+        return True
+
+    def route_to_facility_queue(
+        self,
+        passenger: PassengerAgent,
+        facility: FacilityProcessAgent,
+    ) -> tuple[tuple[float, float], ...]:
+        level_id = facility.spec.entry_level_id or passenger.current_level_id
+        target = self.clamp_position(facility.spec.queue_anchor)
+        try:
+            area = self.jupedsim_walkable_area(level_id)
+            target = project_to_safe_point(
+                area,
+                target,
+                clearance=max(0.02, self.scenario.jupedsim_agent_radius_units * 1.05),
+                require_inside=False,
+            )
+        except Exception:
+            target = self.clamp_position(target)
+
+        route = self._station_graph_route_to_facility(passenger, facility)
+        return self._dedupe_route_points((*route, target))
+
+    def _station_graph_route_to_facility(
+        self,
+        passenger: PassengerAgent,
+        facility: FacilityProcessAgent,
+    ) -> tuple[tuple[float, float], ...]:
+        station_graph = getattr(self.layout_graph, "station_graph", None)
+        if station_graph is None:
+            return ()
+
+        element_id = self._facility_element_id(facility.facility_id)
+        target_nodes = [
+            node
+            for node_id in station_graph.node_ids_for_element(element_id)
+            if (node := station_graph.nodes.get(node_id)) is not None
+            and node.kind == "facility_entry"
+            and node.facility_stage == facility.spec.stage
+        ]
+        if not target_nodes:
+            return ()
+
+        level_id = facility.spec.entry_level_id or passenger.current_level_id
+        start_candidates = [
+            node
+            for node in station_graph.nodes.values()
+            if level_id is None or node.level_id == level_id
+        ]
+        try:
+            start_node = station_graph.nearest_node(passenger.pos, start_candidates or None)
+            path = station_graph.shortest_path(
+                start_node.node_id,
+                {node.node_id for node in target_nodes},
+                allowed_kinds={"walk"},
+            )
+        except ValueError:
+            return ()
+        if path is None:
+            return ()
+        return tuple(path.positions[1:] or path.positions)
+
+    def _facility_element_id(self, facility_id: str) -> str:
+        parts = facility_id.split(":")
+        if len(parts) >= 2:
+            return parts[1]
+        return facility_id
+
+    def _dedupe_route_points(
+        self,
+        points: tuple[tuple[float, float], ...],
+    ) -> tuple[tuple[float, float], ...]:
+        route: list[tuple[float, float]] = []
+        for point in points:
+            if route and hypot(route[-1][0] - point[0], route[-1][1] - point[1]) <= 0.001:
+                continue
+            route.append(point)
+        return tuple(route)
+
+    def _choose_facility_for_stage(
+        self,
+        passenger: PassengerAgent,
+        stage: str | FacilityStage,
+    ) -> FacilityProcessAgent | None:
         stage_value = stage.value if isinstance(stage, FacilityStage) else str(stage)
         candidates = self._facilities_for_stage(stage_value)
         if not candidates:
@@ -253,7 +493,7 @@ class MetroStationModel(mesa.Model):
                 },
             )
             passenger.last_replan_reason = f"no_facility_candidates:{stage_value}"
-            return
+            return None
         try:
             facility = self.facility_choice_policy.choose(self, passenger, stage_value, candidates)
         except ValueError as exc:
@@ -271,14 +511,33 @@ class MetroStationModel(mesa.Model):
                 },
             )
             passenger.last_replan_reason = f"facility_choice_failed:{stage_value}"
-            return
-        facility.join_queue(passenger)
+            return None
+        return facility
 
-    def join_platform(self, passenger: PassengerAgent) -> None:
-        self.platform_for_passenger(passenger).join_waiting(passenger)
+    def join_platform(self, passenger: PassengerAgent) -> bool:
+        platform = self.platform_for_passenger(passenger)
+        if platform is None:
+            return False
+        platform.join_waiting(passenger)
+        return True
 
-    def choose_platform(self, passenger: PassengerAgent) -> PlatformAgent:
+    def choose_platform(self, passenger: PassengerAgent) -> PlatformAgent | None:
         candidates = filter_platforms_for_passenger(passenger, self.platforms)
+        if not candidates:
+            self.audit.record(
+                "platform_choice_failed",
+                source="platform_choice",
+                severity="error",
+                step=self.step_index,
+                context={
+                    "passenger_id": passenger.unique_id,
+                    "intent": passenger.intent,
+                    "target_line_id": passenger.target_line_id,
+                    "target_direction": passenger.target_direction,
+                },
+            )
+            passenger.last_replan_reason = "platform_choice_failed"
+            return None
         platform = pick_least_loaded(candidates, self.random, lambda item: item.waiting_persons)
         passenger.assigned_platform_id = platform.platform_id
         passenger.assigned_line_id = platform.line_id
@@ -298,15 +557,73 @@ class MetroStationModel(mesa.Model):
         )
         return platform
 
-    def platform_for_passenger(self, passenger: PassengerAgent) -> PlatformAgent:
+    def platform_for_passenger(self, passenger: PassengerAgent) -> PlatformAgent | None:
         if passenger.assigned_platform_id is not None:
             platform = self.platforms_by_id.get(passenger.assigned_platform_id)
             if platform is not None:
                 return platform
-        return self.platform
+            self.audit.record(
+                "assigned_platform_missing",
+                source="platform_choice",
+                severity="error",
+                step=self.step_index,
+                context={
+                    "passenger_id": passenger.unique_id,
+                    "intent": passenger.intent,
+                    "platform_id": passenger.assigned_platform_id,
+                },
+            )
+            passenger.last_replan_reason = "assigned_platform_missing"
+            return None
+
+        filtered = self.platforms
+        if passenger.assigned_line_id is not None:
+            filtered = [
+                platform
+                for platform in filtered
+                if platform.line_id == passenger.assigned_line_id
+            ]
+        if passenger.assigned_direction is not None:
+            filtered = [
+                platform
+                for platform in filtered
+                if platform.direction == passenger.assigned_direction
+            ]
+        if len(filtered) == 1:
+            return filtered[0]
+
+        self.audit.record(
+            "platform_assignment_missing",
+            source="platform_choice",
+            severity="error",
+            step=self.step_index,
+            context={
+                "passenger_id": passenger.unique_id,
+                "intent": passenger.intent,
+                "assigned_line_id": passenger.assigned_line_id,
+                "assigned_direction": passenger.assigned_direction,
+                "candidate_count": len(filtered),
+            },
+        )
+        passenger.last_replan_reason = "platform_assignment_missing"
+        return None
 
     def boarding_doors_for_platform(self, platform: PlatformAgent) -> list[FacilityProcessAgent]:
         return filter_boarding_doors_for_platform(platform, self.boarding_doors)
+
+    def boarding_doors_for_train(self, train: TrainAgent) -> list[FacilityProcessAgent]:
+        doors = [
+            door
+            for door in self.boarding_doors
+            if door.spec.platform_id == train.platform_id
+        ]
+        if doors:
+            return doors
+        return [
+            door
+            for door in self.boarding_doors
+            if door.spec.line_id == train.line_id and door.spec.direction == train.direction
+        ]
 
     def train_for_platform(self, platform: PlatformAgent) -> TrainAgent | None:
         train = self.trains_by_platform_id.get(platform.platform_id)
@@ -341,7 +658,25 @@ class MetroStationModel(mesa.Model):
         passenger: PassengerAgent,
     ) -> tuple[tuple[float, float], ...]:
         key = route_key.value if isinstance(route_key, RouteKey) else str(route_key)
-        route = self.layout_graph.route_for_key(key, passenger.pos, passenger)
+        try:
+            route = self.layout_graph.route_for_key(key, passenger.pos, passenger)
+        except ValueError as exc:
+            self.audit.record(
+                "route_planning_failed",
+                source="route_planning",
+                severity="error",
+                step=self.step_index,
+                context={
+                    "passenger_id": passenger.unique_id,
+                    "intent": passenger.intent,
+                    "state": passenger.state,
+                    "route_key": key,
+                    "current_level_id": passenger.current_level_id,
+                    "error": str(exc),
+                },
+            )
+            passenger.last_replan_reason = f"route_planning_failed:{key}"
+            return ()
         return self._disperse_route_targets(key, route, passenger)
 
     def _disperse_route_targets(
@@ -393,7 +728,7 @@ class MetroStationModel(mesa.Model):
         if passenger.state == AgentState.DEPARTED.value:
             return
         self.movement_backend.remove_passenger(passenger)
-        self._remove_from_platform_waiting(passenger)
+        self._remove_from_station_holding_areas(passenger)
         passenger.state = AgentState.DEPARTED.value
         passenger.boarded_step = self.step_index
         minutes = (self.step_index - passenger.created_step) * self.scenario.tick_seconds / 60.0
@@ -416,9 +751,11 @@ class MetroStationModel(mesa.Model):
             )
         passenger.remove()
 
-    def _remove_from_platform_waiting(self, passenger: PassengerAgent) -> None:
+    def _remove_from_station_holding_areas(self, passenger: PassengerAgent) -> None:
         for platform in self.platforms:
             platform.waiting = [waiting for waiting in platform.waiting if waiting is not passenger]
+        for facility in self.facilities:
+            facility.queue = [queued for queued in facility.queue if queued is not passenger]
 
     def active_passengers(self) -> list[PassengerAgent]:
         return [
@@ -559,6 +896,7 @@ class MetroStationModel(mesa.Model):
         self.spawn_passengers()
         for train in self.trains:
             train.step()
+        self.spawn_alighting_passengers()
         for gate in self.gates:
             gate.step()
         for gate in self.exit_gates:
@@ -571,6 +909,9 @@ class MetroStationModel(mesa.Model):
             door.step(self.train_for_facility(door))
         for admin in self.admin_agents:
             admin.step()
+
+        for passenger in self.passengers:
+            self._recover_stale_choosing_state(passenger)
 
         self.rebuild_spatial_index()
         for passenger, movement_result in self.movement_backend.step_all(list(self.passengers)):
@@ -585,10 +926,47 @@ class MetroStationModel(mesa.Model):
         if self._should_stop():
             self.running = False
 
+    def _recover_stale_choosing_state(self, passenger: PassengerAgent) -> None:
+        recovery_state_by_state = {
+            AgentState.CHOOSING_GATE.value: AgentState.ENTERING_STATION.value,
+            AgentState.CHOOSING_VERTICAL.value: AgentState.WALKING_TO_VERTICAL.value,
+            AgentState.CHOOSING_EXIT_GATE.value: AgentState.WALKING_TO_EXIT_GATE.value,
+        }
+        recovery_state = recovery_state_by_state.get(passenger.state)
+        if recovery_state is None:
+            return
+
+        stale_state = passenger.state
+        passenger.state = recovery_state
+        passenger.progress_age_seconds = 0.0
+        passenger.last_replan_reason = f"stale_state_recovered:{stale_state}"
+        self.audit.record(
+            "stale_choosing_state_recovered",
+            source="state_recovery",
+            severity="warning",
+            step=self.step_index,
+            context={
+                "passenger_id": passenger.unique_id,
+                "intent": passenger.intent,
+                "from_state": stale_state,
+                "to_state": recovery_state,
+            },
+        )
+
     def _should_stop(self) -> bool:
         if self.step_index >= self.scenario.horizon_steps:
             return True
-        return self.step_index >= self.scenario.demand_steps and not self.passengers
+        return (
+            self.step_index >= self.scenario.demand_steps
+            and not self.passengers
+            and not self._has_pending_alighting_demand()
+        )
+
+    def _has_pending_alighting_demand(self) -> bool:
+        return any(
+            step >= self.step_index and count > 0
+            for step, count in self.alighting_schedule.items()
+        )
 
     def run(
         self,

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from collections.abc import Iterable
 from math import hypot
 
 import mesa
@@ -15,6 +16,7 @@ from ..planning.plan import (
     FacilityStage,
     PlanAction,
     PlanActionKind,
+    RouteKey,
 )
 from ..station.geometry import (
     document_walkable_geometry,
@@ -41,6 +43,8 @@ class PassengerAgent(MovableAgent):
         intent: str | AgentIntent = AgentIntent.ENTER_AND_BOARD,
         target_line_id: str | None = None,
         target_direction: str | None = None,
+        initial_position: Point | None = None,
+        initial_level_id: str | None = None,
     ) -> None:
         super().__init__(model)
         self.group_size = int(group_size)
@@ -48,6 +52,8 @@ class PassengerAgent(MovableAgent):
         self.boarded_step: int | None = None
         self.intent = intent.value if isinstance(intent, AgentIntent) else str(intent)
         self.plan = self.model.plan_for_intent(intent)
+        self._initial_position_override = initial_position
+        self._initial_level_id_override = initial_level_id
         self.assigned_facility_id: str | None = None
         self.assigned_gate_id: int | None = None
         self.assigned_transport_id: int | None = None
@@ -57,7 +63,7 @@ class PassengerAgent(MovableAgent):
         self.assigned_direction: str | None = None
         self.target_line_id = target_line_id
         self.target_direction = target_direction
-        self.current_level_id: str | None = None
+        self.current_level_id: str | None = initial_level_id
         self.replan_attempts_by_stage: dict[str, int] = {}
         self.avoided_facility_ids_by_stage: dict[str, set[str]] = {}
         self.last_replan_reason: str | None = None
@@ -75,13 +81,37 @@ class PassengerAgent(MovableAgent):
         self.pos = self._initial_position()
         self.route: list[Point] = []
         self.target = self.pos
+        if not self._set_preselected_initial_facility_route():
+            self.set_route(
+                self.model.route_for_key(self.plan.initial_route_key, self),
+                goal_kind="walk",
+                goal_label=self.plan.initial_goal_label,
+            )
+
+    def _set_preselected_initial_facility_route(self) -> bool:
+        if self.intent != AgentIntent.ENTER_AND_BOARD.value:
+            return False
+        if self.plan.initial_route_key != RouteKey.ENTRY_GATE_DECISION.value:
+            return False
+
+        facility = self.model.preselect_facility_choice(self, FacilityStage.ENTRY_GATE)
+        if facility is None:
+            return False
         self.set_route(
-            self.model.route_for_key(self.plan.initial_route_key, self),
+            self.model.route_to_facility_queue(self, facility),
             goal_kind="walk",
-            goal_label=self.plan.initial_goal_label,
+            goal_label=f"{facility.spec.label} queue approach",
+            facility_id=facility.facility_id,
+            stage=facility.spec.stage,
         )
+        return True
 
     def _initial_position(self) -> Point:
+        if self._initial_position_override is not None:
+            if self._initial_level_id_override is not None:
+                self.current_level_id = self._initial_level_id_override
+            return self.model.clamp_position(self._initial_position_override)
+
         station_graph = getattr(self.model.layout_graph, "station_graph", None)
         if station_graph is not None:
             if self.intent in {AgentIntent.EXIT_STATION.value, AgentIntent.TRANSFER.value}:
@@ -241,7 +271,13 @@ class PassengerAgent(MovableAgent):
     def move_toward_target(self) -> bool:
         return self.apply_movement_result(self.model.movement_backend.move(self))
 
-    def move_directly_toward_target(self, max_distance: float | None = None) -> bool:
+    def move_directly_toward_target(
+        self,
+        max_distance: float | None = None,
+        *,
+        occupied_positions: Iterable[Point] = (),
+        min_clearance: float | None = None,
+    ) -> bool:
         """Move passive layout states without invoking the crowd movement backend."""
         x, y = self.pos
         tx, ty = self.target
@@ -255,17 +291,77 @@ class PassengerAgent(MovableAgent):
             else float(self.model.scenario.walk_units_per_tick)
         )
         if step <= 0.0 or distance <= max(step, self.model.scenario.jupedsim_target_radius_units):
-            self.pos = self._project_direct_layout_position(self.target)
+            candidate = self._project_direct_layout_position(self.target)
+            clear_candidate = self._clear_direct_layout_position(
+                candidate,
+                occupied_positions,
+                min_clearance=min_clearance,
+            )
+            self.pos = clear_candidate
+            if hypot(clear_candidate[0] - candidate[0], clear_candidate[1] - candidate[1]) > 0.001:
+                return False
             return self._finish_current_target()
 
         ratio = step / distance
-        self.pos = self._project_direct_layout_position(
+        candidate = self._project_direct_layout_position(
             (
                 x + (tx - x) * ratio,
                 y + (ty - y) * ratio,
             )
         )
+        self.pos = self._clear_direct_layout_position(
+            candidate,
+            occupied_positions,
+            min_clearance=min_clearance,
+        )
         return False
+
+    def _clear_direct_layout_position(
+        self,
+        candidate: Point,
+        occupied_positions: Iterable[Point],
+        *,
+        min_clearance: float | None = None,
+    ) -> Point:
+        occupied = tuple(occupied_positions)
+        clearance = (
+            self._direct_layout_min_clearance()
+            if min_clearance is None
+            else max(0.0, float(min_clearance))
+        )
+        if self._has_direct_layout_clearance(candidate, occupied, clearance):
+            return candidate
+
+        x, y = self.pos
+        for fraction in (0.75, 0.5, 0.25, 0.0):
+            adjusted = self._project_direct_layout_position(
+                (
+                    x + (candidate[0] - x) * fraction,
+                    y + (candidate[1] - y) * fraction,
+                )
+            )
+            if self._has_direct_layout_clearance(adjusted, occupied, clearance):
+                return adjusted
+        return self.pos
+
+    def _has_direct_layout_clearance(
+        self,
+        candidate: Point,
+        occupied_positions: tuple[Point, ...],
+        min_clearance: float,
+    ) -> bool:
+        return all(
+            hypot(candidate[0] - other[0], candidate[1] - other[1]) >= min_clearance
+            for other in occupied_positions
+        )
+
+    def _direct_layout_min_clearance(self) -> float:
+        scenario = self.model.scenario
+        return max(
+            0.05,
+            float(scenario.jupedsim_agent_radius_units)
+            * float(scenario.jupedsim_clearance_multiplier),
+        )
 
     def _project_direct_layout_position(self, position: Point) -> Point:
         candidate = self.model.clamp_position(position)
@@ -351,36 +447,69 @@ class PassengerAgent(MovableAgent):
 
         action = self.plan.action_for_reached_state(self.state)
         if action is not None:
-            self._apply_plan_action(action)
-            self.plan.advance_action(action)
+            if self._apply_plan_action(action):
+                self.plan.advance_action(action)
 
-    def _apply_plan_action(self, action: PlanAction) -> None:
-        if action.completed_stage is not None:
-            self.plan.complete_stage(action.completed_stage)
-        if action.next_state is not None:
-            self.state = action.next_state
+    def _apply_plan_action(self, action: PlanAction) -> bool:
+        previous_state = self.state
 
         if action.kind == PlanActionKind.CHOOSE_FACILITY.value:
             if action.stage is None:
                 raise ValueError(f"Plan action {action.label!r} is missing a facility stage")
-            self.model.request_facility_choice(self, action.stage)
+            if self.model.join_preselected_facility_queue(self, action.stage):
+                self._apply_plan_transition(action, apply_next_state=False)
+                return True
+            facility = self.model.request_facility_choice(self, action.stage)
+            if facility is None:
+                self.state = previous_state
+                return False
+            self._apply_plan_transition(action, apply_next_state=False)
+            return True
         elif action.kind == PlanActionKind.CHOOSE_PLATFORM.value:
-            self.model.choose_platform(self)
+            platform = self.model.choose_platform(self)
+            if platform is None:
+                self.state = previous_state
+                return False
             if action.route_key is not None:
+                route = self.model.route_for_key(action.route_key, self)
+                if not route:
+                    self.state = previous_state
+                    return False
                 self.set_route(
-                    self.model.route_for_key(action.route_key, self),
+                    route,
                     goal_kind="walk",
                     goal_label=action.label,
                 )
         elif action.kind == PlanActionKind.WALK_ROUTE.value:
             if action.route_key is None:
                 raise ValueError(f"Plan action {action.label!r} is missing a route key")
+            route = self.model.route_for_key(action.route_key, self)
+            if not route:
+                self.state = previous_state
+                return False
             self.set_route(
-                self.model.route_for_key(action.route_key, self),
+                route,
                 goal_kind="walk",
                 goal_label=action.label,
             )
         elif action.kind == PlanActionKind.JOIN_PLATFORM.value:
-            self.model.join_platform(self)
+            if not self.model.join_platform(self):
+                self.state = previous_state
+                return False
         elif action.kind == PlanActionKind.DEPART.value:
+            self._apply_plan_transition(action)
             self.model.complete_departure(self, boarded=action.counts_boarded)
+            return True
+        self._apply_plan_transition(action)
+        return True
+
+    def _apply_plan_transition(
+        self,
+        action: PlanAction,
+        *,
+        apply_next_state: bool = True,
+    ) -> None:
+        if action.completed_stage is not None:
+            self.plan.complete_stage(action.completed_stage)
+        if apply_next_state and action.next_state is not None:
+            self.state = action.next_state

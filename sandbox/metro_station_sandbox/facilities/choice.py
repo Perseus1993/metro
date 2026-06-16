@@ -43,9 +43,13 @@ class DefaultFacilityChoicePolicy(FacilityChoicePolicy):
         if not candidates:
             raise ValueError(f"No facilities are configured for stage {stage!r}")
         candidates = filter_facilities_for_passenger(passenger, stage, candidates)
+        if not candidates:
+            raise ValueError(f"No facilities match passenger constraints for stage {stage!r}")
         if stage == FacilityStage.VERTICAL_TRANSFER.value:
             candidates = self._vertical_preference_candidates(model, passenger, candidates)
         candidates = self._without_avoided_facilities(passenger, stage, candidates)
+        if not candidates:
+            raise ValueError(f"No unavoided facilities remain for stage {stage!r}")
         available = [candidate for candidate in candidates if candidate.is_available_for_choice]
         if available:
             candidates = available
@@ -66,7 +70,7 @@ class DefaultFacilityChoicePolicy(FacilityChoicePolicy):
         direction_candidates = [
             item for item in candidates if item.spec.direction in {direction, "both"}
         ]
-        filtered = direction_candidates or candidates
+        filtered = direction_candidates
         if passenger.prefers_elevator:
             elevator_candidates = [
                 item for item in filtered if item.spec.kind == FacilityKind.ELEVATOR.value
@@ -97,7 +101,7 @@ class DefaultFacilityChoicePolicy(FacilityChoicePolicy):
         if not avoided:
             return candidates
         fresh = [candidate for candidate in candidates if candidate.facility_id not in avoided]
-        return fresh or candidates
+        return fresh
 
     def _generalized_cost(
         self,

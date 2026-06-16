@@ -37,7 +37,12 @@ F = TypeVar("F", bound=FacilityLike)
 P = TypeVar("P", bound=PlatformLike)
 
 
-def filter_by_current_level(passenger: PassengerLike, candidates: Sequence[F]) -> list[F]:
+def filter_by_current_level(
+    passenger: PassengerLike,
+    candidates: Sequence[F],
+    *,
+    strict: bool = False,
+) -> list[F]:
     level_id = passenger.current_level_id
     if level_id is None:
         return list(candidates)
@@ -47,6 +52,8 @@ def filter_by_current_level(passenger: PassengerLike, candidates: Sequence[F]) -
         for item in candidates
         if item.spec.entry_level_id is None or item.spec.entry_level_id == level_id
     ]
+    if strict:
+        return matching
     return matching or list(candidates)
 
 
@@ -56,21 +63,16 @@ def filter_boarding_doors_for_passenger(
 ) -> list[F]:
     platform_id = passenger.assigned_platform_id
     if platform_id is not None:
-        matching = [item for item in candidates if item.spec.platform_id == platform_id]
-        if matching:
-            return matching
+        return [item for item in candidates if item.spec.platform_id == platform_id]
 
+    filtered = list(candidates)
     line_id = passenger.assigned_line_id
     direction = passenger.assigned_direction
-    if line_id is not None and direction is not None:
-        matching = [
-            item
-            for item in candidates
-            if item.spec.line_id == line_id and item.spec.direction == direction
-        ]
-        if matching:
-            return matching
-    return list(candidates)
+    if line_id is not None:
+        filtered = [item for item in filtered if item.spec.line_id == line_id]
+    if direction is not None:
+        filtered = [item for item in filtered if item.spec.direction == direction]
+    return filtered
 
 
 def filter_boarding_doors_for_platform(
@@ -94,8 +96,7 @@ def filter_vertical_transfers_for_passenger(
     candidates: Sequence[F],
 ) -> list[F]:
     direction = "up" if passenger.intent == AgentIntent.EXIT_STATION.value else "down"
-    matching = [item for item in candidates if item.spec.direction in {direction, "both"}]
-    return matching or list(candidates)
+    return [item for item in candidates if item.spec.direction in {direction, "both"}]
 
 
 def filter_facilities_for_passenger(
@@ -104,7 +105,11 @@ def filter_facilities_for_passenger(
     candidates: Sequence[F],
 ) -> list[F]:
     stage_value = stage.value if isinstance(stage, FacilityStage) else str(stage)
-    filtered = filter_by_current_level(passenger, candidates)
+    strict_level = stage_value in {
+        FacilityStage.VERTICAL_TRANSFER.value,
+        FacilityStage.BOARDING_DOOR.value,
+    }
+    filtered = filter_by_current_level(passenger, candidates, strict=strict_level)
     if stage_value == FacilityStage.BOARDING_DOOR.value:
         filtered = filter_boarding_doors_for_passenger(passenger, filtered)
     elif stage_value == FacilityStage.VERTICAL_TRANSFER.value:
@@ -118,12 +123,14 @@ def filter_platforms_for_passenger(passenger: PassengerLike, candidates: Sequenc
         matching = [
             platform for platform in filtered if platform.line_id == passenger.target_line_id
         ]
-        if matching:
-            filtered = matching
+        if not matching:
+            return []
+        filtered = matching
     if passenger.target_direction is not None:
         matching = [
             platform for platform in filtered if platform.direction == passenger.target_direction
         ]
-        if matching:
-            filtered = matching
+        if not matching:
+            return []
+        filtered = matching
     return filtered

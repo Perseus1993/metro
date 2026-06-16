@@ -43,10 +43,22 @@ class ElevatorConfig:
     boarding_seconds: float = 5.0
     travel_seconds: float = 35.0
     unload_seconds: float = 0.0
+    return_seconds: float | None = None
+
+    @property
+    def return_trip_seconds(self) -> float:
+        if self.return_seconds is None:
+            return max(0.0, self.travel_seconds)
+        return max(0.0, self.return_seconds)
 
     @property
     def cycle_seconds(self) -> float:
-        return max(0.0, self.boarding_seconds) + max(0.0, self.travel_seconds) + max(0.0, self.unload_seconds)
+        return (
+            max(0.0, self.boarding_seconds)
+            + max(0.0, self.travel_seconds)
+            + max(0.0, self.unload_seconds)
+            + self.return_trip_seconds
+        )
 
 
 @dataclass(frozen=True)
@@ -80,12 +92,17 @@ def default_elevator_config(
     boarding_seconds: float,
     travel_seconds: float,
     unload_seconds: float = 0.0,
+    return_seconds: float | None = None,
 ) -> ElevatorConfig:
+    parsed_travel_seconds = max(0.0, float(travel_seconds))
     return ElevatorConfig(
         batch_capacity=max(1, int(batch_capacity)),
         boarding_seconds=max(0.0, float(boarding_seconds)),
-        travel_seconds=max(0.0, float(travel_seconds)),
+        travel_seconds=parsed_travel_seconds,
         unload_seconds=max(0.0, float(unload_seconds)),
+        return_seconds=(
+            parsed_travel_seconds if return_seconds is None else max(0.0, float(return_seconds))
+        ),
     )
 
 
