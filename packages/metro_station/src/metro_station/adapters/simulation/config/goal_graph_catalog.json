@@ -1,0 +1,469 @@
+{
+  "version": 1,
+  "journeys": {
+    "enter_and_board": {
+      "id": "station_entry_to_boarding",
+      "version": 1,
+      "entry_node_id": "approach_entry_gate_decision",
+      "nodes": [
+        {
+          "id": "approach_entry_gate_decision",
+          "kind": "enter_region",
+          "label": "approach entry gate decision",
+          "region_id": "entry_gate_decision",
+          "facility_stage": null,
+          "decision_region_id": null,
+          "wait_event_kind": null,
+          "metadata": {}
+        },
+        {
+          "id": "use_entry_gate",
+          "kind": "use_facility_stage",
+          "label": "use entry gate",
+          "region_id": null,
+          "facility_stage": "entry_gate",
+          "decision_region_id": "entry_gate_decision",
+          "wait_event_kind": null,
+          "metadata": {}
+        },
+        {
+          "id": "enter_paid_hall",
+          "kind": "enter_region",
+          "label": "enter paid hall",
+          "region_id": "paid_hall",
+          "facility_stage": null,
+          "decision_region_id": null,
+          "wait_event_kind": null,
+          "metadata": {}
+        },
+        {
+          "id": "approach_vertical_decision",
+          "kind": "enter_region",
+          "label": "approach vertical decision",
+          "region_id": "vertical_decision",
+          "facility_stage": null,
+          "decision_region_id": null,
+          "wait_event_kind": null,
+          "metadata": {}
+        },
+        {
+          "id": "use_vertical_transfer",
+          "kind": "use_facility_stage",
+          "label": "use vertical transfer",
+          "region_id": null,
+          "facility_stage": "vertical_transfer",
+          "decision_region_id": "vertical_decision",
+          "wait_event_kind": null,
+          "metadata": {}
+        },
+        {
+          "id": "enter_platform_landing",
+          "kind": "enter_region",
+          "label": "enter platform landing",
+          "region_id": "platform_landing",
+          "facility_stage": null,
+          "decision_region_id": null,
+          "wait_event_kind": null,
+          "metadata": {}
+        },
+        {
+          "id": "wait_for_train",
+          "kind": "wait_for_event",
+          "label": "wait for train availability",
+          "region_id": null,
+          "facility_stage": null,
+          "decision_region_id": null,
+          "wait_event_kind": "train_available",
+          "metadata": {}
+        },
+        {
+          "id": "approach_boarding_decision",
+          "kind": "enter_region",
+          "label": "approach boarding decision",
+          "region_id": "boarding_decision",
+          "facility_stage": null,
+          "decision_region_id": null,
+          "wait_event_kind": null,
+          "metadata": {}
+        },
+        {
+          "id": "use_boarding_door",
+          "kind": "use_facility_stage",
+          "label": "use boarding door",
+          "region_id": null,
+          "facility_stage": "boarding_door",
+          "decision_region_id": "boarding_decision",
+          "wait_event_kind": null,
+          "metadata": {}
+        },
+        {
+          "id": "complete",
+          "kind": "complete",
+          "label": "station_entry_to_boarding complete",
+          "region_id": null,
+          "facility_stage": null,
+          "decision_region_id": null,
+          "wait_event_kind": null,
+          "metadata": {}
+        }
+      ],
+      "transitions": [
+        {
+          "id": "approach_entry_gate_decision_completed",
+          "source": "approach_entry_gate_decision",
+          "target": "use_entry_gate",
+          "event": "goal_completed",
+          "guard": null
+        },
+        {
+          "id": "use_entry_gate_completed",
+          "source": "use_entry_gate",
+          "target": "enter_paid_hall",
+          "event": "goal_completed",
+          "guard": null
+        },
+        {
+          "id": "enter_paid_hall_completed",
+          "source": "enter_paid_hall",
+          "target": "approach_vertical_decision",
+          "event": "goal_completed",
+          "guard": null
+        },
+        {
+          "id": "approach_vertical_decision_completed",
+          "source": "approach_vertical_decision",
+          "target": "use_vertical_transfer",
+          "event": "goal_completed",
+          "guard": null
+        },
+        {
+          "id": "use_vertical_transfer_completed",
+          "source": "use_vertical_transfer",
+          "target": "enter_platform_landing",
+          "event": "goal_completed",
+          "guard": null
+        },
+        {
+          "id": "enter_platform_landing_completed",
+          "source": "enter_platform_landing",
+          "target": "wait_for_train",
+          "event": "goal_completed",
+          "guard": null
+        },
+        {
+          "id": "wait_for_train_completed",
+          "source": "wait_for_train",
+          "target": "approach_boarding_decision",
+          "event": "train_available",
+          "guard": null
+        },
+        {
+          "id": "approach_boarding_decision_completed",
+          "source": "approach_boarding_decision",
+          "target": "use_boarding_door",
+          "event": "goal_completed",
+          "guard": null
+        },
+        {
+          "id": "use_boarding_door_completed",
+          "source": "use_boarding_door",
+          "target": "complete",
+          "event": "goal_completed",
+          "guard": null
+        },
+        {
+          "id": "wait_for_train_timeout_fallback",
+          "source": "wait_for_train",
+          "target": "wait_for_train",
+          "event": "wait_timeout",
+          "guard": null
+        }
+      ]
+    },
+    "exit_station": {
+      "id": "station_exit",
+      "version": 1,
+      "entry_node_id": "approach_vertical_decision",
+      "nodes": [
+        {
+          "id": "approach_vertical_decision",
+          "kind": "enter_region",
+          "label": "approach vertical decision",
+          "region_id": "vertical_decision",
+          "facility_stage": null,
+          "decision_region_id": null,
+          "wait_event_kind": null,
+          "metadata": {}
+        },
+        {
+          "id": "use_vertical_transfer",
+          "kind": "use_facility_stage",
+          "label": "use vertical transfer",
+          "region_id": null,
+          "facility_stage": "vertical_transfer",
+          "decision_region_id": "vertical_decision",
+          "wait_event_kind": null,
+          "metadata": {}
+        },
+        {
+          "id": "enter_exit_hall",
+          "kind": "enter_region",
+          "label": "enter exit hall",
+          "region_id": "exit_hall",
+          "facility_stage": null,
+          "decision_region_id": null,
+          "wait_event_kind": null,
+          "metadata": {}
+        },
+        {
+          "id": "approach_exit_gate_decision",
+          "kind": "enter_region",
+          "label": "approach exit gate decision",
+          "region_id": "exit_gate_decision",
+          "facility_stage": null,
+          "decision_region_id": null,
+          "wait_event_kind": null,
+          "metadata": {}
+        },
+        {
+          "id": "use_exit_gate",
+          "kind": "use_facility_stage",
+          "label": "use exit gate",
+          "region_id": null,
+          "facility_stage": "exit_gate",
+          "decision_region_id": "exit_gate_decision",
+          "wait_event_kind": null,
+          "metadata": {}
+        },
+        {
+          "id": "complete",
+          "kind": "complete",
+          "label": "station_exit complete",
+          "region_id": null,
+          "facility_stage": null,
+          "decision_region_id": null,
+          "wait_event_kind": null,
+          "metadata": {}
+        }
+      ],
+      "transitions": [
+        {
+          "id": "approach_vertical_decision_completed",
+          "source": "approach_vertical_decision",
+          "target": "use_vertical_transfer",
+          "event": "goal_completed",
+          "guard": null
+        },
+        {
+          "id": "use_vertical_transfer_completed",
+          "source": "use_vertical_transfer",
+          "target": "enter_exit_hall",
+          "event": "goal_completed",
+          "guard": null
+        },
+        {
+          "id": "enter_exit_hall_completed",
+          "source": "enter_exit_hall",
+          "target": "approach_exit_gate_decision",
+          "event": "goal_completed",
+          "guard": null
+        },
+        {
+          "id": "approach_exit_gate_decision_completed",
+          "source": "approach_exit_gate_decision",
+          "target": "use_exit_gate",
+          "event": "goal_completed",
+          "guard": null
+        },
+        {
+          "id": "use_exit_gate_completed",
+          "source": "use_exit_gate",
+          "target": "complete",
+          "event": "goal_completed",
+          "guard": null
+        }
+      ]
+    },
+    "evacuate_station": {
+      "id": "station_evacuation",
+      "version": 1,
+      "entry_node_id": "approach_vertical_decision",
+      "nodes": [
+        {
+          "id": "approach_vertical_decision",
+          "kind": "enter_region",
+          "label": "approach vertical decision",
+          "region_id": "vertical_decision",
+          "facility_stage": null,
+          "decision_region_id": null,
+          "wait_event_kind": null,
+          "metadata": {}
+        },
+        {
+          "id": "use_vertical_transfer",
+          "kind": "use_facility_stage",
+          "label": "use vertical transfer",
+          "region_id": null,
+          "facility_stage": "vertical_transfer",
+          "decision_region_id": "vertical_decision",
+          "wait_event_kind": null,
+          "metadata": {}
+        },
+        {
+          "id": "enter_exit_hall",
+          "kind": "enter_region",
+          "label": "enter exit hall",
+          "region_id": "exit_hall",
+          "facility_stage": null,
+          "decision_region_id": null,
+          "wait_event_kind": null,
+          "metadata": {}
+        },
+        {
+          "id": "approach_exit_gate_decision",
+          "kind": "enter_region",
+          "label": "approach exit gate decision",
+          "region_id": "exit_gate_decision",
+          "facility_stage": null,
+          "decision_region_id": null,
+          "wait_event_kind": null,
+          "metadata": {}
+        },
+        {
+          "id": "use_exit_gate",
+          "kind": "use_facility_stage",
+          "label": "use exit gate",
+          "region_id": null,
+          "facility_stage": "exit_gate",
+          "decision_region_id": "exit_gate_decision",
+          "wait_event_kind": null,
+          "metadata": {}
+        },
+        {
+          "id": "complete",
+          "kind": "complete",
+          "label": "station_evacuation complete",
+          "region_id": null,
+          "facility_stage": null,
+          "decision_region_id": null,
+          "wait_event_kind": null,
+          "metadata": {}
+        }
+      ],
+      "transitions": [
+        {
+          "id": "approach_vertical_decision_completed",
+          "source": "approach_vertical_decision",
+          "target": "use_vertical_transfer",
+          "event": "goal_completed",
+          "guard": null
+        },
+        {
+          "id": "use_vertical_transfer_completed",
+          "source": "use_vertical_transfer",
+          "target": "enter_exit_hall",
+          "event": "goal_completed",
+          "guard": null
+        },
+        {
+          "id": "enter_exit_hall_completed",
+          "source": "enter_exit_hall",
+          "target": "approach_exit_gate_decision",
+          "event": "goal_completed",
+          "guard": null
+        },
+        {
+          "id": "approach_exit_gate_decision_completed",
+          "source": "approach_exit_gate_decision",
+          "target": "use_exit_gate",
+          "event": "goal_completed",
+          "guard": null
+        },
+        {
+          "id": "use_exit_gate_completed",
+          "source": "use_exit_gate",
+          "target": "complete",
+          "event": "goal_completed",
+          "guard": null
+        }
+      ]
+    },
+    "transfer": {
+      "id": "station_transfer",
+      "version": 1,
+      "entry_node_id": "wait_for_train",
+      "nodes": [
+        {
+          "id": "wait_for_train",
+          "kind": "wait_for_event",
+          "label": "wait for train availability",
+          "region_id": null,
+          "facility_stage": null,
+          "decision_region_id": null,
+          "wait_event_kind": "train_available",
+          "metadata": {}
+        },
+        {
+          "id": "approach_boarding_decision",
+          "kind": "enter_region",
+          "label": "approach boarding decision",
+          "region_id": "boarding_decision",
+          "facility_stage": null,
+          "decision_region_id": null,
+          "wait_event_kind": null,
+          "metadata": {}
+        },
+        {
+          "id": "use_boarding_door",
+          "kind": "use_facility_stage",
+          "label": "use boarding door",
+          "region_id": null,
+          "facility_stage": "boarding_door",
+          "decision_region_id": "boarding_decision",
+          "wait_event_kind": null,
+          "metadata": {}
+        },
+        {
+          "id": "complete",
+          "kind": "complete",
+          "label": "station_transfer complete",
+          "region_id": null,
+          "facility_stage": null,
+          "decision_region_id": null,
+          "wait_event_kind": null,
+          "metadata": {}
+        }
+      ],
+      "transitions": [
+        {
+          "id": "wait_for_train_completed",
+          "source": "wait_for_train",
+          "target": "approach_boarding_decision",
+          "event": "train_available",
+          "guard": null
+        },
+        {
+          "id": "approach_boarding_decision_completed",
+          "source": "approach_boarding_decision",
+          "target": "use_boarding_door",
+          "event": "goal_completed",
+          "guard": null
+        },
+        {
+          "id": "use_boarding_door_completed",
+          "source": "use_boarding_door",
+          "target": "complete",
+          "event": "goal_completed",
+          "guard": null
+        },
+        {
+          "id": "wait_for_train_timeout_fallback",
+          "source": "wait_for_train",
+          "target": "wait_for_train",
+          "event": "wait_timeout",
+          "guard": null
+        }
+      ]
+    }
+  }
+}

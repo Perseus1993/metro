@@ -1,0 +1,52 @@
+{
+  "case_id": "fixture-baseline-v1",
+  "created_at": "2026-07-16T00:00:00+00:00",
+  "design": {
+    "connections": [],
+    "elements": [],
+    "levels": [],
+    "queues": [],
+    "schema_version": "metro-station-design/v2"
+  },
+  "evidence": {
+    "calibration_profile_id": "default_uncalibrated",
+    "calibration_status": "uncalibrated",
+    "limitations": [
+      "model_not_independently_validated",
+      "safety_density_threshold_not_approved"
+    ],
+    "model_version": "mesa-jupedsim-default",
+    "notes": "Default parameters have not been independently calibrated or validated.",
+    "product_version": "0.1.0",
+    "research_ready": false,
+    "safe_use_boundary": "Internal exploration only; not approved for production operations, capacity commitments, evacuation certification, or fire-safety decisions.",
+    "schema_version": "evidence-status/v1"
+  },
+  "metadata": {
+    "fixture": "analysis-case-v1"
+  },
+  "name": "Fixture baseline",
+  "operations": {
+    "entry_count_hour": 120,
+    "exit_count_hour": 60,
+    "transfer_count_hour": 0
+  },
+  "parent_case_id": null,
+  "revision": 1,
+  "schema_version": "analysis-case/v1",
+  "seeds": [
+    7,
+    42,
+    99
+  ],
+  "semantic_fingerprint": "60b8b46133a45eff15c9f6be8344787b693578ffed99a0f79c3fade408bb0a51",
+  "simulation": {
+    "demand_minutes": 1,
+    "group_size": 1,
+    "horizon_minutes": 4,
+    "jupedsim_model": "collision_free_speed",
+    "movement_backend": "batched_jupedsim",
+    "tick_seconds": 10
+  },
+  "updated_at": "2026-07-16T00:00:00+00:00"
+}

@@ -1,0 +1,116 @@
+{
+  "schema_version": "experiment-plan/v1",
+  "plan_id": "fixture-algorithm-plan-v1",
+  "template_id": "evacuation-routing-comparison",
+  "comparison_axis": "evacuation_routing",
+  "analysis_case": {
+    "schema_version": "analysis-case/v1",
+    "case_id": "fixture-evacuation-case-v1",
+    "name": "Fixture evacuation algorithm comparison",
+    "revision": 1,
+    "parent_case_id": null,
+    "created_at": "2026-07-16T00:00:00+00:00",
+    "updated_at": "2026-07-16T00:00:00+00:00",
+    "design": {
+      "connections": [],
+      "elements": [],
+      "levels": [],
+      "queues": [],
+      "schema_version": "metro-station-design/v2"
+    },
+    "operations": {
+      "entry_count_hour": 0,
+      "exit_count_hour": 0,
+      "transfer_count_hour": 0
+    },
+    "simulation": {
+      "demand_minutes": 1,
+      "horizon_minutes": 4,
+      "tick_seconds": 10,
+      "group_size": 1,
+      "movement_backend": "batched_jupedsim",
+      "scenario_mode": "evacuation",
+      "evacuation": {
+        "initial_platform_persons": 6,
+        "alarm_delay_seconds": 0.0,
+        "stop_train_service": true
+      }
+    },
+    "seeds": [7, 42, 99],
+    "evidence": {
+      "schema_version": "evidence-status/v1",
+      "calibration_profile_id": "default_uncalibrated",
+      "calibration_status": "uncalibrated",
+      "research_ready": false,
+      "product_version": "0.1.0",
+      "model_version": "mesa-jupedsim-default",
+      "safe_use_boundary": "Internal exploration only; not approved for production operations, capacity commitments, evacuation certification, or fire-safety decisions.",
+      "notes": "Default parameters have not been independently calibrated or validated.",
+      "limitations": [
+        "model_not_independently_validated",
+        "safety_density_threshold_not_approved"
+      ]
+    },
+    "metadata": {
+      "fixture": "experiment-plan-v1"
+    }
+  },
+  "seeds": [7, 42, 99],
+  "algorithms": [
+    {
+      "registration_id": "builtin:metro.shortest_path@1.0.0",
+      "manifest": {
+        "schema_version": "algorithm-plugin/v1",
+        "kind": "evacuation_routing",
+        "plugin_id": "metro.shortest_path",
+        "plugin_version": "1.0.0",
+        "api_version": "evacuation-routing/v1",
+        "entry_point": ["builtin"],
+        "parameter_schema": {
+          "$schema": "https://json-schema.org/draft/2020-12/schema",
+          "type": "object",
+          "properties": {
+            "cost_multiplier": {
+              "type": "number",
+              "exclusiveMinimum": 0
+            }
+          },
+          "additionalProperties": false
+        },
+        "capabilities": ["closures", "deterministic_seed", "diagnostics", "group_facts"],
+        "metadata": {
+          "label": "Built-in shortest path baseline"
+        }
+      },
+      "parameters": {}
+    },
+    {
+      "registration_id": "local:example.dijkstra@1.0.0",
+      "manifest": {
+        "schema_version": "algorithm-plugin/v1",
+        "kind": "evacuation_routing",
+        "plugin_id": "example.dijkstra",
+        "plugin_version": "1.0.0",
+        "api_version": "evacuation-routing/v1",
+        "entry_point": ["python", "plugin.py"],
+        "parameter_schema": {
+          "$schema": "https://json-schema.org/draft/2020-12/schema",
+          "type": "object",
+          "properties": {
+            "cost_multiplier": {
+              "type": "number",
+              "exclusiveMinimum": 0
+            }
+          },
+          "additionalProperties": false
+        },
+        "capabilities": ["closures", "deterministic_seed", "diagnostics", "group_facts"],
+        "metadata": {
+          "description": "Standalone Dijkstra example for the metro-station routing SDK",
+          "label": "Example evacuation router"
+        }
+      },
+      "parameters": {}
+    }
+  ]
+}

@@ -1,0 +1,30 @@
+[build-system]
+requires = ["setuptools>=77"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "metro-station"
+version = "0.1.0"
+description = "Official metro station passenger-flow simulation runtime."
+requires-python = ">=3.12"
+dependencies = [
+    "jupedsim>=1.4.1",
+    "jsonschema>=4.23",
+    "mesa>=3.2",
+    "metro-data-warehouse==0.1.0",
+    "networkx",
+    "pandas",
+    "shapely>=2.0",
+]
+
+[project.scripts]
+metro-station = "metro_station.interfaces.cli:main"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.setuptools.package-data]
+"metro_station.adapters.simulation" = ["config/*.json"]
+
+[tool.uv.sources]
+metro-data-warehouse = { workspace = true }

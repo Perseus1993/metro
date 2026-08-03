@@ -1,0 +1,232 @@
+from __future__ import annotations
+
+import mesa
+
+from metro_station.domain.time_boundaries import (
+    first_step_not_before,
+    positive_steps_to_cover,
+)
+
+from .base import StationAgent
+from .passenger import PassengerAgent
+from ..planning.plan import AgentState
+
+
+class TrainAgent(StationAgent):
+    """A periodic train event with dwell and capacity constraints."""
+
+    def __init__(
+        self,
+        model: mesa.Model,
+        *,
+        line_id: str = "default",
+        direction: str = "down",
+        platform_id: str = "platform:default:down",
+    ) -> None:
+        super().__init__(model)
+        scenario = self.model.scenario
+        self.line_id = line_id
+        self.direction = direction
+        self.platform_id = platform_id
+        self.state = "away"
+        self.next_arrival_step = first_step_not_before(
+            scenario.initial_train_offset_seconds,
+            scenario.tick_seconds,
+        )
+        self.close_step: int | None = None
+        self.current_load_persons = 0
+        self.last_departed_load_persons = 0
+        self.departed_trains = 0
+        self.cancelled_trains = 0
+        self.last_cancelled_arrival_step: int | None = None
+        self.last_departure_step: int | None = None
+
+    @property
+    def is_boarding(self) -> bool:
+        return self.state == "boarding"
+
+    @property
+    def capacity_remaining(self) -> int:
+        capacity = self.model.train_capacity_for_platform(self.platform_id)
+        return max(0, capacity - self.current_load_persons)
+
+    def step(self) -> None:
+        step = self.model.step_index
+
+        if self.state == "away" and step >= self.next_arrival_step:
+            if self._service_suspended():
+                self.cancelled_trains += 1
+                self.last_cancelled_arrival_step = step
+                self.next_arrival_step = step + self._headway_steps()
+                self._record_train_event("record_train_arrival_cancelled")
+                return
+            self.state = "boarding"
+            self.current_load_persons = 0
+            self.close_step = step + self._dwell_steps()
+            self._record_train_event("record_train_arrival")
+            return
+
+        if self.state == "boarding" and self.close_step is not None and step >= self.close_step:
+            self.state = "away"
+            self.last_departed_load_persons = self.current_load_persons
+            self.current_load_persons = 0
+            self.departed_trains += 1
+            self.last_departure_step = step
+            self.next_arrival_step = step + self._layover_steps()
+            self.close_step = None
+
+    def _service_suspended(self) -> bool:
+        check = getattr(self.model, "is_train_service_suspended", None)
+        return bool(callable(check) and check(self.platform_id))
+
+    def _record_train_event(self, method_name: str) -> None:
+        recorder = getattr(self.model, method_name, None)
+        if callable(recorder):
+            recorder(self)
+
+    def _dwell_steps(self) -> int:
+        scenario = self.model.scenario
+        return positive_steps_to_cover(
+            scenario.train_dwell_seconds,
+            scenario.tick_seconds,
+        )
+
+    def _headway_steps(self) -> int:
+        scenario = self.model.scenario
+        return positive_steps_to_cover(
+            scenario.train_headway_seconds,
+            scenario.tick_seconds,
+        )
+
+    def _layover_steps(self) -> int:
+        return max(1, self._headway_steps() - self._dwell_steps())
+
+
+class PlatformAgent(StationAgent):
+    """Station platform resource agent that owns waiting and boarding."""
+
+    def __init__(
+        self,
+        model: mesa.Model,
+        *,
+        platform_id: str = "platform:default:down",
+        line_id: str = "default",
+        direction: str = "down",
+    ) -> None:
+        super().__init__(model)
+        self.platform_id = platform_id
+        self.line_id = line_id
+        self.direction = direction
+        self.state = "normal"
+        self.waiting: list[PassengerAgent] = []
+
+    @property
+    def waiting_persons(self) -> int:
+        return sum(passenger.group_size for passenger in self.waiting)
+
+    @property
+    def capacity_remaining(self) -> int:
+        capacity = self.model.scenario.platform_capacity_persons
+        door_queue = sum(
+            door.queue_persons for door in self.model.boarding_doors_for_platform(self)
+        )
+        return max(0, capacity - self.waiting_persons - door_queue)
+
+    def join_waiting(self, passenger: PassengerAgent) -> None:
+        self._assign_passenger_platform(passenger)
+        if passenger in self.waiting:
+            self.waiting.remove(passenger)
+
+        self._set_waiting_state(passenger)
+        self.waiting.append(passenger)
+        self._notify_graph_train_available(passenger)
+        if (
+            passenger.state != AgentState.WAITING_PLATFORM.value
+            and passenger in self.waiting
+        ):
+            self.waiting.remove(passenger)
+
+    def _set_waiting_state(self, passenger: PassengerAgent) -> None:
+        passenger.state = AgentState.WAITING_PLATFORM.value
+        passenger.plan.set_goal(
+            kind="waiting",
+            label="platform waiting area",
+            target=passenger.pos,
+        )
+
+    def _assign_passenger_platform(self, passenger: PassengerAgent) -> None:
+        passenger.assigned_platform_id = self.platform_id
+        passenger.assigned_line_id = self.line_id
+        passenger.assigned_direction = self.direction
+
+    def _sync_passenger_level_to_platform(
+        self,
+        passenger: PassengerAgent,
+        doors,
+    ) -> None:
+        for door in doors:
+            if door.spec.entry_level_id is not None:
+                passenger.current_level_id = door.spec.entry_level_id
+                return
+
+    def _layout_waiting(self) -> None:
+        speed = self._waiting_layout_speed_units_per_tick()
+        occupied_positions: list[tuple[float, float]] = []
+        for index, passenger in enumerate(self.waiting):
+            passenger.set_target(
+                self.model.layout_graph.platform_waiting_position(index),
+                goal_kind="waiting",
+                goal_label="platform waiting slot",
+            )
+            passenger.move_directly_toward_target(
+                speed,
+                occupied_positions=occupied_positions,
+            )
+            occupied_positions.append(passenger.pos)
+
+    def _waiting_layout_speed_units_per_tick(self) -> float:
+        scenario = self.model.scenario
+        configured = float(scenario.walk_units_per_tick)
+        physical = float(scenario.jupedsim_desired_speed_mps) * float(
+            scenario.tick_seconds
+        )
+        if not self.model.simulation_clock.research_valid:
+            return max(0.1, configured)
+        return max(0.1, min(configured, physical))
+
+    def step(self) -> None:
+        self._notify_queued_graph_train_available()
+        self._retry_boarding_door_assignment()
+        self._layout_waiting()
+
+    def _retry_boarding_door_assignment(self) -> None:
+        if not self.waiting:
+            return
+        if not self.model.boarding_doors_for_platform(self):
+            return
+
+        for passenger in tuple(self.waiting):
+            if passenger.state != AgentState.WAITING_PLATFORM.value:
+                self.waiting.remove(passenger)
+                continue
+
+            self._assign_passenger_platform(passenger)
+            self._sync_passenger_level_to_platform(
+                passenger,
+                self.model.boarding_doors_for_platform(self),
+            )
+            self._notify_graph_train_available(passenger)
+            if passenger.state != AgentState.WAITING_PLATFORM.value:
+                self.waiting.remove(passenger)
+
+    def _notify_graph_train_available(self, passenger: PassengerAgent) -> None:
+        if self.model.boarding_train_for_platform(self) is None:
+            return
+        self.model.goal_coordinator.poll(passenger)
+
+    def _notify_queued_graph_train_available(self) -> None:
+        if self.model.boarding_train_for_platform(self) is None:
+            return
+        for door in self.model.boarding_doors_for_platform(self):
+            for passenger in door.queue:
+                self.model.goal_coordinator.poll(passenger)

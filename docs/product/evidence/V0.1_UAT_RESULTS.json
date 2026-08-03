@@ -1,0 +1,6 @@
+{
+  "schema_version": "uat-results/v1",
+  "target_user": "地铁客流仿真分析人员或经确认的合格代理用户",
+  "scenario": "从正式预设完成水马 A/B、解释结果与限制、导出并复跑",
+  "sessions": []
+}

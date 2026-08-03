@@ -1,0 +1,73 @@
+{
+  "created_at": "2026-07-16T00:00:00+00:00",
+  "events": [
+    {
+      "action": "deploy",
+      "at_seconds": 10,
+      "event_id": "deploy_water",
+      "measure_id": "water_a",
+      "metadata": {},
+      "parameters": {}
+    },
+    {
+      "action": "remove",
+      "at_seconds": 20,
+      "event_id": "remove_water",
+      "measure_id": "water_a",
+      "metadata": {},
+      "parameters": {}
+    },
+    {
+      "action": "close",
+      "at_seconds": 30,
+      "event_id": "close_lane",
+      "measure_id": "entry_lane_closure",
+      "metadata": {},
+      "parameters": {}
+    },
+    {
+      "action": "open",
+      "at_seconds": 40,
+      "event_id": "open_lane",
+      "measure_id": "entry_lane_closure",
+      "metadata": {},
+      "parameters": {}
+    }
+  ],
+  "measures": [
+    {
+      "initially_active": false,
+      "kind": "water_barrier",
+      "label": "Water barrier A",
+      "level_id": "l1_terminal",
+      "measure_id": "water_a",
+      "metadata": {},
+      "parameters": {
+        "geometry": {
+          "height_m": 1.5,
+          "shape": "rect",
+          "width_m": 2.0,
+          "x_m": 50.0,
+          "y_m": 28.0
+        }
+      },
+      "target_id": null
+    },
+    {
+      "initially_active": false,
+      "kind": "access_closure",
+      "label": "Close entry lane 1",
+      "level_id": null,
+      "measure_id": "entry_lane_closure",
+      "metadata": {},
+      "parameters": {},
+      "target_id": "entry_gate:gate_bank_a:lane_1"
+    }
+  ],
+  "metadata": {},
+  "name": "Water barrier and gate closure",
+  "plan_id": "control_ab_01",
+  "schema_version": "control-plan/v1",
+  "semantic_fingerprint": "18ffecc77415fa8e87169ef6d2e1cc175d966624b35558ac98c6b7d15f2d436f",
+  "updated_at": "2026-07-16T00:00:00+00:00"
+}

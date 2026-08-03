@@ -1,0 +1,16 @@
+[build-system]
+requires = ["setuptools>=77"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "metro-station-testkit"
+version = "0.1.0"
+description = "Deterministic probes and micro-scenes for metro-station tests."
+requires-python = ">=3.12"
+dependencies = ["metro-station==0.1.0"]
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.uv.sources]
+metro-station = { workspace = true }

@@ -1,0 +1,51 @@
+{
+  "algorithm_seed": 42,
+  "closed_edge_ids": [],
+  "destination_node_id": "B",
+  "origin_node_id": "A",
+  "parameters": {
+    "cost_multiplier": 1.0
+  },
+  "passenger_group": {
+    "attributes": {},
+    "group_size": 2,
+    "intent": "evacuate_station",
+    "mobility_profile": "default"
+  },
+  "request_id": "golden-request",
+  "schema_version": "evacuation-routing/v1",
+  "simulation_time_seconds": 12.5,
+  "topology": {
+    "edges": [
+      {
+        "cost": 1.0,
+        "edge_id": "ab",
+        "from_node": "A",
+        "kind": "walk",
+        "metadata": {},
+        "to_node": "B"
+      }
+    ],
+    "nodes": [
+      {
+        "kind": "zone",
+        "level_id": "L1",
+        "metadata": {},
+        "node_id": "A",
+        "x": 0.0,
+        "y": 0.0
+      },
+      {
+        "kind": "exit",
+        "level_id": "L1",
+        "metadata": {},
+        "node_id": "B",
+        "x": 1.0,
+        "y": 0.0
+      }
+    ],
+    "schema_version": "evacuation-topology/v1",
+    "semantic_fingerprint": "c97f46123d7e46442f2a99468bd1196327f00aadb9d2d2e47e9b07c8a9780710",
+    "topology_id": "golden-topology"
+  }
+}

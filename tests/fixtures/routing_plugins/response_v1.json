@@ -1,0 +1,20 @@
+{
+  "cost": 1.0,
+  "diagnostics": {
+    "expanded_nodes": 2,
+    "message": "route_found",
+    "metadata": {
+      "source": "golden"
+    }
+  },
+  "edge_ids": [
+    "ab"
+  ],
+  "node_ids": [
+    "A",
+    "B"
+  ],
+  "request_id": "golden-request",
+  "schema_version": "evacuation-routing/v1",
+  "status": "success"
+}

@@ -1,0 +1,25 @@
+[build-system]
+requires = ["setuptools>=77"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "metro-station-acceptance"
+version = "0.1.0"
+description = "Cross-layout and operational acceptance harnesses for metro-station."
+requires-python = ">=3.12"
+dependencies = [
+    "metro-station==0.1.0",
+    "metro-station-experiments==0.1.0",
+    "metro-station-testkit==0.1.0",
+    "metro-station-visualizer==0.1.0",
+    "playwright",
+]
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.uv.sources]
+metro-station = { workspace = true }
+metro-station-experiments = { workspace = true }
+metro-station-testkit = { workspace = true }
+metro-station-visualizer = { workspace = true }

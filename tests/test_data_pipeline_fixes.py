@@ -14,7 +14,7 @@ from openpyxl import Workbook
 from scripts.etl.parse_od_reports import write_reports
 from scripts.ods import fact_od_pair_60min
 from scripts.ods.build_ads import build_od_network_panel
-from src.amap_network import get_amap_key
+from metro_data_warehouse.amap_network import get_amap_key
 
 
 class DataPipelineFixTests(unittest.TestCase):

@@ -7,13 +7,13 @@ import tempfile
 import unittest
 
 from sandbox.metro_station_sandbox.design import create_design
-from sandbox.metro_station_sandbox.experiment.diagnosis import (
+from metro_station_experiments.diagnosis import (
     TrajectoryReport,
     diagnostic_truth_payload,
     diagnose_tracks,
 )
-from sandbox.metro_station_sandbox.experiment.report import write_experiment_report
-from sandbox.metro_station_sandbox.experiment.runner import (
+from metro_station_experiments.report import write_experiment_report
+from metro_station_experiments.runner import (
     ExperimentCase,
     ExperimentRunner,
     build_cases,
@@ -52,6 +52,12 @@ class MetroExperimentTests(unittest.TestCase):
         )
         self.assertIn("derived", result.tracks_payload)
         self.assertIn("visualization_bundle", result.tracks_payload)
+        replay_package = result.tracks_payload["replay_package"]
+        self.assertEqual("replay_package.v2", replay_package["schema_version"])
+        self.assertEqual("station_scene.v1", replay_package["station_scene"]["schema_version"])
+        self.assertEqual("asset_manifest.v1", replay_package["asset_manifest"]["schema_version"])
+        self.assertEqual("#/simulation_trace", replay_package["simulation_trace_ref"])
+        self.assertEqual("#/visualization_bundle", replay_package["visualization_bundle_ref"])
 
     def test_runner_exports_gate_events_and_visual_waypoints(self) -> None:
         case = ExperimentCase(
@@ -76,20 +82,22 @@ class MetroExperimentTests(unittest.TestCase):
             agent for agent in result.tracks_payload["agents"] if agent["id"] == gate_passenger_id
         )
         self.assertTrue(
-            any(float(point[0]) % case.tick_seconds for point in gate_track["points"])
+            any(float(point[0]) % case.tick_seconds for point in gate_track["presentation_points"])
         )
         visual_only_points = [
             point
-            for point in gate_track["points"]
+            for point in gate_track["presentation_points"]
             if len(point) > 9 and isinstance(point[9], dict) and point[9].get("visual_only")
         ]
         self.assertGreater(len(visual_only_points), 0)
+        self.assertTrue(all(not point[9]["visual_only"] for point in gate_track["points"]))
 
     def test_diagnostic_truth_payload_filters_visual_only_points(self) -> None:
         payload = {
             "agents": [
                 {
                     "id": 1,
+                    "presentation_points": [[1.0, 100.0, 0.0]],
                     "points": [
                         [0.0, 0.0, 0.0, 0.0, 1.0, None, None, "targeting", "target", {"source": "simulation", "visual_only": False}],
                         [1.0, 100.0, 0.0, 0.0, 1.0, None, None, "targeting", "target", {"source": "interpolation", "visual_only": True}],
@@ -114,6 +122,7 @@ class MetroExperimentTests(unittest.TestCase):
 
         self.assertEqual([0.0, 2.0], [point[0] for point in sanitized["agents"][0]["points"]])
         self.assertTrue(all(len(point) == 9 for point in sanitized["agents"][0]["points"]))
+        self.assertNotIn("presentation_points", sanitized["agents"][0])
 
     def test_legacy_track_analyzer_filters_visual_only_points(self) -> None:
         payload = {
@@ -289,6 +298,7 @@ class MetroExperimentTests(unittest.TestCase):
             designs=(("single", document), ("single_copy", document)),
             entries=(60, 120),
             exits=(0,),
+            transfers=(0,),
             seeds=(1, 2),
             minutes=1,
             tick_seconds=5,
@@ -305,6 +315,28 @@ class MetroExperimentTests(unittest.TestCase):
             cases[0].case_id,
         )
 
+    def test_build_cases_can_expand_transfer_demand(self) -> None:
+        document = create_design("single_level_terminal")
+
+        cases = build_cases(
+            designs=(("single", document),),
+            entries=(0,),
+            exits=(0,),
+            transfers=(60, 120),
+            seeds=(1,),
+            minutes=1,
+            tick_seconds=5,
+            group_size=1,
+            movement_backend="batched_jupedsim",
+            jupedsim_model="collision_free_speed",
+            station_name="unit",
+            hour=18,
+        )
+
+        self.assertEqual(2, len(cases))
+        self.assertEqual(60, cases[0].transfer_count_hour)
+        self.assertEqual("single_entry_0_exit_0_transfer_60_seed_1", cases[0].case_id)
+
     def test_case_operations_flow_into_scenario(self) -> None:
         case = ExperimentCase(
             case_id="ops",
@@ -312,6 +344,7 @@ class MetroExperimentTests(unittest.TestCase):
             design_label="single",
             entry_count_hour=60,
             exit_count_hour=0,
+            transfer_count_hour=30,
             operations={
                 "gate_service_persons_per_min": 7,
                 "train_dwell_seconds": 9,
@@ -324,6 +357,7 @@ class MetroExperimentTests(unittest.TestCase):
         self.assertEqual(7, scenario.gate_service_persons_per_min)
         self.assertEqual(9, scenario.train_dwell_seconds)
         self.assertEqual(1.25, scenario.walk_units_per_tick)
+        self.assertEqual(30, scenario.transfer_count_hour)
 
 
 def _fake_result(

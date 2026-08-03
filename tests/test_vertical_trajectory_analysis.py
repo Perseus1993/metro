@@ -89,6 +89,33 @@ class VerticalTrajectoryAnalysisTests(unittest.TestCase):
         self.assertEqual(2, report["summary"]["reverse_segments"])
         self.assertEqual("reverse", report["anomalies"][0]["issue"])
 
+    def test_stairs_service_event_is_not_misclassified_as_adjacent_escalator_reverse(self) -> None:
+        payload = self.sample_payload(
+            [
+                [0.0, 90.0, 10.0, 0.0, 1.0],
+                [5.0, 50.0, 10.0, 0.0, 1.0],
+                [10.0, 10.0, 10.0, 0.0, 1.0],
+            ]
+        )
+        payload["vertical_service_events"] = [
+            {
+                "facility_id": "vertical:stairs_a:down:b1:b2",
+                "facility_kind": "stairs",
+                "passenger_ids": ["a1"],
+                "start_time": 0.0,
+                "end_time": 10.0,
+                "direction": "down",
+                "start_canvas": [90.0, 12.0],
+                "end_canvas": [10.0, 12.0],
+            }
+        ]
+
+        report = build_report(payload, input_path=Path("unit.js"), config=self.config())
+
+        self.assertEqual(2, report["summary"]["service_event_segments"])
+        self.assertEqual(0, report["summary"]["reverse_segments"])
+        self.assertEqual("ok", report["summary"]["status"])
+
     def test_fast_jump_inside_connector_is_reported(self) -> None:
         report = build_report(
             self.sample_payload(

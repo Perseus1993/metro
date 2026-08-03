@@ -1,0 +1,26 @@
+{
+  "schema_version": "simulation_trace.v1",
+  "snapshots": [
+    {
+      "time_seconds": 0.0,
+      "passengers": [
+        {"id": 1, "x": 0.0, "y": 0.0},
+        {"id": 2, "x": 0.0, "y": 2.0}
+      ]
+    },
+    {
+      "time_seconds": 1.0,
+      "passengers": [
+        {"id": 1, "x": 0.5, "y": 0.0},
+        {"id": 2, "x": 0.5, "y": 2.0}
+      ]
+    },
+    {
+      "time_seconds": 2.0,
+      "passengers": [
+        {"id": 1, "x": 1.0, "y": 0.0},
+        {"id": 2, "x": 1.0, "y": 2.0}
+      ]
+    }
+  ]
+}

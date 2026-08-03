@@ -4,6 +4,8 @@ import json
 import tempfile
 import unittest
 
+from shapely.geometry import Point as ShapelyPoint
+
 from scripts import run_metro_boundary_hack_agent as hack
 
 
@@ -41,7 +43,7 @@ class MetroBoundaryHackAgentTests(unittest.TestCase):
         args = hack.build_parser().parse_args(
             [
                 "--minutes",
-                "8",
+                "12",
                 "--max-cases",
                 "1",
                 "--initial-train-offset-seconds",
@@ -50,6 +52,8 @@ class MetroBoundaryHackAgentTests(unittest.TestCase):
                 "60",
                 "--train-dwell-seconds",
                 "30",
+                "--goal-graph-mode",
+                "active",
             ]
         )
         model = hack.MetroStationModel(hack.make_scenario(args), seed=7)
@@ -68,6 +72,83 @@ class MetroBoundaryHackAgentTests(unittest.TestCase):
         self.assertEqual("ok", row["status"], row)
         self.assertEqual("departed", row["final_state"])
         self.assertEqual(0, row["boarded_persons"])
+
+    def test_epsilon_cases_preserve_raw_relation_and_normalize_to_safe_core(self) -> None:
+        args = hack.build_parser().parse_args(
+            [
+                "--epsilon-boundary-samples",
+                "1",
+                "--boundary-epsilon",
+                "0.05",
+                "--max-cases",
+                "0",
+            ]
+        )
+        model = hack.MetroStationModel(hack.make_scenario(args), seed=7)
+
+        cases = hack._boundary_epsilon_cases(
+            model,
+            count=1,
+            epsilon=0.05,
+            include_transfer=True,
+            start_index=1,
+        )
+
+        self.assertEqual(
+            {"inside_epsilon", "on_boundary", "outside_epsilon"},
+            {case.boundary_relation for case in cases},
+        )
+        graph = model.layout_graph.station_graph
+        self.assertIsNotNone(graph)
+        document = graph.source_document
+        self.assertIsNotNone(document)
+        walkable = hack.document_walkable_geometry(document)
+        for case in cases:
+            with self.subTest(case=case.case_id, relation=case.boundary_relation):
+                domain = hack.level_walkable_geometry(document, case.level_id, walkable)
+                core = hack.safe_core(
+                    domain,
+                    model.scenario.jupedsim_agent_radius_units,
+                )
+                self.assertTrue(core.covers(ShapelyPoint(case.point)))
+                self.assertIsNotNone(case.raw_point)
+                if case.boundary_relation == "outside_epsilon":
+                    self.assertFalse(domain.covers(ShapelyPoint(case.raw_point)))
+                if case.boundary_relation != "inside_epsilon":
+                    self.assertGreater(case.normalization_distance, 0.0)
+
+    def test_boundary_scenario_can_use_production_clock_and_planning(self) -> None:
+        args = hack.build_parser().parse_args(
+            ["--clock-mode", "physical", "--goal-graph-mode", "active"]
+        )
+
+        scenario = hack.make_scenario(args)
+
+        self.assertEqual("physical", scenario.simulation_clock_mode)
+        self.assertEqual("active", scenario.goal_graph_mode)
+
+    def test_active_boundary_passenger_uses_official_spawn_registration(self) -> None:
+        args = hack.build_parser().parse_args(
+            ["--clock-mode", "physical", "--goal-graph-mode", "active"]
+        )
+        model = hack.MetroStationModel(hack.make_scenario(args), seed=7)
+        case = hack.BoundaryCase(
+            "active_spawn",
+            "node:test",
+            "b1_concourse",
+            model.layout_graph.geometry.entrances[0],
+            "enter_and_board",
+            "boarded",
+        )
+
+        passenger = hack._place_passenger(model, case)
+
+        self.assertIsNotNone(passenger.goal_runtime)
+        self.assertIs(
+            passenger.goal_runtime,
+            model.passenger_goal_runtimes[int(passenger.unique_id)],
+        )
+        self.assertIn(passenger, model.passengers)
 
     def test_write_outputs_includes_reward_summary(self) -> None:
         args = hack.build_parser().parse_args(["--max-cases", "1"])

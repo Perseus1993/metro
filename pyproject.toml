@@ -1,3 +1,7 @@
+[build-system]
+requires = ["setuptools>=77"]
+build-backend = "setuptools.build_meta"
+
 [project]
 name = "metro-data-warehouse"
 version = "0.1.0"
@@ -12,18 +16,198 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
-sandbox = [
-    "mesa>=3.2",
-    "shapely>=2.0",
-    "jupedsim>=1.4.1",
-    "pillow",
-    "playwright",
-    "imageio-ffmpeg",
+dev = [
+    "import-linter",
+    "pyright",
+    "pytest",
+    "ruff",
 ]
 
 [tool.pyright]
 pythonVersion = "3.12"
+extraPaths = ["packages/metro_station/src"]
+
+[tool.pytest.ini_options]
+pythonpath = ["."]
+testpaths = ["tests"]
 
 [tool.ruff]
 line-length = 100
 target-version = "py312"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+include = ["metro_data_warehouse", "metro_data_warehouse.*"]
+
+[tool.uv.workspace]
+members = [
+    "apps/station_designer",
+    "apps/station_visualizer",
+    "experiments/metro_station_experiments",
+    "packages/metro_station",
+    "quality/metro_station_acceptance",
+    "quality/metro_station_testkit",
+]
+
+[tool.importlinter]
+root_packages = [
+    "metro_data_warehouse",
+    "metro_station",
+    "metro_station_designer",
+    "metro_station_experiments",
+    "metro_station_acceptance",
+    "metro_station_testkit",
+    "metro_station_visualizer",
+    "sandbox",
+]
+include_external_packages = true
+
+[[tool.importlinter.contracts]]
+name = "Official domain remains framework independent"
+type = "forbidden"
+source_modules = ["metro_station.domain"]
+forbidden_modules = [
+    "jupedsim",
+    "mesa",
+    "networkx",
+    "numpy",
+    "pandas",
+    "sandbox",
+    "shapely",
+]
+allow_indirect_imports = false
+unmatched_ignore_imports_alerting = "error"
+
+[[tool.importlinter.contracts]]
+name = "Official application does not depend on legacy or framework adapters"
+type = "forbidden"
+source_modules = ["metro_station.application"]
+forbidden_modules = [
+    "jupedsim",
+    "mesa",
+    "sandbox",
+]
+allow_indirect_imports = false
+unmatched_ignore_imports_alerting = "error"
+
+[[tool.importlinter.contracts]]
+name = "Official interfaces depend on the composition root, not legacy adapters"
+type = "forbidden"
+source_modules = ["metro_station.interfaces"]
+forbidden_modules = [
+    "jupedsim",
+    "mesa",
+    "sandbox",
+]
+allow_indirect_imports = true
+unmatched_ignore_imports_alerting = "error"
+
+[[tool.importlinter.contracts]]
+name = "Planning does not acquire new runtime or adapter dependencies"
+type = "forbidden"
+source_modules = ["metro_station.adapters.simulation.planning"]
+forbidden_modules = [
+    "metro_station.adapters.simulation.agents",
+    "metro_station.adapters.simulation.design",
+    "metro_station_designer",
+    "metro_station_experiments",
+    "metro_station.adapters.simulation.facilities",
+    "metro_station.adapters.simulation.movement",
+    "metro_station.adapters.simulation.runtime",
+    "metro_station.adapters.simulation.station",
+    "metro_station_visualizer",
+]
+allow_indirect_imports = true
+unmatched_ignore_imports_alerting = "error"
+
+[[tool.importlinter.contracts]]
+name = "Design does not acquire new station or visualization dependencies"
+type = "forbidden"
+source_modules = ["metro_station.adapters.simulation.design"]
+forbidden_modules = [
+    "metro_station.adapters.simulation.station",
+    "metro_station_visualizer",
+]
+allow_indirect_imports = true
+unmatched_ignore_imports_alerting = "error"
+
+[[tool.importlinter.contracts]]
+name = "Runtime does not acquire new experiment or visualization dependencies"
+type = "forbidden"
+source_modules = ["metro_station.adapters.simulation.runtime"]
+forbidden_modules = [
+    "metro_station_experiments",
+    "metro_station_visualizer",
+]
+allow_indirect_imports = true
+unmatched_ignore_imports_alerting = "error"
+
+[[tool.importlinter.contracts]]
+name = "Production packages do not depend on testkit or acceptance harnesses"
+type = "forbidden"
+source_modules = [
+    "metro_station.adapters.simulation.agents",
+    "metro_station.adapters.simulation.compilation",
+    "metro_station.adapters.simulation.design",
+    "metro_station.adapters.simulation.facilities",
+    "metro_station.adapters.simulation.movement",
+    "metro_station.adapters.simulation.planning",
+    "metro_station.adapters.simulation.runtime",
+    "metro_station.adapters.simulation.simulation_outputs",
+    "metro_station.adapters.simulation.station",
+]
+forbidden_modules = [
+    "metro_station_acceptance",
+    "metro_station_testkit",
+]
+allow_indirect_imports = true
+unmatched_ignore_imports_alerting = "error"
+
+[[tool.importlinter.contracts]]
+name = "Official simulation adapters never depend on the legacy package"
+type = "forbidden"
+source_modules = ["metro_station.adapters.simulation"]
+forbidden_modules = ["sandbox", "scripts", "src"]
+allow_indirect_imports = false
+unmatched_ignore_imports_alerting = "error"
+
+[[tool.importlinter.contracts]]
+name = "Official package is independent of legacy, applications, and quality tooling"
+type = "forbidden"
+source_modules = ["metro_station"]
+forbidden_modules = [
+    "metro_station_acceptance",
+    "metro_station_designer",
+    "metro_station_experiments",
+    "metro_station_testkit",
+    "metro_station_visualizer",
+    "sandbox",
+    "scripts",
+    "src",
+]
+allow_indirect_imports = false
+unmatched_ignore_imports_alerting = "error"
+
+[[tool.importlinter.contracts]]
+name = "Data warehouse library is independent of station simulation"
+type = "forbidden"
+source_modules = ["metro_data_warehouse"]
+forbidden_modules = ["metro_station", "sandbox"]
+allow_indirect_imports = false
+unmatched_ignore_imports_alerting = "error"
+
+[[tool.importlinter.contracts]]
+name = "Visualization does not acquire new experiment dependencies"
+type = "forbidden"
+source_modules = ["metro_station_visualizer"]
+forbidden_modules = ["metro_station_experiments"]
+allow_indirect_imports = true
+unmatched_ignore_imports_alerting = "error"
+
+[[tool.importlinter.contracts]]
+name = "Experiments do not acquire new visualization dependencies"
+type = "forbidden"
+source_modules = ["metro_station_experiments"]
+forbidden_modules = ["metro_station_visualizer"]
+allow_indirect_imports = true
+unmatched_ignore_imports_alerting = "error"
