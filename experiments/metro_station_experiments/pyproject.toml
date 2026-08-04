@@ -1,0 +1,21 @@
+[build-system]
+requires = ["setuptools>=77"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "metro-station-experiments"
+version = "0.1.0"
+description = "Batch experiments and evidence analysis for metro-station."
+requires-python = ">=3.12"
+dependencies = [
+    "metro-station==0.1.0",
+]
+
+[project.scripts]
+metro-station-experiment = "metro_station_experiments.runner:main"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.uv.sources]
+metro-station = { workspace = true }

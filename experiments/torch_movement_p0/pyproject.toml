@@ -1,0 +1,44 @@
+[build-system]
+requires = ["setuptools>=77"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "metro-torch-movement-p0"
+version = "0.0.1"
+description = "Isolated feasibility experiment for a PyTorch metro movement kernel."
+readme = "README.md"
+requires-python = ">=3.12,<3.14"
+dependencies = [
+    "torch>=2.1.2",
+]
+
+[project.optional-dependencies]
+metro = [
+    "metro-data-warehouse==0.1.0",
+    "metro-station==0.1.0",
+]
+
+[project.scripts]
+metro-torch-p0 = "metro_torch_p0.cli:main"
+
+[dependency-groups]
+dev = [
+    "pytest>=8.0",
+]
+
+[tool.uv.sources]
+metro-data-warehouse = { path = "../..", editable = true }
+metro-station = { path = "../../packages/metro_station", editable = true }
+torch = { index = "pytorch-cu126" }
+
+[[tool.uv.index]]
+name = "pytorch-cu126"
+url = "https://download.pytorch.org/whl/cu126"
+explicit = true
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py312"

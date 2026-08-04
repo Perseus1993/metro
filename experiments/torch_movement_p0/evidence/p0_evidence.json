@@ -1,0 +1,155 @@
+{
+  "generated_at_utc": "2026-08-02T14:56:31.608465+00:00",
+  "environment": {
+    "python": "3.12.13",
+    "torch": "2.13.0+cu126",
+    "cuda_runtime": "12.6",
+    "cuda_available": true,
+    "device": "NVIDIA GeForce RTX 3080"
+  },
+  "scenarios": [
+    {
+      "name": "M1_single_walker",
+      "passed": true,
+      "metrics": {
+        "endpoint_error_m": 0.019243240356445312,
+        "minimum_agent_gap_m": null,
+        "minimum_wall_clearance_m": 1.8267967700958252,
+        "max_speed_mps": 1.199999451637268,
+        "projection_contacts": 0
+      }
+    },
+    {
+      "name": "M2_head_on",
+      "passed": true,
+      "metrics": {
+        "destination_error_m": 0.042879585176706314,
+        "minimum_agent_gap_m": 0.0009995996952056885,
+        "minimum_wall_clearance_m": 1.8267881870269775,
+        "max_speed_mps": 1.2042770385742188,
+        "projection_contacts": 24
+      }
+    },
+    {
+      "name": "M3_bidirectional_corridor",
+      "passed": true,
+      "metrics": {
+        "mean_abs_progress_m": 7.526302814483643,
+        "minimum_agent_gap_m": 0.0009992718696594238,
+        "minimum_wall_clearance_m": 0.02073410153388977,
+        "max_speed_mps": 1.8000001907348633,
+        "projection_contacts": 134
+      }
+    },
+    {
+      "name": "M4_bottleneck",
+      "passed": true,
+      "metrics": {
+        "agents_past_bottleneck": 11,
+        "minimum_agent_gap_m": -0.0075085461139678955,
+        "minimum_wall_clearance_m": 0.0010000020265579224,
+        "max_speed_mps": 1.8000001907348633,
+        "projection_contacts": 3527
+      }
+    },
+    {
+      "name": "M5_slot_reuse",
+      "passed": true,
+      "metrics": {
+        "slot_reused": true,
+        "velocity_reset": true,
+        "active_ids_match": true
+      }
+    },
+    {
+      "name": "M6_level_isolation",
+      "passed": true,
+      "metrics": {
+        "first_agent_delta_m": 0.0
+      }
+    },
+    {
+      "name": "M7_dynamic_obstacle",
+      "passed": true,
+      "metrics": {
+        "final_x_m": 7.516566753387451,
+        "minimum_agent_gap_m": null,
+        "minimum_wall_clearance_m": 0.19471341371536255,
+        "max_speed_mps": 1.1944570541381836,
+        "projection_contacts": 0
+      }
+    }
+  ],
+  "calibration": {
+    "autograd_gradient": 0.040142908692359924,
+    "finite_difference_gradient": 0.040139537304639816,
+    "relative_gradient_error": 8.399169363913734e-05,
+    "true_relaxation_time_s": 0.38,
+    "recovered_relaxation_time_s": 0.3800465762615204,
+    "initial_loss": 0.020191408693790436,
+    "final_loss": 1.760017409591086e-10,
+    "passed": true
+  },
+  "metro_boundary": {
+    "injected": true,
+    "progressed_m": 4.0006506598761025,
+    "active_slots": 1,
+    "passed": true
+  },
+  "benchmarks": [
+    {
+      "device": "cpu",
+      "batch_size": 1,
+      "capacity": 300,
+      "timed_steps": 30,
+      "elapsed_seconds": 0.7104304999993474,
+      "agent_steps_per_second": 12668.375020509771,
+      "peak_memory_mib": null
+    },
+    {
+      "device": "cuda",
+      "batch_size": 1,
+      "capacity": 300,
+      "timed_steps": 50,
+      "elapsed_seconds": 0.42019819999768515,
+      "agent_steps_per_second": 35697.43992259518,
+      "peak_memory_mib": 4.49560546875
+    },
+    {
+      "device": "cuda",
+      "batch_size": 8,
+      "capacity": 300,
+      "timed_steps": 50,
+      "elapsed_seconds": 0.3912982000001648,
+      "agent_steps_per_second": 306671.48481631005,
+      "peak_memory_mib": 36.04638671875
+    },
+    {
+      "device": "cuda",
+      "batch_size": 32,
+      "capacity": 300,
+      "timed_steps": 50,
+      "elapsed_seconds": 0.4811788000006345,
+      "agent_steps_per_second": 997550.1830075786,
+      "peak_memory_mib": 140.88330078125
+    },
+    {
+      "device": "cuda",
+      "batch_size": 1,
+      "capacity": 1024,
+      "timed_steps": 30,
+      "elapsed_seconds": 0.24882290000095963,
+      "agent_steps_per_second": 123461.30520897201,
+      "peak_memory_mib": 52.07373046875
+    }
+  ],
+  "decision": {
+    "verdict": "GO: constrained P1 R&D",
+    "scenario_gate": true,
+    "calibration_gate": true,
+    "metro_boundary_gate": true,
+    "gpu_throughput_gate": true,
+    "throughput_threshold_agent_steps_per_second": 500000,
+    "scope": "P1 R&D only; not a production backend switch or a JuPedSim replacement."
+  }
+}

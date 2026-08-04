@@ -1,0 +1,16 @@
+{
+  "name": "MetroReplay.Editor",
+  "rootNamespace": "MetroReplay.Editor",
+  "references": [
+    "MetroReplay.Runtime",
+    "Unity.RenderPipelines.Core.Runtime",
+    "Unity.RenderPipelines.HighDefinition.Runtime",
+    "Unity.RenderPipelines.HighDefinition.Editor",
+    "Unity.Recorder.Editor"
+    ,"Whinarn.UnityMeshSimplifier.Runtime"
+  ],
+  "includePlatforms": [
+    "Editor"
+  ],
+  "autoReferenced": true
+}

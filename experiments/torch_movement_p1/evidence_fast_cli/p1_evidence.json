@@ -1,0 +1,352 @@
+{
+  "generated_at_utc": "2026-08-03T13:14:14.829583+00:00",
+  "environment": {
+    "python": "3.12.13",
+    "torch": "2.13.0+cu126",
+    "cuda_runtime": "12.6",
+    "cuda_available": true,
+    "device": "NVIDIA GeForce RTX 3080",
+    "run_device": "cpu"
+  },
+  "scope": "P1 标定主线验证；JuPedSim 与 metro_station 默认后端不改。",
+  "scenarios": [
+    {
+      "name": "M1_single_walker",
+      "passed": true,
+      "metrics": {
+        "endpoint_error_m": 0.07750988006591797,
+        "minimum_agent_gap_m": null,
+        "minimum_wall_clearance_m": 1.8266665935516357,
+        "max_speed_mps": 1.1999995708465576,
+        "projection_contacts": 0
+      }
+    },
+    {
+      "name": "M2_head_on",
+      "passed": true,
+      "metrics": {
+        "destination_error_m": 0.059303853660821915,
+        "minimum_agent_gap_m": 0.13976192474365234,
+        "minimum_wall_clearance_m": 1.5991365909576416,
+        "max_speed_mps": 1.1999881267547607,
+        "projection_contacts": 0
+      }
+    },
+    {
+      "name": "M3_bidirectional_corridor",
+      "passed": true,
+      "metrics": {
+        "mean_abs_progress_m": 5.811266899108887,
+        "minimum_agent_gap_m": 0.09009948372840881,
+        "minimum_wall_clearance_m": 0.3407468795776367,
+        "max_speed_mps": 1.5682917833328247,
+        "projection_contacts": 0
+      }
+    },
+    {
+      "name": "M4_bottleneck",
+      "passed": true,
+      "metrics": {
+        "agents_past_bottleneck": 19,
+        "minimum_agent_gap_m": 0.008764714002609253,
+        "minimum_wall_clearance_m": 0.08905297517776489,
+        "max_speed_mps": 1.8000001907348633,
+        "projection_contacts": 0
+      }
+    },
+    {
+      "name": "M5_slot_reuse",
+      "passed": true,
+      "metrics": {
+        "slot_reused": true,
+        "velocity_reset": true,
+        "active_ids_match": true
+      }
+    },
+    {
+      "name": "M6_level_isolation",
+      "passed": true,
+      "metrics": {
+        "first_agent_delta_m": 0.0
+      }
+    },
+    {
+      "name": "M7_dynamic_obstacle",
+      "passed": true,
+      "metrics": {
+        "final_x_m": 7.280649662017822,
+        "minimum_agent_gap_m": null,
+        "minimum_wall_clearance_m": 2.8266665935516357,
+        "max_speed_mps": 1.1649566888809204,
+        "projection_contacts": 0,
+        "minimum_agent_gap_m_after_obstacle": null,
+        "minimum_wall_clearance_m_after_obstacle": 0.3717387318611145,
+        "max_speed_mps_after_obstacle": 1.1995757818222046,
+        "projection_contacts_after_obstacle": 0
+      }
+    },
+    {
+      "name": "P1-02_polygon_walkable_50",
+      "passed": true,
+      "metrics": {
+        "requested_agents": 50,
+        "spawned_agents": 50,
+        "invalid_starts": 0,
+        "minimum_agent_gap_m": 0.014432817697525024,
+        "minimum_wall_clearance_m": 0.10972309112548828,
+        "max_speed_mps": 1.7999999523162842,
+        "projection_contacts": 6
+      }
+    },
+    {
+      "name": "P1-02_geometry_refresh_tick",
+      "passed": true,
+      "metrics": {
+        "pass_rate": true,
+        "minimum_agent_gap_m": null,
+        "minimum_wall_clearance_m": 0.8298344016075134,
+        "max_speed_mps": 1.1997039318084717,
+        "projection_contacts": 0
+      }
+    }
+  ],
+  "gradient_gate": {
+    "autograd": 0.10189061611890793,
+    "finite_difference_gradient": 0.10187993198633194,
+    "relative_gradient_error": 0.00010486984401817363,
+    "recovered_tau": 0.3801787495613098,
+    "passed": true
+  },
+  "synthetic_4param_recovery": {
+    "budgets": [
+      2,
+      4
+    ],
+    "autograd_p50_error": [
+      0.6297924518585205,
+      0.6163903474807739
+    ],
+    "autograd_p95_error": [
+      0.6297924518585205,
+      0.6163903474807739
+    ],
+    "black_box_p50_error": [
+      0.7713824510574341,
+      1.612455129623413
+    ],
+    "black_box_p95_error": [
+      0.7713824510574341,
+      1.612455129623413
+    ],
+    "best_autograd": [
+      [
+        2,
+        [
+          0.9142190217971802,
+          3.0978012084960938,
+          0.9451566338539124,
+          0.7987633943557739
+        ],
+        0.6297924518585205
+      ],
+      [
+        4,
+        [
+          0.9142190217971802,
+          3.140648365020752,
+          0.9045052528381348,
+          0.8282288312911987
+        ],
+        0.6163903474807739
+      ]
+    ],
+    "best_black_box": [
+      [
+        2,
+        [
+          0.8724408149719238,
+          3.3615591526031494,
+          1.3546655178070068,
+          0.5637722611427307
+        ],
+        0.7713824510574341
+      ],
+      [
+        4,
+        [
+          1.014164686203003,
+          3.0206356048583984,
+          1.6967698335647583,
+          1.8581448793411255
+        ],
+        1.612455129623413
+      ]
+    ],
+    "autograd_to_black_box_ratio": [
+      0.816446434573644,
+      0.3822682170540343
+    ]
+  },
+  "jupedsim_pseudo_fit": {
+    "method": "jupedsim-pseudo",
+    "seed": 17,
+    "budget_steps": 120,
+    "baseline_loss": 0.41614994406700134,
+    "calibrated_loss": 4.061803817749023,
+    "model_gap": 0.6890893578529358,
+    "macro_gap": 1.8398372530937195,
+    "passed": false
+  },
+  "real_data_calibration": [
+    {
+      "dataset": "synthetic-protocol-juelich-stub",
+      "budget_steps": 4,
+      "seed": 17,
+      "train_loss": 0.04329448938369751,
+      "holdout_loss": 0.10766993463039398,
+      "train_steps": 8,
+      "holdout_steps": 4,
+      "train_macro_loss": 0.13654758036136627,
+      "holdout_macro_loss": 0.2995045781135559,
+      "relative_parameter_error": 0.6972767114639282,
+      "holdout_ratio_vs_train": 2.4869200714245396,
+      "passed": false,
+      "notes": "synthetic-fallback (synthetic-protocol-juelich-stub)"
+    },
+    {
+      "dataset": "synthetic-protocol-juelich-stub",
+      "budget_steps": 6,
+      "seed": 17,
+      "train_loss": 0.0332840271294117,
+      "holdout_loss": 0.10681971907615662,
+      "train_steps": 8,
+      "holdout_steps": 4,
+      "train_macro_loss": 0.11230205744504929,
+      "holdout_macro_loss": 0.2909916937351227,
+      "relative_parameter_error": 0.7269284129142761,
+      "holdout_ratio_vs_train": 3.2093387816573586,
+      "passed": false,
+      "notes": "synthetic-fallback (synthetic-protocol-juelich-stub)"
+    }
+  ],
+  "metro_boundary": {
+    "injected": true,
+    "progressed_m": 3.9891108145648855,
+    "active_slots": 1,
+    "passed": true
+  },
+  "benchmarks": [
+    {
+      "device": "cpu",
+      "batch_size": 1,
+      "capacity": 300,
+      "timed_steps": 30,
+      "elapsed_seconds": 0.6218332999997074,
+      "agent_steps_per_second": 14473.33232235108,
+      "peak_memory_mib": null
+    },
+    {
+      "device": "cuda",
+      "batch_size": 1,
+      "capacity": 300,
+      "timed_steps": 50,
+      "elapsed_seconds": 0.48753590000023905,
+      "agent_steps_per_second": 30766.965058352922,
+      "peak_memory_mib": 4.49267578125
+    },
+    {
+      "device": "cuda",
+      "batch_size": 8,
+      "capacity": 300,
+      "timed_steps": 50,
+      "elapsed_seconds": 0.4661847000002126,
+      "agent_steps_per_second": 257408.7051761786,
+      "peak_memory_mib": 36.05126953125
+    },
+    {
+      "device": "cuda",
+      "batch_size": 32,
+      "capacity": 300,
+      "timed_steps": 50,
+      "elapsed_seconds": 0.7131441999999879,
+      "agent_steps_per_second": 673075.6556668457,
+      "peak_memory_mib": 140.91552734375
+    },
+    {
+      "device": "cuda",
+      "batch_size": 1,
+      "capacity": 1024,
+      "timed_steps": 30,
+      "elapsed_seconds": 0.3009015999996336,
+      "agent_steps_per_second": 102093.17597526037,
+      "peak_memory_mib": 52.0732421875
+    }
+  ],
+  "paper_outline": {
+    "central_claim": "在离散运营边界约束下，可微行人仿真内核在保持吞吐路径可维护的前提下，是否能以更少预算恢复参数并获得可外推的真实场景校准？",
+    "method_components": [
+      "联合接触约束求解（P1-01）",
+      "多边形可步行域张量化（P1-02）",
+      "统一预算下的梯度/黑箱校准对比（P1-03~04）",
+      "JuPedSim 伪观测的模型族差距分离（P1-05）",
+      "Jülich 公开轨迹留出验证（P1-06）"
+    ],
+    "figure_plan": [
+      "图1: P1-01/P1-02 blockers 结果（M1~M7 + 多边形薄切片）",
+      "图2: 合成多参数预算-误差曲线（autograd vs black-box p50/p95）",
+      "图3: 训练-留出轨迹误差与宏观指标对比",
+      "图4: 吞吐回归（CPU + CUDA；32×300）",
+      "图5: 失败样本与边界条件列表"
+    ],
+    "related_work_positioning": [
+      "可微 ABM（AgentTorch/GradABM）在模型域上，尚未覆盖离散设施边界的行人内核标定。",
+      "对比参数搜索基线（MassMotion/Viswalk 思路）强调可解释性强但预算代价高。",
+      "本工作将梯度法限定于连续参数（参照 PM-032 §6.4）以对齐离散场景可导约束。"
+    ],
+    "decision_branches": [
+      "paper-go, scale-up, limited-go, stop",
+      "对应门控: 块级可行性、合成预算优势、真实留出验收、吞吐回归。"
+    ]
+  },
+  "decision": {
+    "verdict": "stop",
+    "reason": "Throughput gate failed: 32×300 does not meet P0 80% lower bound.",
+    "metrics": {
+      "budget_ratio_min": 0.3822682170540343,
+      "budget_budget_min": 4,
+      "throughput_current": 673075.6556668457,
+      "throughput_baseline_32x300": 997550.1830075786,
+      "throughput_gate_ratio": 0.6747286172987773,
+      "p1_real_data_pass": null
+    },
+    "evidence": {
+      "method": "PM-033 P1 四选一判据",
+      "paper_go_conditions": {
+        "blocker_path": true,
+        "gradient_advantage": true,
+        "pseudo_fit_reported": false,
+        "minimum_budget_ratio_le_05": true,
+        "minimum_budget_budget_available": true
+      },
+      "throughput_gate_pass": false,
+      "real_data_pass": null,
+      "throughput_gate_ratio": 0.6747286172987773,
+      "throughput_baseline_32x300": 997550.1830075786,
+      "throughput_current_32x300": 673075.6556668457,
+      "budget_ratio_min": 0.3822682170540343,
+      "budget_budget_min": 4,
+      "pseudo_model_gap": 0.6890893578529358,
+      "pseudo_macro_gap": 1.8398372530937195,
+      "real_dataset": "synthetic-protocol-juelich-stub"
+    },
+    "paper_go_conditions": {
+      "blocker_path": true,
+      "gradient_advantage": true,
+      "pseudo_fit_reported": false,
+      "minimum_budget_ratio_le_05": true,
+      "minimum_budget_budget_available": true
+    },
+    "blocker_pass": true,
+    "metro_boundary_passed": true
+  }
+}
