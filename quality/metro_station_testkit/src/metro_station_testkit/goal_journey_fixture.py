@@ -232,7 +232,6 @@ def install_micro_spatial_capacity_contract(
     for binding in bindings:
         spec = spec_by_id[binding.facility_id]
         forward = binding.release_forward
-        lateral = binding.release_lateral
         # Four alternatives cover the maximum concurrent service exercised by
         # these component probes while preserving an explicit finite N/N+1
         # boundary in the shared runtime admission code.

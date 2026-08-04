@@ -64,7 +64,6 @@ from sandbox.metro_station_sandbox.planning.plan import (
 )
 from sandbox.metro_station_sandbox.planning.goal_commands import GoalCommand
 from sandbox.metro_station_sandbox.planning.goal_events import GoalEventKind
-from sandbox.metro_station_sandbox.planning.plan import AgentState
 from sandbox.metro_station_sandbox.runtime.passenger_goal_command_executor import (
     ProductionGoalCommandContext,
 )

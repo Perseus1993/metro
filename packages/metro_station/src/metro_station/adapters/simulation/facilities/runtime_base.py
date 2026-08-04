@@ -572,7 +572,6 @@ class FacilityProcessAgent(FacilityAgent):
             (max(0, int(preferred_index)) + offset) % capacity
             for offset in range(capacity)
         )
-        dynamically_blocked = False
         native_rejections = 0
         for slot_index in order:
             if slot_index in owners:
@@ -583,7 +582,6 @@ class FacilityProcessAgent(FacilityAgent):
                 self._release_min_distance(),
                 passenger=passenger,
             ):
-                dynamically_blocked = True
                 continue
             try:
                 resolved = self.model.movement_backend.resolve_certified_placement(
@@ -603,8 +601,6 @@ class FacilityProcessAgent(FacilityAgent):
                 owners[slot_index] = passenger_id
             return candidate, slot_index
 
-        if native_rejections > 0:
-            dynamically_blocked = True
         record_spatial_capacity_event(
             self.model,
             "placement.dynamic_blocked",

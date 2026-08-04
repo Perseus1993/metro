@@ -603,7 +603,6 @@ class PassengerAgent(MovableAgent):
         """Publish one acceleration- and endpoint-bounded native request."""
 
         tx, ty = float(target[0]), float(target[1])
-        distance = hypot(tx - self.pos[0], ty - self.pos[1])
         scenario = self.model.scenario
         tick_seconds = max(float(scenario.tick_seconds), 1e-9)
         observation_seconds = float(
