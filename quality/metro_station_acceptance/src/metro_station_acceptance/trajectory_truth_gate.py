@@ -3,7 +3,11 @@ from __future__ import annotations
 from dataclasses import asdict, dataclass
 from typing import Any
 
-from .trajectory_truth_colocation import persistent_exact_colocations
+from .trajectory_truth_colocation import (
+    instantaneous_exact_colocations,
+    persistent_exact_colocations,
+    persistent_near_colocations,
+)
 from .trajectory_truth_inputs import extract_truth_input
 from .trajectory_truth_series import (
     excessive_average_speeds,
@@ -25,6 +29,9 @@ class TrajectoryTruthGateConfig:
     time_epsilon_s: float = 1e-9
     min_exact_colocation_duration_s: float = 2.0
     min_exact_colocation_samples: int = 2
+    maximum_near_colocation_distance_m: float = 0.02
+    min_near_colocation_duration_s: float = 2.0
+    min_near_colocation_samples: int = 3
     max_issue_examples: int = 20
     coordinate_unit: str | None = None
 
@@ -33,15 +40,20 @@ class TrajectoryTruthGateConfig:
             "max_average_speed_m_s": self.max_average_speed_m_s,
             "max_issue_examples": self.max_issue_examples,
             "min_exact_colocation_samples": self.min_exact_colocation_samples,
+            "maximum_near_colocation_distance_m": self.maximum_near_colocation_distance_m,
+            "min_near_colocation_samples": self.min_near_colocation_samples,
         }
         if any(value <= 0 for value in positive.values()):
             raise ValueError("speed, sample count, and example count must be positive")
         if self.min_exact_colocation_samples < 2:
             raise ValueError("min_exact_colocation_samples must be at least 2")
+        if self.min_near_colocation_samples < 3:
+            raise ValueError("min_near_colocation_samples must be at least 3")
         if min(
             self.same_time_position_epsilon,
             self.time_epsilon_s,
             self.min_exact_colocation_duration_s,
+            self.min_near_colocation_duration_s,
         ) < 0:
             raise ValueError("epsilons and colocation duration must not be negative")
 
@@ -78,6 +90,17 @@ def analyze_trajectory_truth(
         min_samples=active_config.min_exact_colocation_samples,
         max_examples=active_config.max_issue_examples,
     )
+    exact_overlap_count, exact_overlap_examples = instantaneous_exact_colocations(
+        truth.observations,
+        max_examples=active_config.max_issue_examples,
+    )
+    near_colocation_count, near_colocation_examples = persistent_near_colocations(
+        truth.observations,
+        maximum_distance_m=active_config.maximum_near_colocation_distance_m,
+        min_duration_s=active_config.min_near_colocation_duration_s,
+        min_samples=active_config.min_near_colocation_samples,
+        max_examples=active_config.max_issue_examples,
+    )
 
     checks = {
         "finite_time_and_coordinates": _hard_check(
@@ -110,6 +133,23 @@ def analyze_trajectory_truth(
                 "minimum_samples": active_config.min_exact_colocation_samples,
             },
             examples=colocation_examples,
+        ),
+        "different_ids_never_share_exact_position": _hard_check(
+            exact_overlap_count,
+            count_unit="agent_pair_timestamps",
+            threshold={"maximum": 0},
+            examples=exact_overlap_examples,
+        ),
+        "no_persistent_near_colocation": _hard_check(
+            near_colocation_count,
+            count_unit="agent_pair_runs",
+            threshold={
+                "maximum": 0,
+                "maximum_distance_m": active_config.maximum_near_colocation_distance_m,
+                "minimum_duration_s": active_config.min_near_colocation_duration_s,
+                "minimum_samples": active_config.min_near_colocation_samples,
+            },
+            examples=near_colocation_examples,
         ),
         "average_speed_within_bound": _speed_check(
             truth.coordinate_unit,

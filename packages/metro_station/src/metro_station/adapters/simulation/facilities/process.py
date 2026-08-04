@@ -11,6 +11,9 @@ Point = tuple[float, float]
 
 DEFAULT_FALLBACK_QUEUE_SPACING = 0.8
 DEFAULT_FALLBACK_QUEUE_CAPACITY = 8
+DEFAULT_RELEASE_SPACING_MIN = 0.42
+DEFAULT_RELEASE_SPACING_MAX = 0.70
+DEFAULT_RELEASE_FORWARD_EXTRA = 5
 
 
 class FacilityKind(StrEnum):
@@ -136,15 +139,19 @@ class FacilitySpec:
     vertical_config: VerticalFacilityConfig | None = None
     traversal_width_m: float | None = None
     release_column_count: int = 3
-    release_spacing_min: float = 0.42
-    release_spacing_max: float = 0.70
+    release_spacing_min: float = DEFAULT_RELEASE_SPACING_MIN
+    release_spacing_max: float = DEFAULT_RELEASE_SPACING_MAX
     release_clearance_pad: float = 0.04
     release_personal_factor: float = 0.55
     release_lateral_range: int = 3
-    release_forward_extra: int = 5
+    release_forward_extra: int = DEFAULT_RELEASE_FORWARD_EXTRA
     fallback_queue_spacing: float = DEFAULT_FALLBACK_QUEUE_SPACING
     fallback_queue_capacity: int = DEFAULT_FALLBACK_QUEUE_CAPACITY
     queue_crossing_guard: QueueCrossingGuard = field(default_factory=QueueCrossingGuard)
+    # Optional geometry-authored outward unit vector at the exit portal.
+    # This is essential for stacked connectors whose entry and exit share XY;
+    # queue offsets and graph representative points are not portal normals.
+    release_forward_hint: Point | None = None
 
     @property
     def queue_anchor(self) -> Point:

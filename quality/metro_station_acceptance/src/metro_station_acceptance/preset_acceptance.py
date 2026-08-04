@@ -49,6 +49,8 @@ def run_preset_acceptance_case(
         service_events=model.facility_service_events,
         terminal_events=model.passenger_terminal_events,
         clearance_debug=clearance,
+        movement_trace=model.movement_backend.movement_trace(),
+        facility_motion_trace=model.facility_motion_trace_recorder.as_dict(),
     )
     trajectory = diagnose_tracks(tracks)
     parity = model.goal_parity.report(model, include_events=False)

@@ -103,7 +103,7 @@ def build_parser() -> argparse.ArgumentParser:
     )
     parser.add_argument(
         "--jupedsim-model",
-        choices=("collision_free_speed", "social_force"),
+        choices=("collision_free_speed", "anticipation_velocity", "social_force"),
         default="collision_free_speed",
         help="JuPedSim operational pedestrian model used inside each walking tick.",
     )
@@ -343,6 +343,7 @@ def main(arguments: Sequence[str] | None = None) -> None:
             routing_decision_logs=model.routing_decision_logs,
             clearance_debug=build_clearance_debug(model),
             movement_trace=model.movement_backend.movement_trace(),
+            facility_motion_trace=model.facility_motion_trace_recorder.as_dict(),
         )
     replay_json_path = None
     if args.replay_json_out is not None:

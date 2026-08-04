@@ -149,7 +149,12 @@ class EscalatorProcessAgent(VerticalTransportProcessAgent):
         release_count: int = 1,
     ) -> bool:
         if not self._passenger_at_mechanical_entry(passenger):
-            self._withdraw_physical_resource_request()
+            # A losing directional facade is deliberately compacted one slot
+            # behind the shared entry. Its FIFO resource request must survive
+            # that setback; otherwise it disappears from arbitration and the
+            # current direction can reacquire forever.
+            if not self._passenger_holds_entry_lease(passenger):
+                self._withdraw_physical_resource_request()
             return False
         return super()._can_start_service(
             passenger,
@@ -164,6 +169,19 @@ class EscalatorProcessAgent(VerticalTransportProcessAgent):
             passenger.pos[0] - target[0],
             passenger.pos[1] - target[1],
         ) <= 0.12
+
+    def _passenger_holds_entry_lease(self, passenger: PassengerAgent) -> bool:
+        """Keep FIFO ownership only in the entry/one-body setback corridor."""
+
+        slot_count = len(tuple(getattr(self.queue.layout, "slots", ())))
+        return any(
+            hypot(
+                passenger.pos[0] - self._service_entry_position(index)[0],
+                passenger.pos[1] - self._service_entry_position(index)[1],
+            )
+            <= self._service_ready_radius()
+            for index in range(min(2, max(1, slot_count)))
+        )
 
     def _ride_steps_for_mode(self) -> int:
         return self._ride_steps_from_seconds(self._ride_duration_seconds_for_mode())

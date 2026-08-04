@@ -59,7 +59,7 @@ class MetroExperimentTests(unittest.TestCase):
         self.assertEqual("#/simulation_trace", replay_package["simulation_trace_ref"])
         self.assertEqual("#/visualization_bundle", replay_package["visualization_bundle_ref"])
 
-    def test_runner_exports_gate_events_and_visual_waypoints(self) -> None:
+    def test_runner_exports_gate_events_without_visual_passenger_overrides(self) -> None:
         case = ExperimentCase(
             case_id="gate_visual_smoke",
             design=create_design("visual_demo_station"),
@@ -81,16 +81,14 @@ class MetroExperimentTests(unittest.TestCase):
         gate_track = next(
             agent for agent in result.tracks_payload["agents"] if agent["id"] == gate_passenger_id
         )
-        self.assertTrue(
-            any(float(point[0]) % case.tick_seconds for point in gate_track["presentation_points"])
-        )
-        visual_only_points = [
-            point
-            for point in gate_track["presentation_points"]
-            if len(point) > 9 and isinstance(point[9], dict) and point[9].get("visual_only")
-        ]
-        self.assertGreater(len(visual_only_points), 0)
+        self.assertNotIn("presentation_points", gate_track)
         self.assertTrue(all(not point[9]["visual_only"] for point in gate_track["points"]))
+        bundled_track = next(
+            agent
+            for agent in result.tracks_payload["visualization_bundle"]["visual_tracks"]
+            if agent["id"] == gate_passenger_id
+        )
+        self.assertEqual(gate_track, bundled_track)
 
     def test_diagnostic_truth_payload_filters_visual_only_points(self) -> None:
         payload = {

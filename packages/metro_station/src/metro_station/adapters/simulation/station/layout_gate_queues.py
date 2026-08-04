@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from math import cos, hypot, radians, sin
+from math import cos, radians, sin
 
 from shapely.geometry import Point as ShapelyPoint
 
@@ -20,6 +20,7 @@ from .layout_queue_geometry import (
     _queue_slot_candidates,
     _sort_queue_slots_from_service,
 )
+from .layout_queue_path import connected_queue_slot_path
 from .layout_types import Point
 
 
@@ -58,15 +59,25 @@ def _gate_lane_positions(
         position,
         exit_position,
     )
+    min_x, min_y, max_x, max_y = _gate_local_bounds(element)
     if lane_count <= 1:
         split_axis = _gate_split_axis(element)
         if split_axis == "x":
-            coordinate = (element.geometry.bounds()[0] + element.geometry.bounds()[2]) / 2.0
-            return (((coordinate, start_coordinate), (coordinate, end_coordinate)),)
-        coordinate = (element.geometry.bounds()[1] + element.geometry.bounds()[3]) / 2.0
-        return (((start_coordinate, coordinate), (end_coordinate, coordinate)),)
+            coordinate = (min_x + max_x) / 2.0
+            return (
+                (
+                    _gate_from_local(element, (coordinate, start_coordinate)),
+                    _gate_from_local(element, (coordinate, end_coordinate)),
+                ),
+            )
+        coordinate = (min_y + max_y) / 2.0
+        return (
+            (
+                _gate_from_local(element, (start_coordinate, coordinate)),
+                _gate_from_local(element, (end_coordinate, coordinate)),
+            ),
+        )
 
-    min_x, min_y, max_x, max_y = element.geometry.bounds()
     split_axis = _gate_split_axis(element)
     positions: list[tuple[Point, Point]] = []
     for lane_index in range(lane_count):
@@ -78,11 +89,11 @@ def _gate_lane_positions(
             edge_inset_max=edge_inset_max,
         )
         if split_axis == "x":
-            lane_position = (coordinate, start_coordinate)
-            lane_exit_position = (coordinate, end_coordinate)
+            lane_position = _gate_from_local(element, (coordinate, start_coordinate))
+            lane_exit_position = _gate_from_local(element, (coordinate, end_coordinate))
         else:
-            lane_position = (start_coordinate, coordinate)
-            lane_exit_position = (end_coordinate, coordinate)
+            lane_position = _gate_from_local(element, (start_coordinate, coordinate))
+            lane_exit_position = _gate_from_local(element, (end_coordinate, coordinate))
         positions.append((lane_position, lane_exit_position))
     return tuple(positions)
 
@@ -93,16 +104,26 @@ def _gate_service_edge_coordinates(
     position: Point,
     exit_position: Point,
 ) -> tuple[float, float]:
-    min_x, min_y, max_x, max_y = element.geometry.bounds()
+    min_x, min_y, max_x, max_y = _gate_local_bounds(element)
     split_axis = _gate_split_axis(element)
+    local_position = _gate_to_local(element, position)
+    local_exit = _gate_to_local(element, exit_position)
     if split_axis == "x":
         low, high = min_y, max_y
-        position_value, exit_value = position[1], exit_position[1]
-        queue_value = _queue_geometry_center(queue)[1] if queue is not None else None
+        position_value, exit_value = local_position[1], local_exit[1]
+        queue_value = (
+            _gate_to_local(element, _queue_geometry_center(queue))[1]
+            if queue is not None
+            else None
+        )
     else:
         low, high = min_x, max_x
-        position_value, exit_value = position[0], exit_position[0]
-        queue_value = _queue_geometry_center(queue)[0] if queue is not None else None
+        position_value, exit_value = local_position[0], local_exit[0]
+        queue_value = (
+            _gate_to_local(element, _queue_geometry_center(queue))[0]
+            if queue is not None
+            else None
+        )
 
     center = (low + high) / 2.0
     if queue_value is not None and abs(queue_value - center) > 0.001:
@@ -162,7 +183,7 @@ def _gate_lane_queue_layout(
         )[: max(1, int(fallback_queue_capacity))]
 
     if slots:
-        ordered = tuple(sorted(slots, key=lambda slot: _point_distance(slot, lane_position)))
+        ordered = tuple(slots)
         return QueueLayout(
             anchor=ordered[0],
             per_row=1,
@@ -214,10 +235,11 @@ def _queue_slots_from_geometry_for_lane(
     edge_inset_max: float,
 ) -> tuple[Point, ...]:
     candidates, domain = _queue_slot_candidates(queue, walkable_geometry)
-    capacity = max(4, (queue.capacity + lane_count - 1) // lane_count)
+    capacity = max(1, (queue.capacity + lane_count - 1) // lane_count)
     centerline_slots = _parallel_gate_lane_slots(
         queue,
         domain,
+        element=element,
         service_point=service_point,
         capacity=capacity,
     )
@@ -235,7 +257,7 @@ def _queue_slots_from_geometry_for_lane(
         lane_candidates = tuple(
             sorted(candidates, key=lambda point: _point_distance(point, service_point))
         )
-    return tuple(
+    ordered = tuple(
         dedupe_points(
             _sort_queue_slots_from_service(
                 list(lane_candidates),
@@ -245,13 +267,22 @@ def _queue_slots_from_geometry_for_lane(
                 domain,
             )
         )
-    )[:capacity]
+    )
+    return connected_queue_slot_path(
+        list(ordered),
+        domain=domain,
+        spacing=float(queue.spacing_m),
+        target_length=capacity,
+        service_point=service_point,
+        allow_diagonal=True,
+    )
 
 
 def _parallel_gate_lane_slots(
     queue: QueueSpec,
     domain,
     *,
+    element: DesignElement,
     service_point: Point,
     capacity: int,
 ) -> tuple[Point, ...]:
@@ -259,7 +290,12 @@ def _parallel_gate_lane_slots(
         return ()
 
     spacing = max(0.2, float(queue.spacing_m))
-    tail = _queue_tail_direction(queue, domain)
+    tail = _gate_lane_tail_direction(
+        queue,
+        domain,
+        element=element,
+        service_point=service_point,
+    )
     slots: list[Point] = []
     for index in range(capacity):
         depth = spacing * (index + 0.5)
@@ -278,18 +314,45 @@ def _parallel_gate_lane_slots(
     return tuple(dedupe_points(slots))
 
 
-def _queue_tail_direction(queue: QueueSpec, domain) -> Point:
-    centroid = domain.centroid
-    tail = (
-        float(centroid.x) - queue.service_point_m[0],
-        float(centroid.y) - queue.service_point_m[1],
+def _gate_lane_tail_direction(
+    queue: QueueSpec,
+    domain,
+    *,
+    element: DesignElement,
+    service_point: Point,
+) -> Point:
+    """Return a lane-parallel queue tail in the gate's local frame.
+
+    A multi-lane bank must not aim every lane at the shared queue-domain
+    centroid: that introduces a lateral component and makes all lanes converge
+    into one diagonal fan.  The domain decides only which side of the gate is
+    the queue side; the gate's service axis decides the direction.
+    """
+
+    centroid_local = _gate_to_local(
+        element,
+        (float(domain.centroid.x), float(domain.centroid.y)),
     )
-    if hypot(*tail) >= 0.001:
-        if abs(tail[0]) >= abs(tail[1]):
-            return (1.0 if tail[0] >= 0 else -1.0, 0.0)
-        return (0.0, 1.0 if tail[1] >= 0 else -1.0)
-    angle = radians(queue.direction_deg)
-    return _normalize((cos(angle), sin(angle)))
+    service_local = _gate_to_local(element, service_point)
+    split_axis = _gate_split_axis(element)
+    flow_axis = 1 if split_axis == "x" else 0
+    delta = centroid_local[flow_axis] - service_local[flow_axis]
+    if abs(delta) <= 0.001:
+        configured_angle = radians(
+            float(queue.direction_deg) - float(element.geometry.rotation_deg)
+        )
+        configured_local = (cos(configured_angle), sin(configured_angle))
+        delta = configured_local[flow_axis]
+    sign = 1.0 if delta >= 0.0 else -1.0
+    local_tail = (0.0, sign) if flow_axis == 1 else (sign, 0.0)
+    center_world = _gate_from_local(element, (0.0, 0.0))
+    tail_world = _gate_from_local(element, local_tail)
+    return _normalize(
+        (
+            tail_world[0] - center_world[0],
+            tail_world[1] - center_world[1],
+        )
+    )
 
 
 def _points_for_gate_lane(
@@ -300,7 +363,7 @@ def _points_for_gate_lane(
     *,
     edge_inset_max: float,
 ) -> tuple[Point, ...]:
-    min_x, min_y, max_x, max_y = element.geometry.bounds()
+    min_x, min_y, max_x, max_y = _gate_local_bounds(element)
     split_axis = _gate_split_axis(element)
     min_value = min_x if split_axis == "x" else min_y
     max_value = max_x if split_axis == "x" else max_y
@@ -318,7 +381,7 @@ def _points_for_gate_lane(
     selected: list[Point] = []
     axis_index = 0 if split_axis == "x" else 1
     for point in points:
-        slot_value = point[axis_index]
+        slot_value = _gate_to_local(element, point)[axis_index]
         nearest_lane = min(
             range(lane_count),
             key=lambda index: abs(slot_value - lane_values[index]),
@@ -329,8 +392,46 @@ def _points_for_gate_lane(
 
 
 def _gate_split_axis(element: DesignElement) -> str:
-    min_x, min_y, max_x, max_y = element.geometry.bounds()
+    min_x, min_y, max_x, max_y = _gate_local_bounds(element)
     return "x" if max_x - min_x >= max_y - min_y else "y"
+
+
+def _gate_local_bounds(element: DesignElement) -> tuple[float, float, float, float]:
+    geometry = element.geometry
+    if geometry.shape == "rect":
+        return (
+            -float(geometry.width_m) / 2.0,
+            -float(geometry.height_m) / 2.0,
+            float(geometry.width_m) / 2.0,
+            float(geometry.height_m) / 2.0,
+        )
+    min_x, min_y, max_x, max_y = geometry.bounds()
+    return (
+        min_x - (min_x + max_x) / 2.0,
+        min_y - (min_y + max_y) / 2.0,
+        max_x - (min_x + max_x) / 2.0,
+        max_y - (min_y + max_y) / 2.0,
+    )
+
+
+def _gate_to_local(element: DesignElement, point: Point) -> Point:
+    center_x, center_y = element.geometry.center()
+    angle = radians(float(element.geometry.rotation_deg))
+    dx = point[0] - center_x
+    dy = point[1] - center_y
+    return (
+        dx * cos(angle) + dy * sin(angle),
+        -dx * sin(angle) + dy * cos(angle),
+    )
+
+
+def _gate_from_local(element: DesignElement, point: Point) -> Point:
+    center_x, center_y = element.geometry.center()
+    angle = radians(float(element.geometry.rotation_deg))
+    return (
+        center_x + point[0] * cos(angle) - point[1] * sin(angle),
+        center_y + point[0] * sin(angle) + point[1] * cos(angle),
+    )
 
 
 def _lane_coordinate(

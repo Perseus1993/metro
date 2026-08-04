@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import unittest
 from dataclasses import replace
+from math import hypot
 
 from sandbox.metro_station_sandbox.design.templates import create_design
 from sandbox.metro_station_sandbox.planning.behavior import region_goal_for_passenger
@@ -128,6 +129,39 @@ class EvacuationScenarioTests(unittest.TestCase):
         self.assertEqual("station_exterior_safe_zone", goal.destination_region)
         self.assertEqual(1, model.spawned_persons)
         self.assertEqual(0, model.spawned_persons_by_intent[AgentIntent.ENTER_AND_BOARD.value])
+
+    def test_dense_initial_population_has_native_body_clearance_before_first_step(self) -> None:
+        scenario = replace(
+            scenario_for_evacuation(initial_persons=50),
+            station_design=create_design("three_level_transfer"),
+        )
+        model = MetroStationModel(scenario, seed=42)
+
+        model.spawn_passengers()
+
+        minimum = scenario.jupedsim_agent_radius_units * 2.2
+        admitted = len(model.passengers)
+        pending = sum(model.pending_spawn_groups.values())
+        self.assertGreater(admitted, 0)
+        self.assertEqual(50, admitted + pending)
+        self.assertEqual(50, model.spawned_persons + pending)
+        self.assertGreater(pending, 0)
+        self.assertGreaterEqual(
+            model.spatial_capacity_event_counts["capacity.admission_exhausted"],
+            1,
+        )
+        self.assertTrue(
+            all(
+                hypot(
+                    left.pos[0] - right.pos[0],
+                    left.pos[1] - right.pos[1],
+                )
+                >= minimum - 1e-9
+                for index, left in enumerate(model.passengers)
+                for right in model.passengers[index + 1 :]
+                if left.current_level_id == right.current_level_id
+            )
+        )
 
     def test_evacuation_completion_records_safe_zone_terminal_event(self) -> None:
         scenario = scenario_for_evacuation(initial_persons=1)

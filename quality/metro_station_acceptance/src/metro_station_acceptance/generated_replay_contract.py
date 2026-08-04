@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from collections import Counter
 from dataclasses import asdict, dataclass
 from typing import Any
 
@@ -20,6 +21,9 @@ class GeneratedReplayContractReport:
     scene_entity_count: int
     scene_relation_count: int
     facility_count: int
+    facility_portal_binding_count: int
+    facility_portal_binding_rate: float
+    facility_portal_fallback_count: int
     runtime_binding_count: int
     asset_count: int
     asset_binding_count: int
@@ -37,7 +41,7 @@ class GeneratedReplayContractReport:
 def inspect_generated_replay_contract(
     document: StationDesignDocument,
 ) -> GeneratedReplayContractReport:
-    scenario = _contract_scenario(document)
+    scenario = generated_contract_scenario(document)
     layout = DesignCompiler.compile(document, scenario)
     scene = compile_station_scene(scenario, layout.facilities)
     manifest = compile_procedural_asset_manifest(scene)
@@ -45,6 +49,20 @@ def inspect_generated_replay_contract(
     runtime_ids = {binding.runtime_id for binding in scene.runtime_bindings}
     asset_ids = {asset.asset_id for asset in manifest.assets}
     physical_count = len(document.elements) + len(document.queues)
+    portal_bindings = layout.facility_portal_bindings
+    portal_binding_count = len(portal_bindings)
+    portal_fallback_count = sum(binding.fallback_used for binding in portal_bindings)
+    facility_ids = Counter(facility.facility_id for facility in layout.facilities)
+    binding_ids = Counter(binding.facility_id for binding in portal_bindings)
+    uniquely_matched_bindings = sum(
+        count == 1 and binding_ids.get(facility_id, 0) == 1
+        for facility_id, count in facility_ids.items()
+    )
+    portal_binding_rate = (
+        uniquely_matched_bindings / len(layout.facilities)
+        if layout.facilities
+        else 0.0
+    )
     restored_scene = StationScene.from_dict(scene.as_dict())
     restored_manifest = AssetManifest.from_dict(manifest.as_dict())
     checks = {
@@ -52,6 +70,12 @@ def inspect_generated_replay_contract(
         "physical_entities_mapped_once": len(scene.entities) == physical_count
         and len(entity_ids) == physical_count,
         "all_facilities_bound": len(scene.runtime_bindings) == len(layout.facilities),
+        "facility_portal_binding_rate": bool(layout.facilities)
+        and portal_binding_rate == 1.0,
+        "facility_portal_ids_unique": all(
+            count == 1 for count in (*facility_ids.values(), *binding_ids.values())
+        ),
+        "facility_portal_fallback_count_zero": portal_fallback_count == 0,
         "runtime_ids_unique": len(runtime_ids) == len(scene.runtime_bindings),
         "runtime_scene_references_resolve": all(
             binding.scene_entity_id in entity_ids for binding in scene.runtime_bindings
@@ -71,6 +95,9 @@ def inspect_generated_replay_contract(
         scene_entity_count=len(scene.entities),
         scene_relation_count=len(scene.relations),
         facility_count=len(layout.facilities),
+        facility_portal_binding_count=portal_binding_count,
+        facility_portal_binding_rate=round(portal_binding_rate, 6),
+        facility_portal_fallback_count=portal_fallback_count,
         runtime_binding_count=len(scene.runtime_bindings),
         asset_count=len(manifest.assets),
         asset_binding_count=len(manifest.bindings),
@@ -79,7 +106,9 @@ def inspect_generated_replay_contract(
     )
 
 
-def _contract_scenario(document: StationDesignDocument) -> StationSandboxScenario:
+def generated_contract_scenario(
+    document: StationDesignDocument,
+) -> StationSandboxScenario:
     return StationSandboxScenario(
         station_name=f"generated_replay_{document.id}",
         hour=18,
@@ -97,3 +126,6 @@ def _contract_scenario(document: StationDesignDocument) -> StationSandboxScenari
         audit_enabled=False,
         audit_print_events=False,
     )
+
+
+_contract_scenario = generated_contract_scenario

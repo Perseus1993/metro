@@ -7,11 +7,16 @@ from typing import Any
 from .layout_recipe import (
     ARCHETYPES,
     ASSET_DENSITIES,
+    FARE_TOPOLOGIES,
     OPERATION_PROFILES,
     TOPOLOGY_FOOTPRINTS,
+    VERTICAL_TOPOLOGIES,
     LayoutRecipe,
     ScenarioCorpus,
 )
+
+
+GEOMETRY_MATRIX_SEEDS = (7, 42)
 
 
 def generate_scenario_corpus(*, count: int, seed: int = 20260716) -> ScenarioCorpus:
@@ -24,6 +29,83 @@ def generate_scenario_corpus(*, count: int, seed: int = 20260716) -> ScenarioCor
         seed=seed,
         recipes=recipes,
     )
+
+
+def generate_geometry_scenario_matrix(
+    *,
+    seeds: tuple[int, ...] = GEOMETRY_MATRIX_SEEDS,
+) -> ScenarioCorpus:
+    """Build the constraint-aware 4x5x3x2 geometry regression matrix.
+
+    ``CHAIN`` is not physically defined for one- or two-level stations, and no
+    vertical topology exists for a one-level terminal.  The recipe therefore
+    carries both the requested matrix dimension and its constraint-normalized
+    effective topology.  Acceptance reports the 120 requested cells and the
+    80 normalization probes separately from the 160 feasible semantic cells.
+    """
+
+    recipes: list[LayoutRecipe] = []
+    for archetype_index, archetype in enumerate(ARCHETYPES):
+        level_count = _level_count(archetype)
+        for footprint_index, footprint in enumerate(TOPOLOGY_FOOTPRINTS):
+            for topology_index, requested_topology in enumerate(VERTICAL_TOPOLOGIES):
+                topology, elevator_count = _effective_geometry_topology(
+                    level_count,
+                    requested_topology,
+                )
+                for fare_index, fare_topology in enumerate(FARE_TOPOLOGIES):
+                    for seed_index, seed in enumerate(seeds):
+                        recipe_id = (
+                            f"geometry-{archetype}-{footprint.lower()}-"
+                            f"{requested_topology.lower()}-{fare_topology.lower()}-"
+                            f"seed-{seed}"
+                        )
+                        recipes.append(
+                            LayoutRecipe(
+                                recipe_id=recipe_id,
+                                seed=int(seed),
+                                archetype=archetype,
+                                entrance_count=2,
+                                gate_count=(
+                                    2 if fare_topology == "SPLIT_ENTRY_EXIT" else 1
+                                ),
+                                elevator_count=elevator_count,
+                                stairs_count=0 if level_count == 1 else 1,
+                                escalator_pair_count=0 if level_count == 1 else 1,
+                                mirror=bool(seed_index),
+                                asset_density="standard",
+                                geometry_variant=(
+                                    archetype_index
+                                    + footprint_index
+                                    + topology_index
+                                    + fare_index
+                                    + seed_index
+                                )
+                                % 9,
+                                topology_footprint=footprint,
+                                vertical_topology=topology,
+                                requested_vertical_topology=requested_topology,
+                                fare_topology=fare_topology,
+                            )
+                        )
+    return ScenarioCorpus(
+        corpus_id=f"geometry-matrix-{len(recipes)}",
+        seed=0,
+        recipes=tuple(recipes),
+    )
+
+
+def _effective_geometry_topology(
+    level_count: int,
+    requested: str,
+) -> tuple[str, int]:
+    if level_count == 1:
+        return "FULL", 0
+    if requested == "DUAL_CLUSTER":
+        return "DUAL_CLUSTER", 4
+    if requested == "CHAIN" and level_count == 3:
+        return "CHAIN", 2
+    return "FULL", 2
 
 
 def corpus_coverage(corpus: ScenarioCorpus) -> dict[str, Any]:
@@ -42,6 +124,10 @@ def corpus_coverage(corpus: ScenarioCorpus) -> dict[str, Any]:
         "operation_profile": Counter(recipe.operation_profile for recipe in corpus.recipes),
         "topology_footprint": Counter(recipe.topology_footprint for recipe in corpus.recipes),
         "vertical_topology": Counter(recipe.vertical_topology for recipe in corpus.recipes),
+        "requested_vertical_topology": Counter(
+            recipe.requested_vertical_topology or recipe.vertical_topology
+            for recipe in corpus.recipes
+        ),
         "fare_topology": Counter(recipe.fare_topology for recipe in corpus.recipes),
     }
     elevator_level_pairs = Counter(

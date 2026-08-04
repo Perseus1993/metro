@@ -11,7 +11,7 @@ from .schema import (
     QueueSpec,
     StationDesignDocument,
 )
-from .vertical_landing import vertical_landing_position
+from .vertical_landing import design_level_walkable_geometry, vertical_landing_position
 
 
 def rect(x: float, y: float, width: float, height: float) -> ElementGeometry:
@@ -53,7 +53,9 @@ def lane(
 
 
 def _with_standard_graph_ports(document: StationDesignDocument) -> StationDesignDocument:
-    elements = tuple(_with_standard_ports(element) for element in document.elements)
+    elements = tuple(
+        _with_standard_ports(element, document) for element in document.elements
+    )
     elements_by_id = {element.id: element for element in elements}
     connections = tuple(
         _with_standard_connection_ports(connection, elements_by_id)
@@ -70,25 +72,39 @@ def with_standard_graph_contract(document: StationDesignDocument) -> StationDesi
     return _with_standard_graph_ports(document)
 
 
-def _with_standard_ports(element: DesignElement) -> DesignElement:
-    reserved_ids = {"service", "release", "paid", "unpaid"} if element.kind == "gate" else set()
+def _with_standard_ports(
+    element: DesignElement,
+    document: StationDesignDocument,
+) -> DesignElement:
+    reserved_ids = (
+        {"service", "release", "paid", "unpaid"}
+        if element.kind == "gate"
+        else {
+            _level_port_id(level_id) for level_id in element.connects_levels
+        }
+        if element.role == "vertical_connector"
+        else set()
+    )
     ports = [port for port in element.ports if port.id not in reserved_ids]
     known_ids = {port.id for port in ports}
-    for port in _standard_ports_for_element(element):
+    for port in _standard_ports_for_element(element, document):
         if port.id not in known_ids:
             ports.append(port)
             known_ids.add(port.id)
     return replace(element, ports=tuple(ports))
 
 
-def _standard_ports_for_element(element: DesignElement) -> tuple[DesignPort, ...]:
+def _standard_ports_for_element(
+    element: DesignElement,
+    document: StationDesignDocument,
+) -> tuple[DesignPort, ...]:
     if element.role == "vertical_connector":
         return tuple(
             DesignPort(
                 _level_port_id(level_id),
                 "vertical",
                 level_id=level_id,
-                position_m=_vertical_port_position(element, level_id),
+                position_m=_vertical_port_position(element, level_id, document),
             )
             for level_id in element.connects_levels
         )
@@ -135,7 +151,21 @@ def _standard_ports_for_element(element: DesignElement) -> tuple[DesignPort, ...
             )
         return tuple(ports)
 
-    if element.kind in {"entrance", "walkable_area", "platform_edge"} or element.role == "floor":
+    if element.kind == "walkable_area" or element.role == "floor":
+        # Zone anchors are selected from the obstacle-subtracted walkable
+        # domain by graph compilation.  Persisting the bounding-box centre as
+        # an authored port lets an obstacle invalidate the point while the
+        # compiler silently uses another one, creating two endpoint truths.
+        return (
+            DesignPort(
+                "walk",
+                "walk",
+                level_id=element.level_id,
+                position_m=None,
+            ),
+        )
+
+    if element.kind in {"entrance", "platform_edge"}:
         return (
             DesignPort(
                 "walk",
@@ -399,8 +429,17 @@ def _level_port_id(level_id: str) -> str:
     return f"level:{level_id}"
 
 
-def _vertical_port_position(element: DesignElement, level_id: str) -> tuple[float, float]:
-    return vertical_landing_position(element, level_id)
+def _vertical_port_position(
+    element: DesignElement,
+    level_id: str,
+    document: StationDesignDocument,
+) -> tuple[float, float]:
+    return vertical_landing_position(
+        element,
+        level_id,
+        document.level_by_id(),
+        walkable_geometry=design_level_walkable_geometry(document, level_id),
+    )
 
 
 def _footprint(

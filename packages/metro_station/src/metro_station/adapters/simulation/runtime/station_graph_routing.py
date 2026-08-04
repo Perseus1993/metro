@@ -32,6 +32,7 @@ class StationGraphRoutingMixin:
             anchors: tuple[tuple[float, float], ...],
             *,
             level_id: str | None = None,
+            include_navigation_waypoints: bool = False,
         ) -> tuple[tuple[float, float], ...]: ...
 
         def _safe_facility_queue_approach_target(
@@ -46,22 +47,22 @@ class StationGraphRoutingMixin:
         facility: FacilityProcessAgent,
         *,
         invoke_evacuation_router: bool = True,
+        final_target_override: tuple[float, float] | None = None,
+        include_navigation_waypoints: bool = False,
     ) -> tuple[tuple[float, float], ...]:
         station_graph = getattr(self.layout_graph, "station_graph", None)
         if station_graph is None:
             return ()
 
         element_id = self._facility_element_id(facility.facility_id)
+        binding = self.facility_portal_binding(facility.facility_id)
         target_nodes = [
             node
             for node_id in station_graph.node_ids_for_element(element_id)
             if (node := station_graph.nodes.get(node_id)) is not None
             and node.kind == "facility_entry"
             and node.facility_stage == facility.spec.stage
-            and (
-                facility.spec.entry_level_id is None
-                or node.level_id == facility.spec.entry_level_id
-            )
+            and node.level_id == binding.entry_level_id
         ]
         if not target_nodes:
             if facility.spec.kind == FacilityKind.TRAIN_DOOR.value:
@@ -70,7 +71,7 @@ class StationGraphRoutingMixin:
                 f"facility {facility.facility_id!r} has no entry portal in the station graph"
             )
 
-        level_id = facility.spec.entry_level_id or passenger.current_level_id
+        level_id = binding.entry_level_id or passenger.current_level_id
         destination = min(target_nodes, key=lambda item: item.node_id)
         start_candidates = self._station_graph_route_start_candidates(
             passenger,
@@ -98,12 +99,17 @@ class StationGraphRoutingMixin:
             raise PhysicalRouteUnreachableError(
                 f"cannot locate a station-graph route to facility {facility.facility_id!r}"
             ) from exc
-        final_target = self._safe_facility_queue_approach_target(passenger, facility)
+        final_target = (
+            self._safe_facility_queue_approach_target(passenger, facility)
+            if final_target_override is None
+            else tuple(final_target_override)
+        )
         if not node_ids:
             return self._physical_route_for_points(
                 passenger,
                 (final_target,),
                 level_id=level_id,
+                include_navigation_waypoints=include_navigation_waypoints,
             )
 
         # The Station Graph (or evacuation plugin) owns the tactical topology.
@@ -137,6 +143,7 @@ class StationGraphRoutingMixin:
             passenger,
             self._dedupe_route_points(tuple(anchors)),
             level_id=level_id,
+            include_navigation_waypoints=include_navigation_waypoints,
         )
 
     def _station_graph_route_to_exit(
@@ -246,8 +253,8 @@ class StationGraphRoutingMixin:
             return gate_exit_candidates
         return level_candidates
 
-    @staticmethod
     def _should_start_vertical_route_from_entry_gate_exit(
+        self,
         passenger: PassengerAgent,
         facility: FacilityProcessAgent,
     ) -> bool:
@@ -258,7 +265,9 @@ class StationGraphRoutingMixin:
             AgentState.WALKING_TO_VERTICAL.value,
         }:
             return False
-        return passenger.current_level_id == facility.spec.entry_level_id
+        return passenger.current_level_id == self.facility_portal_binding(
+            facility.facility_id
+        ).entry_level_id
 
     def _post_entry_gate_graph_start_radius(self) -> float:
         return max(8.0, float(self.scenario.jupedsim_target_radius_units) * 12.0)

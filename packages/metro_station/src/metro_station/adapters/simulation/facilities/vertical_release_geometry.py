@@ -75,7 +75,7 @@ class VerticalReleaseGeometryMixin:
         start: tuple[float, float],
         end: tuple[float, float],
     ) -> bool:
-        level_id = self.spec.exit_level_id or self.spec.entry_level_id
+        level_id = self.portal_exit_level_id
         area = self.model.jupedsim_walkable_area(level_id)
         body_radius = max(
             0.02,
@@ -108,7 +108,7 @@ class VerticalReleaseGeometryMixin:
         passenger: PassengerAgent,
         release_index: int,
     ) -> tuple[float, float]:
-        base = self.spec.exit_position
+        base = self.portal_exit_position
         forward, lateral = self._release_axes()
         spacing = self._release_spacing()
         column_order = (0, -1, 1)[release_index % 3]
@@ -225,7 +225,7 @@ class VerticalReleaseGeometryMixin:
         return tuple(grids)
 
     def _lane_exit_is_body_clear(self, offset: float, body_radius: float) -> bool:
-        level_id = self.spec.exit_level_id or self.spec.entry_level_id
+        level_id = self.portal_exit_level_id
         registered = getattr(self.model, "facilities_by_id", {}).get(self.facility_id)
         if registered is not self:
             # Hand-built unit/plugin facilities do not own the station's
@@ -236,7 +236,7 @@ class VerticalReleaseGeometryMixin:
             area = self.model.jupedsim_walkable_area(level_id)
         except (AttributeError, LookupError, TypeError, ValueError):
             return True
-        endpoint = self._offset_vertical_position(self.spec.exit_position, offset)
+        endpoint = self._offset_vertical_position(self.portal_exit_position, offset)
         return area.buffer(1e-7).covers(ShapelyPoint(endpoint).buffer(body_radius))
 
     def _offset_vertical_position(
@@ -251,4 +251,3 @@ class VerticalReleaseGeometryMixin:
             position[0] + lateral[0] * lateral_offset,
             position[1] + lateral[1] * lateral_offset,
         )
-

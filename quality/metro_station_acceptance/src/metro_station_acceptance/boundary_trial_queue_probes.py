@@ -4,6 +4,10 @@ from dataclasses import replace
 from math import nan
 
 from metro_station.adapters.simulation.design.schema import StationDesignDocument
+from metro_station.adapters.simulation.design.vertical_landing import (
+    design_level_walkable_geometry,
+    vertical_landing_position,
+)
 
 from .boundary_trial_baseline import boundary_baseline, quality_validation_result
 
@@ -19,14 +23,20 @@ def _queue_design(variant: str) -> StationDesignDocument:
     if variant.startswith("SERVICE_"):
         return _queue_service_distance(document, queue, owner, variant)
     if variant == "OWNER_LEVEL_MISMATCH":
-        other_level = next(level.id for level in document.levels if level.id != queue.level_id)
+        owner_levels = set(owner.connects_levels) | {owner.level_id}
+        other_level = next(level.id for level in document.levels if level.id not in owner_levels)
         changed = replace(queue, level_id=other_level)
     elif variant == "UNKNOWN_OWNER":
         changed = replace(queue, owner_element_id="missing_owner")
     elif variant == "OUTSIDE_FOOTPRINT":
         changed = replace(queue, geometry=queue.geometry.moved_to(111.5, 60.0))
     elif variant == "QUEUE_OVERLAP":
-        changed = replace(queue, geometry=document.queues[1].geometry)
+        same_level_queue = next(
+            item
+            for item in document.queues[1:]
+            if item.level_id == queue.level_id
+        )
+        changed = replace(queue, geometry=same_level_queue.geometry)
     elif variant == "QUEUE_BLOCKS_COMPONENT":
         blocker = next(item for item in document.elements if item.id != owner.id and item.kind == "gate")
         changed = replace(queue, geometry=blocker.geometry)
@@ -55,11 +65,15 @@ def _queue_service_distance(document, queue, owner, variant):
         "SERVICE_3_001_SPACING_1_2": (3.001, 1.2),
     }
     distance, spacing = values[variant]
-    _, min_y, max_x, max_y = owner.geometry.bounds()
+    landing_x, landing_y = vertical_landing_position(
+        owner,
+        queue.level_id,
+        document.level_by_id(),
+        walkable_geometry=design_level_walkable_geometry(document, queue.level_id),
+    )
     changed = replace(
         queue,
-        service_point_m=(max_x + distance, (min_y + max_y) / 2.0),
+        service_point_m=(landing_x + distance, landing_y),
         spacing_m=spacing,
     )
     return replace(document, queues=(changed, *document.queues[1:]))
-

@@ -28,8 +28,17 @@ class GoalBoardingServiceObserver:
         if event is None or state.commitment is None:
             return None
         phase = self._phase_by_event_id.get(event.event_id, 0)
-        self._phase_by_event_id[event.event_id] = phase + 1
-        kind = GoalEventKind.SERVICE_STARTED if phase == 0 else GoalEventKind.SERVICE_COMPLETED
+        if phase == 0:
+            self._phase_by_event_id[event.event_id] = 1
+            kind = GoalEventKind.SERVICE_STARTED
+        else:
+            door = scene.doors_by_id[event.facility_id]
+            if scene.current_time_seconds + 1e-9 < event.end_time:
+                return None
+            if door.has_active_service(scene.subject):
+                return None
+            self._phase_by_event_id[event.event_id] = 2
+            kind = GoalEventKind.SERVICE_COMPLETED
         return GoalEvent(
             kind=kind.value,
             time_seconds=max(scene.current_time_seconds, state.last_event_time_seconds),

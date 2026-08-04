@@ -4,10 +4,15 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from metro_station.adapters.simulation.movement.backend import MovementBackend, MovementResult
+import pytest
+
+from metro_station_testkit.instant_movement_backend import (
+    EndpointClearInstantMovementBackend,
+)
 from metro_station_acceptance.generated_acceptance_profile import (
     generated_acceptance_tier_profile,
     stratified_simulation_sample,
+    trajectory_geometry_corpus,
 )
 from metro_station_acceptance.generated_layout_acceptance import (
     run_generated_layout_acceptance,
@@ -16,6 +21,8 @@ from metro_station_acceptance.generated_layout_evidence import (
     write_generated_layout_evidence,
 )
 from metro_station_acceptance.generated_simulation_acceptance import (
+    _balanced_simulation_case_shard,
+    _balanced_simulation_shard,
     run_generated_simulation_acceptance,
 )
 from metro_station_acceptance.invalid_layout_diagnostics import (
@@ -23,16 +30,12 @@ from metro_station_acceptance.invalid_layout_diagnostics import (
 )
 from metro_station_testkit.layout_corpus import (
     corpus_coverage,
+    generate_geometry_scenario_matrix,
     generate_scenario_corpus,
 )
-from metro_station_testkit.layout_quality import inspect_layout_quality
+from metro_station_testkit.layout_quality import design_fingerprint, inspect_layout_quality
 from metro_station_testkit.layout_recipe import LayoutRecipe, ScenarioCorpus
 from metro_station_testkit.layout_scenario_generator import generate_layout
-
-
-class InstantMovementBackend(MovementBackend):
-    def move(self, passenger) -> MovementResult:
-        return MovementResult(passenger.unique_id, passenger.target, reached=True)
 
 
 class GeneratedLayoutAcceptanceTests(unittest.TestCase):
@@ -47,13 +50,12 @@ class GeneratedLayoutAcceptanceTests(unittest.TestCase):
 
     def test_constraint_generator_builds_rich_valid_unique_layouts(self) -> None:
         corpus = generate_scenario_corpus(count=128, seed=20260716)
-        reports = tuple(
-            inspect_layout_quality(generate_layout(recipe)) for recipe in corpus.recipes
+        fingerprints = tuple(
+            design_fingerprint(generate_layout(recipe)) for recipe in corpus.recipes
         )
         coverage = corpus_coverage(corpus)
 
-        self.assertTrue(all(report.status == "ok" for report in reports))
-        self.assertEqual(128, len({report.design_fingerprint for report in reports}))
+        self.assertEqual(128, len(set(fingerprints)))
         self.assertEqual({"1", "2", "3"}, set(coverage["dimensions"]["level_count"]))
         self.assertEqual(
             {"0", "1", "2", "3", "4", "5", "6"},
@@ -74,7 +76,7 @@ class GeneratedLayoutAcceptanceTests(unittest.TestCase):
         report = inspect_invalid_layout_diagnostics()
 
         self.assertEqual("ok", report.status, report.as_dict())
-        self.assertEqual(5, len(report.records))
+        self.assertEqual(9, len(report.records))
         self.assertTrue(
             all(record.expected_code in record.actual_codes for record in report.records)
         )
@@ -99,12 +101,20 @@ class GeneratedLayoutAcceptanceTests(unittest.TestCase):
             sample_size=2,
             seeds=(42,),
             include_operations=False,
-            movement_backend_factory=InstantMovementBackend,
+            movement_backend_factory=EndpointClearInstantMovementBackend,
         )
 
         self.assertEqual("ok", report.status, report.as_dict())
         self.assertTrue(all(record.journeys.status == "ok" for record in report.records))
         self.assertTrue(all(record.checks["deterministic_replay"] for record in report.records))
+        self.assertTrue(
+            all(
+                record.trajectory_gates["status"] == "not_applicable"
+                and record.trajectory_gates["scientific_pass"] is None
+                and record.checks["trajectory_not_applicable_explicit"]
+                for record in report.records
+            )
+        )
 
     def test_tier_profile_and_sampling_freeze_scale_and_diversity(self) -> None:
         profile = generated_acceptance_tier_profile("release")
@@ -130,6 +140,72 @@ class GeneratedLayoutAcceptanceTests(unittest.TestCase):
             {"BIDIRECTIONAL", "SPLIT_ENTRY_EXIT"},
             {recipe.fare_topology for recipe in sample},
         )
+
+    def test_trajectory_profile_freezes_sixteen_recipes_and_three_seeds(self) -> None:
+        profile = generated_acceptance_tier_profile("trajectory")
+        sample = stratified_simulation_sample(
+            trajectory_geometry_corpus(generate_geometry_scenario_matrix()),
+            profile.simulation_sample_size,
+        )
+
+        self.assertEqual(240, profile.corpus_size)
+        self.assertEqual(16, profile.simulation_sample_size)
+        self.assertEqual((7, 42, 99), profile.seeds)
+        self.assertEqual(4, len({recipe.archetype for recipe in sample}))
+        self.assertEqual(5, len({recipe.operation_profile for recipe in sample}))
+        self.assertEqual(
+            {0, 2, 4},
+            {recipe.elevator_count for recipe in sample},
+        )
+        self.assertEqual(
+            {"standard"},
+            {recipe.asset_density for recipe in sample},
+        )
+        self.assertEqual(5, len({recipe.topology_footprint for recipe in sample}))
+        self.assertEqual(3, len({recipe.vertical_topology for recipe in sample}))
+        self.assertEqual(2, len({recipe.fare_topology for recipe in sample}))
+        shards = tuple(
+            _balanced_simulation_shard(
+                sample,
+                shard_index=index,
+                shard_count=profile.simulation_sample_size,
+            )
+            for index in range(profile.simulation_sample_size)
+        )
+        self.assertTrue(all(len(shard) == 1 for shard in shards))
+        self.assertEqual(
+            {recipe.recipe_id for recipe in sample},
+            {recipe.recipe_id for shard in shards for recipe in shard},
+        )
+        cases = tuple(
+            (recipe, seed) for recipe in sample for seed in profile.seeds
+        )
+        case_shards = tuple(
+            _balanced_simulation_case_shard(
+                cases,
+                shard_index=index,
+                shard_count=len(cases),
+            )
+            for index in range(len(cases))
+        )
+        self.assertEqual(48, len(cases))
+        self.assertTrue(all(len(shard) == 1 for shard in case_shards))
+        self.assertEqual(set(cases), {case for shard in case_shards for case in shard})
+
+
+@pytest.mark.parametrize("chunk_index", range(16))
+def test_constraint_generator_quality_shard(chunk_index: int) -> None:
+    """Validate the complete 128-layout corpus in watchdog-sized shards."""
+
+    corpus = generate_scenario_corpus(count=128, seed=20260716)
+    start = chunk_index * 8
+    reports = tuple(
+        inspect_layout_quality(generate_layout(recipe))
+        for recipe in corpus.recipes[start : start + 8]
+    )
+
+    assert len(reports) == 8
+    assert all(report.status == "ok" for report in reports)
 
 
 def _six_elevator_recipe() -> LayoutRecipe:

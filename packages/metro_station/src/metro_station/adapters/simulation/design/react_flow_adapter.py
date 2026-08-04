@@ -337,7 +337,7 @@ def _draft_element_from_node(
         direction=data.get("direction"),
         line_id=data.get("line_id"),
     )
-    return _with_standard_ports(element)
+    return _with_standard_ports(element, document)
 
 
 def _draft_level_id(

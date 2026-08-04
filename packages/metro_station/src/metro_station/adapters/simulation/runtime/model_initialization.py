@@ -23,6 +23,7 @@ from ..planning.journey_catalog import (
 from ..planning.journey_catalog_compiler import compile_journey_graph_catalog
 from .progress_monitor import ProgressMonitor
 from ..movement.backend import MovementBackend
+from ..movement.facility_motion_trace import FacilityMotionTraceRecorder
 from ..movement.jps_adapter import JuPedSimAdapter
 from ..station.scenario import StationSandboxScenario
 from ..station.disruptions import validate_facility_availability_events
@@ -99,9 +100,16 @@ def _initialize_base_state(
     model.spawned_persons = 0
     model.spawned_persons_by_intent: Counter[str] = Counter()
     model.spawned_persons_by_entrance: Counter[str] = Counter()
+    model.walking_cost_source_counts: Counter[str] = Counter()
+    model.spatial_capacity_event_counts: Counter[str] = Counter()
+    model.walking_cost_evaluation_count = 0
     model.pending_alighting_groups = 0
+    model.pending_spawn_groups: Counter[str] = Counter()
     model.max_pending_alighting_groups = 0
     model.frames: list[dict[str, Any]] = []
+    model.facility_motion_trace_recorder = FacilityMotionTraceRecorder(
+        sample_interval_seconds=scenario.movement_trace_sample_seconds,
+    )
     model._spawned_since_last_frame = False
     model.facility_service_events: list[FacilityServiceEvent] = []
     model._facility_service_event_id = 0
@@ -122,6 +130,12 @@ def _initialize_base_state(
     # removed only by stage/all-owner invalidation.  External code must never
     # migrate or rewrite a (passenger_id, stage) key.
     model._facility_approach_reservation_registry: dict[tuple[int, str], object] = {}
+    model._decision_holding_reservations: dict[tuple[int, str], object] = {}
+    model._decision_holding_slot_owners: dict[tuple[str, float, float], int] = {}
+    model._decision_holding_candidate_cache: dict[object, tuple[tuple[float, float], ...]] = {}
+    model._platform_waiting_reservations: dict[int, object] = {}
+    model._platform_waiting_slot_owners: dict[tuple[str, float, float], int] = {}
+    model._spatial_capacity_slot_owners: dict[str, dict[int, int]] = defaultdict(dict)
     model._walkable_area_revision = 0
     model._facility_approach_proof_revision = 0
     model._facility_approach_proof_cache: dict[object, tuple[int, ...]] = {}
@@ -139,6 +153,10 @@ def _compile_station(
             "--design-template in the CLI."
         )
     model.layout_graph = design_compiler.compile(scenario.station_design, scenario)
+    model._active_facility_portal_bindings = {
+        binding.facility_id: binding
+        for binding in getattr(model.layout_graph, "facility_portal_bindings", ())
+    }
     station_graph = getattr(model.layout_graph, "station_graph", None)
     model.goal_graph_catalog = (
         load_journey_graph_catalog(scenario.goal_graph_catalog_path)
@@ -179,6 +197,9 @@ def _initialize_facilities(
     model.facilities_by_id: dict[str, FacilityAgent] = {
         facility.facility_id: facility for facility in model.facilities
     }
+    for facility in model.facilities:
+        binding = model.facility_portal_binding(facility.facility_id)
+        facility.queue.max_length = binding.declared_queue_capacity
     _bind_vertical_physical_resources(model.facilities)
     unknown = sorted(set(scenario.disabled_facility_ids) - set(model.facilities_by_id))
     if unknown:

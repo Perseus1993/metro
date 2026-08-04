@@ -2,10 +2,9 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, Any
 
-from shapely.geometry import Point as ShapelyPoint
-
 from ..agents.passenger import PassengerAgent
 from ..facilities.runtime import FacilityProcessAgent
+from ..movement.waypoint_policy import tactical_route_clearance
 from .physical_waypoint_routing import (
     FacilityPortals,
     PhysicalRouteUnreachableError,
@@ -65,6 +64,7 @@ class PhysicalRoutingRuntimeMixin:
         anchors: tuple[tuple[float, float], ...],
         *,
         level_id: str | None = None,
+        include_navigation_waypoints: bool = False,
     ) -> tuple[tuple[float, float], ...]:
         route_level = level_id or passenger.current_level_id
         if (
@@ -85,13 +85,13 @@ class PhysicalRoutingRuntimeMixin:
             passenger.pos,
             anchors,
             level_id=route_level,
-            clearance=max(
-                0.02,
-                min(
-                    float(self.scenario.jupedsim_agent_radius_units),
-                    float(self.scenario.jupedsim_target_radius_units) * 0.25,
+            clearance=tactical_route_clearance(
+                agent_radius=float(self.scenario.jupedsim_agent_radius_units),
+                final_target_radius=float(
+                    self.scenario.jupedsim_target_radius_units
                 ),
             ),
+            include_navigation_waypoints=include_navigation_waypoints,
         )
 
     def _facility_portals(
@@ -99,7 +99,11 @@ class PhysicalRoutingRuntimeMixin:
         passenger: PassengerAgent,
         facility: FacilityProcessAgent,
     ) -> FacilityPortals:
-        entry_level_id = facility.spec.entry_level_id or passenger.current_level_id
+        try:
+            binding = self.facility_portal_binding(facility.facility_id)
+        except KeyError as exc:
+            raise PhysicalRouteUnreachableError(str(exc)) from exc
+        entry_level_id = binding.entry_level_id or passenger.current_level_id
         if (
             passenger.current_level_id is not None
             and entry_level_id is not None
@@ -109,38 +113,15 @@ class PhysicalRoutingRuntimeMixin:
                 f"facility {facility.facility_id!r} entry portal is on level "
                 f"{entry_level_id!r}, passenger is on {passenger.current_level_id!r}"
             )
+        # Queue occupancy selects one of the statically compiled slots.  Keep
+        # the selection in the shared queue allocator so topology routing and
+        # the physical portal view cannot disagree about the final target.
+        approach = self._safe_facility_queue_approach_target(passenger, facility)
         portals = FacilityPortals(
-            approach=self._safe_facility_queue_approach_target(passenger, facility),
-            entry=facility.spec.position,
-            exit=facility.spec.exit_position,
-            entry_level_id=entry_level_id,
-            exit_level_id=facility.spec.exit_level_id or entry_level_id,
-        )
-        self._require_portal_inside_walkable_area(
-            facility.facility_id,
-            "entry",
-            portals.entry,
-            portals.entry_level_id,
-        )
-        self._require_portal_inside_walkable_area(
-            facility.facility_id,
-            "exit",
-            portals.exit,
-            portals.exit_level_id,
+            approach=approach,
+            entry=binding.entry_point,
+            exit=binding.exit_point,
+            entry_level_id=binding.entry_level_id,
+            exit_level_id=binding.exit_level_id,
         )
         return portals
-
-    def _require_portal_inside_walkable_area(
-        self,
-        facility_id: str,
-        portal_kind: str,
-        position: tuple[float, float],
-        level_id: str | None,
-    ) -> None:
-        area = self.jupedsim_walkable_area(level_id)
-        if area.buffer(1e-7).covers(ShapelyPoint(position)):
-            return
-        raise PhysicalRouteUnreachableError(
-            f"facility {facility_id!r} {portal_kind} portal {position!r} is outside "
-            f"the walkable area on level {level_id!r}"
-        )

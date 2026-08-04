@@ -16,6 +16,9 @@ from metro_station.adapters.simulation.simulation_outputs.visual_tracks import (
     mesa_frames_to_visual_tracks,
 )
 from metro_station.adapters.simulation.runtime.clearance_detection import build_clearance_debug
+from metro_station.adapters.simulation.runtime.walking_cost_accounting import (
+    WALKING_COST_SOURCE_NAMES,
+)
 from .goal_graph_acceptance_rules import (
     facility_stage_order_valid,
     replan_during_service_violations,
@@ -39,6 +42,8 @@ class GoalGraphAcceptanceReport:
     service_event_count: int
     jupedsim_steps: int
     jupedsim_batches: int
+    walking_cost_evaluation_count: int
+    walking_cost_source_counts: dict[str, int]
     terminal_by_intent: dict[str, int]
     graph_state_counts: dict[str, int]
     graph_event_counts: dict[str, int]
@@ -67,9 +72,11 @@ def run_goal_graph_acceptance(
     transfer_count_hour: int = 900,
     demand_minutes: int = 5,
     clearance_minutes: int = 25,
+    tick_seconds: int = 5,
     catalog_path: str | None = None,
     movement_backend: MovementBackend | None = None,
     station_design: StationDesignDocument | None = None,
+    trajectory_evidence: dict[str, Any] | None = None,
 ) -> GoalGraphAcceptanceReport:
     design = create_design(layout_id) if station_design is None else station_design
     scenario = StationSandboxScenario(
@@ -77,7 +84,7 @@ def run_goal_graph_acceptance(
         hour=18,
         minutes=demand_minutes + clearance_minutes,
         demand_minutes=demand_minutes,
-        tick_seconds=5,
+        tick_seconds=tick_seconds,
         group_size=1,
         entry_count_hour=entry_count_hour,
         exit_count_hour=exit_count_hour,
@@ -128,9 +135,15 @@ def run_goal_graph_acceptance(
         service_events=model.facility_service_events,
         terminal_events=model.passenger_terminal_events,
         clearance_debug=clearance_debug,
+        movement_trace=backend.movement_trace(),
+        facility_motion_trace=model.facility_motion_trace_recorder.as_dict(),
     )
+    if trajectory_evidence is not None:
+        trajectory_evidence.clear()
+        trajectory_evidence.update(tracks)
     graph_debug = tracks["graph_debug"]
     trajectory = diagnose_tracks(tracks)
+    walking_cost_source_counts = dict(model.walking_cost_source_counts)
     checks = {
         "all_spawned_groups_have_graph": len(graph_ids) == len(terminal_ids),
         "all_spawned_persons_terminal": model.spawned_persons
@@ -159,6 +172,30 @@ def run_goal_graph_acceptance(
         "trajectory_evidence_complete": bool(graph_debug["checks"]["trajectory_evidence_complete"]),
         "trajectory_groups_match_graph_runtimes": len(tracks["agents"]) == len(graph_ids),
         "trajectory_diagnosis_pass": trajectory.pass_fail == "pass",
+        "walking_cost_counts_conserved": sum(walking_cost_source_counts.values())
+        == model.walking_cost_evaluation_count,
+        "walking_cost_sources_closed_vocabulary": set(walking_cost_source_counts)
+        <= WALKING_COST_SOURCE_NAMES,
+        "walking_cost_euclidean_fallback_zero": walking_cost_source_counts.get(
+            "euclidean_fallback", 0
+        )
+        == 0,
+        "walking_cost_provider_missing_zero": walking_cost_source_counts.get(
+            "provider_missing", 0
+        )
+        == 0,
+        "walking_cost_physical_unreachable_zero": walking_cost_source_counts.get(
+            "physical_route_unreachable", 0
+        )
+        == 0,
+        "walking_cost_physical_error_zero": walking_cost_source_counts.get(
+            "physical_route_error", 0
+        )
+        == 0,
+        "walking_cost_physical_geodesic_exercised": walking_cost_source_counts.get(
+            "physical_waypoint_geodesic", 0
+        )
+        > 0,
     }
     checks.update({f"parity_{name}": bool(value) for name, value in parity_checks.items()})
     return GoalGraphAcceptanceReport(
@@ -176,6 +213,8 @@ def run_goal_graph_acceptance(
         service_event_count=len(model.facility_service_events),
         jupedsim_steps=int(getattr(backend, "jps_step_count", 0)),
         jupedsim_batches=int(getattr(backend, "jps_batch_count", 0)),
+        walking_cost_evaluation_count=int(model.walking_cost_evaluation_count),
+        walking_cost_source_counts=walking_cost_source_counts,
         terminal_by_intent=dict(terminal_by_intent),
         graph_state_counts=dict(graph_states),
         graph_event_counts=dict(graph_events),

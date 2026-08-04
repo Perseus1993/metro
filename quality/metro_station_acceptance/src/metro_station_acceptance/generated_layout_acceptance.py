@@ -111,6 +111,8 @@ def inspect_generated_recipe(recipe: Any) -> GeneratedLayoutAcceptanceRecord:
         checks = {
             "quality_pass": quality.status == "ok",
             "replay_contract_pass": replay.status == "ok",
+            "facility_portal_binding_rate": replay.facility_portal_binding_rate == 1.0,
+            "facility_portal_fallback_count_zero": replay.facility_portal_fallback_count == 0,
             "level_count_matches_recipe": quality.level_count == recipe.level_count,
             "elevator_count_matches_recipe": replay.elevator_entity_count == recipe.elevator_count,
             "recipe_embedded_in_design": document.metadata.get("layout_recipe") == recipe.as_dict(),

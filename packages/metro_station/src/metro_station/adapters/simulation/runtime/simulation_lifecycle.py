@@ -6,11 +6,6 @@ from typing import Any
 from ..agents.passenger import PassengerAgent
 from ..facilities.runtime import FacilityProcessAgent
 from ..movement.backend import MovementResult
-from ..movement.dynamic_body_clearance import (
-    constrain_motion_segment,
-    external_body_positions,
-    minimum_body_clearance,
-)
 
 
 class SimulationLifecycleMixin:
@@ -65,28 +60,6 @@ class SimulationLifecycleMixin:
         )
         return facility.intercept_queue_approach_crossing(result, queue_target)
 
-    def _constrain_movement_to_dynamic_bodies(
-        self,
-        passenger: PassengerAgent,
-        result: MovementResult,
-    ) -> MovementResult:
-        occupied = external_body_positions(
-            self,
-            level_id=passenger.current_level_id,
-            excluded_passenger_ids=(int(passenger.unique_id),),
-            passive_only=True,
-        )
-        desired_speed = float(self.desired_walk_speed_mps(passenger))
-        position, blocked = constrain_motion_segment(
-            passenger.pos,
-            result.position,
-            occupied,
-            minimum_distance=minimum_body_clearance(self),
-            maximum_displacement=desired_speed * float(self.scenario.tick_seconds),
-        )
-        reached = bool(result.reached and not blocked)
-        return MovementResult(int(passenger.unique_id), self.clamp_position(position), reached)
-
     def _should_stop(self) -> bool:
         if self.step_index >= self.scenario.horizon_steps:
             return True
@@ -94,6 +67,7 @@ class SimulationLifecycleMixin:
             self.step_index >= self.scenario.demand_steps
             and not self.passengers
             and not self._has_pending_alighting_demand()
+            and not any(self.pending_spawn_groups.values())
             and not self.disruption_controller.has_pending_events
             and not self.train_disruption_controller.has_pending_events
             and not self.control_timeline_controller.has_pending_events

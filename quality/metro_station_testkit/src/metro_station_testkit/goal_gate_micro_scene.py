@@ -17,6 +17,10 @@ from metro_station.adapters.simulation.movement.backend import BatchedJuPedSimMo
 from metro_station.adapters.simulation.movement.jps_adapter import JuPedSimAdapter
 from metro_station.adapters.simulation.planning.plan import AgentState, FacilityStage
 from .goal_gate_micro_passenger import GoalGateMicroPassenger
+from .goal_journey_fixture import (
+    compile_micro_facility_portal_binding,
+    install_micro_spatial_capacity_contract,
+)
 from metro_station.adapters.simulation.runtime.simulation_clock import PHYSICAL_CLOCK, SimulationClock
 
 
@@ -25,6 +29,10 @@ class GoalGateMicroScenario:
     tick_seconds: float = 0.25
     group_size: int = 1
     walk_units_per_tick: float = 0.3
+    movement_trace_sample_seconds: float = 0.2
+    jupedsim_desired_speed_mps: float = 1.2
+    cornering_acceleration_limit_m_s2: float = 3.2
+    cornering_acceleration_window_s: float = 0.4
     jupedsim_dt_seconds: float = 0.01
     jupedsim_iterations_per_tick: int = 25
     jupedsim_agent_radius_units: float = 0.22
@@ -70,6 +78,7 @@ class GoalGateMicroScene(mesa.Model):
         self.step_index = 0
         self.disabled_gate_ids: set[str] = set()
         self.facility_service_events: list[FacilityServiceEvent] = []
+        self.completed_facility_service_event_ids: set[int] = set()
         self.goal_coordinator = SimpleNamespace(poll=lambda _passenger: None)
         self._event_id = 0
         self._next_passenger_id = 1
@@ -87,7 +96,18 @@ class GoalGateMicroScene(mesa.Model):
             strict=True,
         )
         self.gates = [self._make_gate("gate_1", 3.4), self._make_gate("gate_2", 6.6)]
+        self.facilities = list(self.gates)
         self.gates_by_id = {gate.facility_id: gate for gate in self.gates}
+        self._facility_portal_bindings = {
+            gate.facility_id: compile_micro_facility_portal_binding(gate.spec)
+            for gate in self.gates
+        }
+        install_micro_spatial_capacity_contract(
+            self.layout_graph,
+            (gate.spec for gate in self.gates),
+            self._facility_portal_bindings.values(),
+            self.scenario,
+        )
         self.subject = GoalGateMicroPassenger(
             self,
             unique_id=self._new_passenger_id(),
@@ -110,6 +130,9 @@ class GoalGateMicroScene(mesa.Model):
         del level_id
         return self._walkable_area
 
+    def facility_portal_binding(self, facility_id: str):
+        return self._facility_portal_bindings[facility_id]
+
     def next_facility_service_event_id(self) -> int:
         self._event_id += 1
         return self._event_id
@@ -125,8 +148,19 @@ class GoalGateMicroScene(mesa.Model):
         facility_id: str,
         passenger_ids: tuple[int, ...],
         time_seconds: float,
+        *,
+        poll_immediately: bool = False,
     ) -> None:
-        del facility_id, passenger_ids, time_seconds
+        del time_seconds, poll_immediately
+        matching = (
+            event
+            for event in reversed(self.facility_service_events)
+            if event.facility_id == facility_id
+            and tuple(event.passenger_ids) == tuple(passenger_ids)
+        )
+        event = next(matching, None)
+        if event is not None:
+            self.completed_facility_service_event_ids.add(event.event_id)
 
     def tick(self) -> None:
         for gate in self.gates:
@@ -141,7 +175,7 @@ class GoalGateMicroScene(mesa.Model):
         *,
         rows: int = 3,
         columns: int = 4,
-        spacing: float = 0.48,
+        spacing: float = 0.55,
     ) -> None:
         for row in range(rows):
             for column in range(columns):
@@ -149,6 +183,8 @@ class GoalGateMicroScene(mesa.Model):
                     center[0] + (column - (columns - 1) / 2) * spacing,
                     center[1] + (row - (rows - 1) / 2) * spacing,
                 )
+                if not self._blocker_position_has_clearance(position):
+                    continue
                 blocker = GoalGateMicroPassenger(
                     self,
                     unique_id=self._new_passenger_id(),
@@ -157,6 +193,14 @@ class GoalGateMicroScene(mesa.Model):
                 )
                 self.blockers.append(blocker)
                 self.passengers.append(blocker)
+
+    def _blocker_position_has_clearance(self, position: tuple[float, float]) -> bool:
+        minimum_distance = self.scenario.jupedsim_agent_radius_units * 2.2 + 1e-6
+        return all(
+            hypot(position[0] - passenger.pos[0], position[1] - passenger.pos[1])
+            >= minimum_distance
+            for passenger in self.passengers
+        )
 
     def clear_blockers(self) -> None:
         for blocker in self.blockers:

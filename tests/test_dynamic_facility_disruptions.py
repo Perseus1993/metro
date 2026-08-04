@@ -21,6 +21,26 @@ OTHER_ENTRY_LANES = tuple(
 
 
 def _commit_and_queue(passenger, facility) -> None:
+    _commit_for_facility(passenger, facility)
+    runtime = passenger.goal_runtime
+    runtime.handle(
+        GoalEvent(
+            kind=GoalEventKind.REACHED_QUEUE_CAPTURE.value,
+            time_seconds=0.0,
+            facility_id=facility.facility_id,
+        )
+    )
+    facility.join_queue(passenger, authority="goal_graph")
+    runtime.handle(
+        GoalEvent(
+            kind=GoalEventKind.QUEUE_JOINED.value,
+            time_seconds=0.0,
+            facility_id=facility.facility_id,
+        )
+    )
+
+
+def _commit_for_facility(passenger, facility) -> None:
     runtime = passenger.goal_runtime
     runtime.handle(
         GoalEvent(
@@ -52,21 +72,6 @@ def _commit_and_queue(passenger, facility) -> None:
         )
     )
     passenger.assigned_facility_id = facility.facility_id
-    runtime.handle(
-        GoalEvent(
-            kind=GoalEventKind.REACHED_QUEUE_CAPTURE.value,
-            time_seconds=0.0,
-            facility_id=facility.facility_id,
-        )
-    )
-    facility.join_queue(passenger, authority="goal_graph")
-    runtime.handle(
-        GoalEvent(
-            kind=GoalEventKind.QUEUE_JOINED.value,
-            time_seconds=0.0,
-            facility_id=facility.facility_id,
-        )
-    )
 
 
 class DynamicFacilityDisruptionTests(unittest.TestCase):
@@ -83,6 +88,8 @@ class DynamicFacilityDisruptionTests(unittest.TestCase):
                 "visual_demo_station",
                 "--goal-graph-mode",
                 "active",
+                "--clock-mode",
+                "physical",
                 *extra,
             ]
         )
@@ -135,6 +142,124 @@ class DynamicFacilityDisruptionTests(unittest.TestCase):
         self.assertEqual(1, event.passengers_replanned)
         self.assertEqual(f"facility_disabled:{LANE_1}", passenger.last_replan_reason)
 
+    def test_disable_replans_all_pre_service_commitment_states(self) -> None:
+        for state_name in ("approach_queue", "capture_queue", "queueing"):
+            with self.subTest(state_name=state_name):
+                model = self._model("--facility-event", f"0:disable:{LANE_1}")
+                disrupted = model.facilities_by_id[LANE_1]
+                passenger = model._spawn_passenger(AgentIntent.ENTER_AND_BOARD)
+                _commit_for_facility(passenger, disrupted)
+                if state_name in {"capture_queue", "queueing"}:
+                    passenger.goal_runtime.handle(
+                        GoalEvent(
+                            kind=GoalEventKind.REACHED_QUEUE_CAPTURE.value,
+                            time_seconds=0.0,
+                            facility_id=disrupted.facility_id,
+                        )
+                    )
+                if state_name == "queueing":
+                    disrupted.join_queue(passenger, authority="goal_graph")
+                    passenger.goal_runtime.handle(
+                        GoalEvent(
+                            kind=GoalEventKind.QUEUE_JOINED.value,
+                            time_seconds=0.0,
+                            facility_id=disrupted.facility_id,
+                        )
+                    )
+                old_terminal = None
+                if state_name == "approach_queue":
+                    stage = disrupted.spec.stage
+                    model._reserve_facility_approach_slot(passenger, disrupted)
+                    route = model.route_to_facility_queue(passenger, disrupted)
+                    passenger.set_route(
+                        route,
+                        goal_kind="queue_approach",
+                        goal_label="closure integration fixture",
+                        facility_id=disrupted.facility_id,
+                        stage=stage,
+                    )
+                    old_terminal = route[-1]
+                    self.assertEqual(
+                        disrupted.facility_id,
+                        passenger.facility_approach_facility_ids_by_stage[stage],
+                    )
+                    self.assertIn(
+                        int(passenger.unique_id),
+                        model._facility_targeting_reservations[disrupted.facility_id],
+                    )
+                self.assertEqual(
+                    state_name,
+                    passenger.goal_runtime.state.interaction_state,
+                )
+
+                model.disruption_controller.apply_due(model)
+
+                event = model.disruption_controller.applied_events[0]
+                commitment = passenger.goal_runtime.state.commitment
+                self.assertEqual(1, event.passengers_replanned)
+                self.assertTrue(
+                    commitment is None or commitment.facility_id != LANE_1
+                )
+                self.assertNotIn(passenger, disrupted.queue)
+                self.assertNotIn(
+                    int(passenger.unique_id),
+                    model._facility_targeting_reservations[disrupted.facility_id],
+                )
+                if old_terminal is not None:
+                    stage = disrupted.spec.stage
+                    self.assertNotEqual(
+                        disrupted.facility_id,
+                        passenger.facility_approach_facility_ids_by_stage.get(stage),
+                    )
+                    terminal = (
+                        passenger.route[-1]
+                        if passenger.route
+                        else passenger.target
+                    )
+                    self.assertNotEqual(old_terminal, terminal)
+                self.assertEqual(
+                    f"facility_disabled:{LANE_1}",
+                    passenger.last_replan_reason,
+                )
+
+    def test_real_coordinator_closure_retargets_route_and_reservation_atomically(self) -> None:
+        model = self._model("--facility-event", f"0:disable:{LANE_1}")
+        passenger = model._spawn_passenger(AgentIntent.ENTER_AND_BOARD)
+        model.goal_coordinator.handle(
+            passenger,
+            GoalEvent(
+                kind=GoalEventKind.ENTERED_REGION.value,
+                time_seconds=0.0,
+                region_id="entry_gate_decision",
+            ),
+        )
+        commitment = passenger.goal_runtime.state.commitment
+        self.assertIsNotNone(commitment)
+        self.assertEqual(LANE_1, commitment.facility_id)
+        disrupted = model.facilities_by_id[LANE_1]
+        passenger_id = int(passenger.unique_id)
+        old_terminal = passenger.route[-1] if passenger.route else passenger.target
+        self.assertIsNotNone(
+            disrupted.queue.approach_slot_reservation(passenger_id)
+        )
+
+        model.disruption_controller.apply_due(model)
+
+        replacement = passenger.goal_runtime.state.commitment
+        self.assertIsNotNone(replacement)
+        self.assertNotEqual(LANE_1, replacement.facility_id)
+        self.assertIsNone(
+            disrupted.queue.approach_slot_reservation(passenger_id)
+        )
+        self.assertNotEqual(
+            old_terminal,
+            passenger.route[-1] if passenger.route else passenger.target,
+        )
+        self.assertEqual(
+            1,
+            model.disruption_controller.applied_events[0].passengers_replanned,
+        )
+
     def test_disabled_lane_does_not_serve_and_resumes_on_enable(self) -> None:
         static_args = [
             value
@@ -166,12 +291,14 @@ class DynamicFacilityDisruptionTests(unittest.TestCase):
         self.assertEqual(0, lane.served_persons)
         self.assertNotIn(passenger, lane.queue)
         self.assertTrue(lane.has_active_service(passenger))
-        traversal_steps = lane.active_passes[0].total_steps
-        for _ in range(traversal_steps):
+        for _ in range(10):
             model.step()
+            if not lane.has_active_service(passenger):
+                break
 
         self.assertEqual(1, lane.served_persons)
         self.assertNotIn(passenger, lane.queue)
+        self.assertFalse(lane.has_active_service(passenger))
         self.assertEqual(
             0,
             model.disruption_controller.service_start_violations(
@@ -200,6 +327,11 @@ class DynamicFacilityDisruptionTests(unittest.TestCase):
 
         applied = model.disruption_controller.applied_events[0]
         self.assertEqual(1, applied.active_service_persons_before)
+        self.assertEqual(0, applied.passengers_replanned)
+        self.assertEqual(
+            "in_service",
+            passenger.goal_runtime.state.interaction_state,
+        )
         self.assertEqual(
             0,
             model.disruption_controller.service_start_violations(

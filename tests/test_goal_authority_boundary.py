@@ -79,7 +79,20 @@ class GoalAuthorityBoundaryTests(unittest.TestCase):
         passenger.route = []
         passenger.advance_after_movement(True)
         facility = model.facilities_by_id[passenger.current_goal.facility_id]
-        self.assertEqual("queue_approach", passenger.current_goal.kind)
+        # Portal-local decision regions may legitimately coincide with the
+        # first queue slot and therefore capture immediately.  Reconstruct an
+        # authorized in-flight queue approach, then replay the stale reach fact
+        # after the body has moved away.
+        self.assertEqual("queued", passenger.current_goal.kind)
+        facility.queue.remove(passenger)
+        passenger.state = facility.spec.queue_state
+        passenger.plan.set_goal(
+            kind="queue_approach",
+            label=f"{facility.spec.label} queue approach",
+            target=facility._service_entry_position(),
+            facility_id=facility.facility_id,
+            stage=facility.spec.stage,
+        )
 
         passenger.pos = (1.0, 1.0)
         model.goal_coordinator.movement_reached(passenger)

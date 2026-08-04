@@ -18,6 +18,11 @@ from ..planning.goal_graph import JourneyGraph
 from ..planning.goal_state import AgentGoalState
 from ..planning.plan import AgentIntent, FacilityStage
 from .evacuation_journey_rerouting import refresh_evacuation_facility_path
+from .physical_waypoint_routing import PhysicalRouteUnreachableError
+from .walking_cost_accounting import (
+    WalkingCostConfigurationError,
+    record_walking_cost_source,
+)
 
 if TYPE_CHECKING:
     from ..agents.passenger import PassengerAgent
@@ -77,6 +82,7 @@ class ProductionGoalObservationAdapter:
                 self.region_router.clear_decision_context(
                     context.passenger,
                     command.target_region_id,
+                    preserve_preference=True,
                 )
                 candidates = []
             else:
@@ -178,11 +184,24 @@ def _facility_observation(
     reachable: bool,
     avoided: bool,
 ) -> FacilityObservation:
-    walking_distance, route_reachable, walking_cost_source = _walking_distance(
-        model,
-        passenger,
-        facility,
+    available = (
+        facility.is_available_for_choice
+        and model.facility_has_reservable_approach_slot(passenger, facility)
     )
+    if available and reachable:
+        walking_distance, route_reachable, walking_cost_source = _walking_distance(
+            model,
+            passenger,
+            facility,
+        )
+    else:
+        walking_distance = 0.0
+        route_reachable = False
+        walking_cost_source = (
+            "not_evaluated_unavailable"
+            if not available
+            else "not_evaluated_topology_unreachable"
+        )
     walking_speed = float(model.desired_walk_speed_mps(passenger))
     walking_seconds = walking_distance / max(0.001, walking_speed)
     preference_penalty = _preference_penalty_seconds(model, passenger, stage, facility)
@@ -208,10 +227,7 @@ def _facility_observation(
     return FacilityObservation(
         facility_id=facility.facility_id,
         stage=stage,
-        available=(
-            facility.is_available_for_choice
-            and model.facility_has_reservable_approach_slot(passenger, facility)
-        ),
+        available=available,
         reachable=reachable and route_reachable,
         walking_time_seconds=walking_seconds,
         queue_persons=queue_persons,
@@ -236,13 +252,21 @@ def _walking_distance(
     if not callable(route_provider):
         route_provider = getattr(cast(Any, model), "route_to_facility_queue", None)
     if not callable(route_provider):
-        return _direct_distance(passenger, facility), True, "euclidean_fallback"
+        record_walking_cost_source(model, "provider_missing")
+        raise WalkingCostConfigurationError(
+            "production facility choice requires facility_walking_route or "
+            "route_to_facility_queue"
+        )
     try:
         route = tuple(
             cast(Iterable[tuple[float, float]], route_provider(passenger, facility))
         )
-    except (RuntimeError, ValueError):
-        return _direct_distance(passenger, facility), False, "physical_route_unreachable"
+    except PhysicalRouteUnreachableError:
+        record_walking_cost_source(model, "physical_route_unreachable")
+        return 0.0, False, "physical_route_unreachable"
+    except Exception:
+        record_walking_cost_source(model, "physical_route_error")
+        raise
 
     points = (tuple(passenger.pos), *route)
     if len(points) == 1:
@@ -261,13 +285,8 @@ def _walking_distance(
         hypot(right[0] - left[0], right[1] - left[1])
         for left, right in zip(points, points[1:])
     )
+    record_walking_cost_source(model, "physical_waypoint_geodesic")
     return distance, True, "physical_waypoint_geodesic"
-
-
-def _direct_distance(passenger: PassengerAgent, facility: FacilityProcessAgent) -> float:
-    px, py = passenger.pos
-    qx, qy = facility.spec.queue_anchor
-    return hypot(px - qx, py - qy)
 
 
 def _queue_persons_ahead(
@@ -312,7 +331,8 @@ def _density_near_facility(
     persons = sum(
         passenger.group_size
         for passenger in model.active_passengers()
-        if passenger.current_level_id == facility.spec.entry_level_id
+        if passenger.current_level_id
+        == model.facility_portal_binding(facility.facility_id).entry_level_id
         and hypot(passenger.pos[0] - qx, passenger.pos[1] - qy) <= radius
     )
     return persons / (pi * radius * radius)

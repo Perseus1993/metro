@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import replace
-from math import atan2, degrees
+from math import atan2, cos, degrees, floor, radians, sin
 
 from shapely.geometry import Polygon, box
 
@@ -12,6 +12,12 @@ from .schema import (
     ElementGeometry,
     QueueSpec,
     StationDesignDocument,
+)
+from .spatial_reservations import (
+    SpatialReservation,
+    conflicting_area,
+    level_spatial_reservations,
+    queue_reservation,
 )
 from .templates import with_standard_graph_contract
 from .vertical_landing import (
@@ -51,7 +57,7 @@ def generate_station(document: StationDesignDocument) -> StationDesignDocument:
 def with_generated_queues(document: StationDesignDocument) -> tuple[QueueSpec, ...]:
     """Complete every service facade with a landing-local queue specification."""
 
-    queues = list(document.queues)
+    queues = _normalize_service_queue_directions(document, list(document.queues))
     occupied_by_level = _occupied_by_level(document, queues)
     footprints = _level_footprints(document)
     walkable_by_level = {
@@ -90,7 +96,34 @@ def with_generated_queues(document: StationDesignDocument) -> tuple[QueueSpec, .
                     occupied=occupied_by_level.setdefault(entry_level_id, []),
                 )
                 queues.append(queue)
-                occupied_by_level[entry_level_id].append(element_shape(queue.geometry))
+                occupied_by_level[entry_level_id].append(queue_reservation(queue))
+            continue
+        if element.kind == "gate":
+            directions = {
+                "entry": ("in",),
+                "exit": ("out",),
+                "bidirectional": ("in", "out"),
+            }.get(element.gate_direction or "bidirectional", ("in", "out"))
+            footprint = footprints.get(element.level_id)
+            if footprint is None:
+                continue
+            occupied = occupied_by_level.setdefault(element.level_id, [])
+            for direction in directions:
+                if _queue_for_facade(
+                    queues,
+                    element.id,
+                    element.level_id,
+                    direction,
+                ) is not None:
+                    continue
+                queue = _generated_queue(
+                    element,
+                    footprint,
+                    occupied,
+                    service_direction=direction,
+                )
+                queues.append(queue)
+                occupied.append(queue_reservation(queue))
             continue
         if any(queue.owner_element_id == element.id for queue in queues):
             continue
@@ -98,9 +131,16 @@ def with_generated_queues(document: StationDesignDocument) -> tuple[QueueSpec, .
         if footprint is None:
             continue
         occupied = occupied_by_level.setdefault(element.level_id, [])
-        queue = _generated_queue(element, footprint, occupied)
+        queue = _generated_queue(
+            element,
+            footprint,
+            occupied,
+            service_direction=(
+                element.direction if element.kind == "platform_edge" else None
+            ),
+        )
         queues.append(queue)
-        occupied.append(element_shape(queue.geometry))
+        occupied.append(queue_reservation(queue))
     return tuple(queues)
 
 
@@ -149,12 +189,28 @@ def _generated_vertical_queue(
         exit_walkable_geometry=exit_walkable_geometry,
     )
     lateral = (-forward[1], forward[0])
-    outward_axes = (
-        (-forward[0], -forward[1], 0.0),
-        (lateral[0], lateral[1], 2.0),
-        (-lateral[0], -lateral[1], 2.0),
-    )
-    candidates: list[tuple[float, ElementGeometry, tuple[float, float]]] = []
+    if element.kind == "elevator":
+        # A multi-stop elevator exposes both an up and a down facade on an
+        # intermediate landing.  Giving both the same doorway-normal queue
+        # makes their occupiable slots overlap.  Partition the shared landing
+        # deterministically by travel direction while retaining fallback axes
+        # for constrained footprints.
+        preferred_lateral = lateral if direction == "up" else (-lateral[0], -lateral[1])
+        opposite_lateral = (-preferred_lateral[0], -preferred_lateral[1])
+        outward_axes = (
+            (preferred_lateral[0], preferred_lateral[1], 0.0),
+            (-forward[0], -forward[1], 20.0),
+            (opposite_lateral[0], opposite_lateral[1], 40.0),
+        )
+    else:
+        outward_axes = (
+            (-forward[0], -forward[1], 0.0),
+            (lateral[0], lateral[1], 2.0),
+            (-lateral[0], -lateral[1], 2.0),
+        )
+    candidates: list[
+        tuple[float, float, ElementGeometry, tuple[float, float]]
+    ] = []
     for scale in (1.0, 0.8, 0.6, 0.45):
         width = max(2.0, queue_width * scale)
         depth = max(2.0, queue_depth * scale)
@@ -196,21 +252,31 @@ def _generated_vertical_queue(
                     0.01
                 ).covers(shape):
                     continue
-                collision = sum(shape.intersection(other).area for other in occupied)
+                collision = conflicting_area(
+                    shape,
+                    occupied,
+                    facility_owner_id=element.id,
+                )
                 shrink_penalty = (1.0 - scale) * 10.0
                 candidates.append(
                     (
                         collision + alignment_penalty + shrink_penalty,
+                        collision,
                         geometry,
                         (outward_x, outward_y),
                     )
                 )
-    if not candidates:
+    collision_free = [candidate for candidate in candidates if candidate[1] <= 0.01]
+    if not collision_free:
         raise ValueError(
-            f"no body-sized queue domain fits landing {element.id!r} "
+            f"spatial_capacity.queue_domain_unavailable: no body-sized, "
+            f"collision-free queue domain fits landing {element.id!r} "
             f"{entry_level_id!r} {direction!r}"
         )
-    _score, geometry, outward = min(candidates, key=lambda item: item[0])
+    _score, _collision, geometry, outward = min(
+        collision_free,
+        key=lambda item: item[0],
+    )
     return QueueSpec(
         id=f"queue_{element.id}_{entry_level_id}_{direction}",
         owner_element_id=element.id,
@@ -226,59 +292,286 @@ def _generated_vertical_queue(
     )
 
 
-def _generated_queue(element: DesignElement, footprint, occupied) -> QueueSpec:
+def _generated_queue(
+    element: DesignElement,
+    footprint,
+    occupied,
+    *,
+    service_direction: str | None = None,
+) -> QueueSpec:
     queue_width, queue_height, capacity, kind = _queue_dimensions(element)
-    owner = element_shape(element.geometry)
-    min_x, min_y, max_x, max_y = owner.bounds
-    center_x = (min_x + max_x) / 2.0
-    center_y = (min_y + max_y) / 2.0
-    candidates = (
-        (center_x - queue_width / 2.0, max_y, "below"),
-        (center_x - queue_width / 2.0, min_y - queue_height, "above"),
-        (max_x, center_y - queue_height / 2.0, "right"),
-        (min_x - queue_width, center_y - queue_height / 2.0, "left"),
-    )
-    valid = [
-        candidate
-        for candidate in candidates
-        if footprint.buffer(0.01).covers(
-            box(
-                candidate[0],
-                candidate[1],
-                candidate[0] + queue_width,
-                candidate[1] + queue_height,
-            )
+    # A rotated facade can make a full nominal queue rectangle graze an
+    # otherwise unrelated resource even though a slightly smaller domain
+    # still materialises every declared body slot.  Search deterministic
+    # scaled domains instead of accepting the least-overlapping invalid one.
+    candidates = tuple(
+        (scale, candidate)
+        for scale in (1.0, 0.98, 0.95, 0.9, 0.8, 0.7)
+        for candidate in _generated_queue_candidates(
+            element,
+            queue_width=max(2.0, queue_width * scale),
+            queue_height=max(2.0, queue_height * scale),
         )
+    )
+    preferred_side: str | None = None
+    if element.kind == "gate" and service_direction in {"in", "out"}:
+        width = float(element.geometry.width_m)
+        height = float(element.geometry.height_m)
+        service_sides = (
+            {"in": "above", "out": "below"}
+            if width >= height
+            else {"in": "left", "out": "right"}
+        )
+        preferred_side = service_sides[service_direction]
+    valid = [
+        (scale, candidate)
+        for scale, candidate in candidates
+        if footprint.buffer(0.01).covers(element_shape(candidate[0]))
     ]
-    pool = valid or list(candidates)
-    x_m, y_m, side = min(
-        pool,
-        key=lambda candidate: _queue_collision_score(
-            candidate,
-            queue_width,
-            queue_height,
+    if not valid:
+        raise ValueError(
+            f"no generated queue domain for {element.id!r} fits inside "
+            f"level {element.level_id!r}"
+        )
+    collision_free = [
+        (scale, candidate)
+        for scale, candidate in valid
+        if conflicting_area(
+            element_shape(candidate[0]),
             occupied,
+            facility_owner_id=element.id,
+        )
+        <= 0.01
+    ]
+    if not collision_free:
+        raise ValueError(
+            "spatial_capacity.queue_domain_unavailable: no collision-free "
+            f"generated queue domain fits {element.id!r} on "
+            f"level {element.level_id!r}"
+        )
+    # Direction supplies a stable preferred facade, but it cannot authorize a
+    # queue outside the compiled level or on another live spatial resource.
+    preferred = (
+        [item for item in collision_free if item[1][2] == preferred_side]
+        if preferred_side is not None
+        else []
+    )
+    pool = preferred or collision_free
+    _scale, (geometry, service_point, side) = min(
+        pool,
+        key=lambda item: (
+            conflicting_area(
+                element_shape(item[1][0]),
+                occupied,
+                facility_owner_id=element.id,
+            ),
+            -item[0],
+            item[1][2],
         ),
     )
-    service_point = _service_point(side, center_x, center_y, min_x, min_y, max_x, max_y)
     return QueueSpec(
-        id=f"queue_{element.id}",
+        id=(
+            f"queue_{element.id}"
+            if service_direction is None
+            else f"queue_{element.id}_{service_direction}"
+        ),
         owner_element_id=element.id,
         kind=kind,
         level_id=element.level_id,
-        geometry=ElementGeometry(
-            "rect",
-            x_m=x_m,
-            y_m=y_m,
-            width_m=queue_width,
-            height_m=queue_height,
-        ),
+        geometry=geometry,
         service_point_m=service_point,
-        capacity=capacity,
+        # Capacity is a constructive claim tied to the selected domain, not a
+        # template constant.  When collision avoidance shrinks a generated
+        # queue, reduce the authored demand contract conservatively with area;
+        # the portal compiler will still prove the exact slot count.
+        capacity=max(1, int(floor(capacity * _scale * _scale))),
         spacing_m=0.8,
-        direction_deg={"below": 270.0, "above": 90.0, "right": 180.0, "left": 0.0}[side],
+        direction_deg=(
+            {"below": 270.0, "above": 90.0, "right": 180.0, "left": 0.0}[side]
+            + float(element.geometry.rotation_deg)
+        )
+        % 360.0,
         label=f"{element.label} generated queue",
+        service_direction=service_direction,
     )
+
+
+def _generated_queue_candidates(
+    element: DesignElement,
+    *,
+    queue_width: float,
+    queue_height: float,
+) -> tuple[tuple[ElementGeometry, tuple[float, float], str], ...]:
+    geometry = element.geometry
+    if geometry.shape == "rect":
+        min_x = geometry.x_m
+        min_y = geometry.y_m
+        max_x = min_x + geometry.width_m
+        max_y = min_y + geometry.height_m
+        center_x, center_y = geometry.center()
+        # A platform edge is much longer than its holding area.  Treating its
+        # centre as the only legal queue facade made generated layouts place
+        # every holding area on top of the same lift/escalator bank.  Candidate
+        # generation must expose the free intervals along the full facade so
+        # the joint occupancy scorer below can select a genuinely clear area.
+        horizontal_starts = _facade_candidate_starts(
+            min_x,
+            max_x,
+            queue_width,
+            scan_full_facade=element.kind == "platform_edge",
+        )
+        vertical_starts = _facade_candidate_starts(
+            min_y,
+            max_y,
+            queue_height,
+            scan_full_facade=element.kind == "platform_edge",
+        )
+        local = (
+            *((x_m, max_y, "below") for x_m in horizontal_starts),
+            *((x_m, min_y - queue_height, "above") for x_m in horizontal_starts),
+            *((max_x, y_m, "right") for y_m in vertical_starts),
+            *((min_x - queue_width, y_m, "left") for y_m in vertical_starts),
+        )
+        result = []
+        for x_m, y_m, side in local:
+            queue_center = _rotate_generated_point(
+                (x_m + queue_width / 2.0, y_m + queue_height / 2.0),
+                (center_x, center_y),
+                geometry.rotation_deg,
+            )
+            queue_geometry = ElementGeometry(
+                "rect",
+                x_m=queue_center[0] - queue_width / 2.0,
+                y_m=queue_center[1] - queue_height / 2.0,
+                width_m=queue_width,
+                height_m=queue_height,
+                rotation_deg=geometry.rotation_deg,
+            )
+            service_point = _rotate_generated_point(
+                _candidate_service_point(
+                    side,
+                    x_m=x_m,
+                    y_m=y_m,
+                    queue_width=queue_width,
+                    queue_height=queue_height,
+                    min_x=min_x,
+                    min_y=min_y,
+                    max_x=max_x,
+                    max_y=max_y,
+                ),
+                (center_x, center_y),
+                geometry.rotation_deg,
+            )
+            result.append((queue_geometry, service_point, side))
+        return tuple(result)
+
+    min_x, min_y, max_x, max_y = element_shape(geometry).bounds
+    center_x = (min_x + max_x) / 2.0
+    center_y = (min_y + max_y) / 2.0
+    return tuple(
+        (
+            ElementGeometry(
+                "rect",
+                x_m=x_m,
+                y_m=y_m,
+                width_m=queue_width,
+                height_m=queue_height,
+            ),
+            _service_point(side, center_x, center_y, min_x, min_y, max_x, max_y),
+            side,
+        )
+        for x_m, y_m, side in (
+            (center_x - queue_width / 2.0, max_y, "below"),
+            (center_x - queue_width / 2.0, min_y - queue_height, "above"),
+            (max_x, center_y - queue_height / 2.0, "right"),
+            (min_x - queue_width, center_y - queue_height / 2.0, "left"),
+        )
+    )
+
+
+def _facade_candidate_starts(
+    minimum: float,
+    maximum: float,
+    queue_extent: float,
+    *,
+    scan_full_facade: bool,
+) -> tuple[float, ...]:
+    available = max(0.0, maximum - minimum - queue_extent)
+    if not scan_full_facade or available <= 0.01:
+        return (minimum + available / 2.0,)
+    return tuple(
+        minimum + available * fraction
+        for fraction in (0.0, 0.25, 0.5, 0.75, 1.0)
+    )
+
+
+def _candidate_service_point(
+    side: str,
+    *,
+    x_m: float,
+    y_m: float,
+    queue_width: float,
+    queue_height: float,
+    min_x: float,
+    min_y: float,
+    max_x: float,
+    max_y: float,
+) -> tuple[float, float]:
+    if side == "below":
+        return x_m + queue_width / 2.0, max_y
+    if side == "above":
+        return x_m + queue_width / 2.0, min_y
+    if side == "right":
+        return max_x, y_m + queue_height / 2.0
+    return min_x, y_m + queue_height / 2.0
+
+
+def _rotate_generated_point(
+    point: tuple[float, float],
+    origin: tuple[float, float],
+    rotation_deg: float,
+) -> tuple[float, float]:
+    angle = radians(float(rotation_deg))
+    dx = point[0] - origin[0]
+    dy = point[1] - origin[1]
+    return (
+        origin[0] + dx * cos(angle) - dy * sin(angle),
+        origin[1] + dx * sin(angle) + dy * cos(angle),
+    )
+
+
+def _normalize_service_queue_directions(
+    document: StationDesignDocument,
+    queues: list[QueueSpec],
+) -> list[QueueSpec]:
+    elements = document.element_by_id()
+    normalized: list[QueueSpec] = []
+    for queue in queues:
+        element = elements.get(queue.owner_element_id)
+        if element is None or queue.service_direction is not None:
+            normalized.append(queue)
+            continue
+        if element.kind == "gate":
+            direction = "in" if element.gate_direction == "entry" else "out"
+            normalized.append(replace(queue, service_direction=direction))
+            continue
+        if element.role == "vertical_connector":
+            matching = tuple(
+                direction
+                for direction, entry_level_id, _exit_level_id in vertical_facade_pairs(
+                    element,
+                    document.level_by_id(),
+                )
+                if entry_level_id == queue.level_id
+            )
+            if len(matching) == 1:
+                normalized.append(replace(queue, service_direction=matching[0]))
+                continue
+        if element.kind == "platform_edge" and element.direction in {"up", "down"}:
+            normalized.append(replace(queue, service_direction=element.direction))
+            continue
+        normalized.append(queue)
+    return normalized
 
 
 def _queue_dimensions(element: DesignElement) -> tuple[float, float, int, str]:
@@ -286,8 +579,16 @@ def _queue_dimensions(element: DesignElement) -> tuple[float, float, int, str]:
     if element.kind == "platform_edge":
         return max(12.0, width), 6.0, 80, "holding_area"
     if element.kind == "gate":
-        return max(8.0, width), 7.0, 40, "lane"
-    return max(8.0, width), 6.0, 32, "lane"
+        # Seven metres of queue depth materializes six body-clear slots per
+        # lane after the scenario radius is buffered out.  Declare exactly
+        # that physical capacity instead of relying on runtime truncation.
+        lane_count = max(1, int(element.capacity or 1))
+        return max(8.0, width), 7.0, lane_count * 6, "lane"
+    # A vertical facade is a single FIFO line, not area occupancy.  Four
+    # explicit body-clear places are guaranteed by the minimum generated
+    # landing domain; larger queues must enlarge that domain instead of
+    # declaring capacity that the runtime silently truncates.
+    return max(8.0, width), 6.0, 4, "lane"
 
 
 def _queue_collision_score(candidate, width: float, height: float, occupied) -> float:
@@ -378,19 +679,8 @@ def _level_footprints(document: StationDesignDocument) -> dict[str, Polygon]:
 def _occupied_by_level(
     document: StationDesignDocument,
     queues: list[QueueSpec],
-) -> dict[str, list[object]]:
-    occupied: dict[str, list[object]] = {level.id: [] for level in document.levels}
-    for element in _solid_elements(document):
-        level_ids = (
-            element.connects_levels
-            if element.role == "vertical_connector"
-            else (element.level_id,)
-        )
-        for level_id in level_ids:
-            occupied.setdefault(level_id, []).append(element_shape(element.geometry))
-    for queue in queues:
-        occupied.setdefault(queue.level_id, []).append(element_shape(queue.geometry))
-    return occupied
+) -> dict[str, list[SpatialReservation]]:
+    return level_spatial_reservations(document, queues)
 
 
 def _solid_elements(document: StationDesignDocument) -> tuple[DesignElement, ...]:

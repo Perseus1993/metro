@@ -42,6 +42,28 @@ from .graph_types import (
 )
 
 
+def _gate_service_point(
+    queues: tuple[object, ...],
+    direction: str,
+    fallback: Point,
+    walkable_domain,
+) -> Point:
+    exact = tuple(
+        queue for queue in queues if getattr(queue, "service_direction", None) == direction
+    )
+    legacy = tuple(
+        queue for queue in queues if getattr(queue, "service_direction", None) is None
+    )
+    queue = exact[0] if exact else (legacy[0] if len(legacy) == 1 else None)
+    authored = fallback if queue is None else queue.service_point_m
+    return project_to_safe_point(
+        walkable_domain,
+        authored,
+        clearance=0.18,
+        require_inside=False,
+    )
+
+
 @dataclass(frozen=True)
 class StationGraph:
     nodes: dict[str, GraphNode]
@@ -66,7 +88,7 @@ class StationGraph:
         cls,
         document: StationDesignDocument,
         *,
-        include_walkable_access_edges: bool = True,
+        include_walkable_access_edges: bool = False,
     ) -> "StationGraph":
         nodes: dict[str, GraphNode] = {}
         element_node_ids: dict[str, list[str]] = {}
@@ -85,7 +107,7 @@ class StationGraph:
                     primary_node_by_element_id[node.element_id] = node.node_id
 
         for element in document.elements:
-            queue = queues_by_owner.get(element.id)
+            owner_queues = queues_by_owner.get(element.id, ())
             element_level_domain = level_walkable_geometry(
                 document,
                 element.level_id,
@@ -105,14 +127,14 @@ class StationGraph:
                     primary=True,
                 )
             elif element.kind == "gate":
-                service_point = project_to_safe_point(
-                    element_level_domain,
-                    queue.service_point_m if queue is not None else center,
-                    clearance=0.18,
-                    require_inside=False,
-                )
                 gate_direction = _gate_direction(element)
                 if gate_direction in {"entry", "bidirectional"}:
+                    service_point = _gate_service_point(
+                        owner_queues,
+                        "in",
+                        center,
+                        element_level_domain,
+                    )
                     add_node(
                         GraphNode(
                             f"gate:{element.id}:entry",
@@ -137,6 +159,12 @@ class StationGraph:
                         primary=True,
                     )
                 if gate_direction in {"exit", "bidirectional"}:
+                    service_point = _gate_service_point(
+                        owner_queues,
+                        "out",
+                        center,
+                        element_level_domain,
+                    )
                     add_node(
                         GraphNode(
                             f"gate:{element.id}:exit",

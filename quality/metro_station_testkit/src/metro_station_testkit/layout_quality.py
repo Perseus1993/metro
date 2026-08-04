@@ -98,6 +98,8 @@ def _queue_overlap_issues(
         for other in document.queues[index + 1 :]:
             if queue.level_id != other.level_id:
                 continue
+            if _queues_share_vertical_lobby(document, queue, other):
+                continue
             area = queue_shape.intersection(element_shape(other.geometry)).area
             if area > 0.01:
                 issues.append(_overlap_issue(queue.id, other.id, area, "quality.queues_overlap"))
@@ -110,6 +112,19 @@ def _queue_overlap_issues(
                     _overlap_issue(queue.id, element.id, area, "quality.queue_blocks_component")
                 )
     return tuple(issues)
+
+
+def _queues_share_vertical_lobby(
+    document: StationDesignDocument,
+    left: Any,
+    right: Any,
+) -> bool:
+    if left.owner_element_id != right.owner_element_id:
+        return False
+    if left.service_direction == right.service_direction:
+        return False
+    owner = document.element_by_id().get(left.owner_element_id)
+    return owner is not None and owner.kind == "elevator"
 
 
 def _queue_collision_candidate(owner_id: str, level_id: str, element: Any) -> bool:

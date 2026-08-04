@@ -54,13 +54,21 @@ class ElevatorConfig:
         return max(0.0, self.return_seconds)
 
     @property
-    def cycle_seconds(self) -> float:
+    def minimum_cycle_seconds(self) -> float:
+        """Configured lower bound before kinematic motion expansion."""
+
         return (
             max(0.0, self.boarding_seconds)
             + max(0.0, self.travel_seconds)
             + max(0.0, self.unload_seconds)
             + self.return_trip_seconds
         )
+
+    @property
+    def cycle_seconds(self) -> float:
+        """Compatibility alias for the configured minimum cycle."""
+
+        return self.minimum_cycle_seconds
 
 
 @dataclass(frozen=True)

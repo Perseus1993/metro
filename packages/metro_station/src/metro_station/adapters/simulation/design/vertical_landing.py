@@ -3,16 +3,15 @@ from __future__ import annotations
 from math import cos, hypot, radians, sin
 from typing import Any
 
-from shapely.geometry import Point as ShapelyPoint, Polygon
-from shapely.ops import nearest_points, unary_union
-from shapely.validation import make_valid
+from shapely.geometry import Point as ShapelyPoint
+from shapely.ops import nearest_points
 
-from .geometry import element_shape
 from .helpers import vertical_direction
 from .schema import DesignElement, StationDesignDocument
 
 
 Point = tuple[float, float]
+DEFAULT_VERTICAL_LANDING_CLEARANCE_M = 0.4
 
 
 def design_level_walkable_geometry(
@@ -21,32 +20,11 @@ def design_level_walkable_geometry(
 ):
     """Build the same level-specific walking domain used for landing projection."""
 
-    all_parts = [
-        element_shape(element.geometry)
-        for element in document.elements
-        if element.kind == "walkable_area" or element.role == "floor"
-    ]
-    if not all_parts:
-        level = document.level_by_id()[level_id]
-        return make_valid(Polygon(level.footprint))
-    walkable = make_valid(unary_union(all_parts))
-    obstacles = [
-        element_shape(element.geometry)
-        for element in document.elements
-        if (element.kind == "obstacle" or element.role == "obstacle")
-        and bool(element.metadata.get("blocking", True))
-    ]
-    if obstacles:
-        walkable = make_valid(walkable.difference(unary_union(obstacles)))
-    level_parts = [
-        element_shape(element.geometry)
-        for element in document.elements
-        if element.level_id == level_id
-        and (element.kind == "walkable_area" or element.role == "floor")
-    ]
-    if not level_parts:
-        return walkable
-    return make_valid(walkable.intersection(unary_union(level_parts)))
+    # Local import keeps the design primitives independent from the station
+    # graph while giving generation and compilation one geometry authority.
+    from ..station.geometry import level_walkable_geometry
+
+    return level_walkable_geometry(document, level_id)
 
 
 def vertical_facade_pairs(
@@ -72,7 +50,7 @@ def vertical_landing_position(
     levels_by_id: dict[str, Any] | None = None,
     *,
     walkable_geometry=None,
-    clearance: float = 0.18,
+    clearance: float = DEFAULT_VERTICAL_LANDING_CLEARANCE_M,
 ) -> Point:
     """Derive one landing portal from connector geometry and level order.
 
@@ -129,19 +107,37 @@ def vertical_interior_direction(
     return -sin(angle), cos(angle)
 
 
+def vertical_landing_outward_direction(element: DesignElement) -> Point:
+    """Return the connector-door normal from the cabin into the landing."""
+
+    angle = radians(float(element.geometry.rotation_deg))
+    return sin(angle), -cos(angle)
+
+
 def _ordered_levels(
     element: DesignElement,
     levels_by_id: dict[str, Any] | None,
 ) -> tuple[str, ...]:
     if levels_by_id is None:
         return tuple(element.connects_levels)
-    return tuple(
+    known = tuple(
         sorted(
-            element.connects_levels,
+            (
+                level_id
+                for level_id in element.connects_levels
+                if level_id in levels_by_id
+            ),
             key=lambda level_id: levels_by_id[level_id].elevation_m,
             reverse=True,
         )
     )
+    # Schema validation owns the diagnostic for unknown levels.  Geometry
+    # helpers must remain total so malformed editor payloads are rejected with
+    # that stable code instead of escaping as a KeyError midway through checks.
+    unknown = tuple(
+        level_id for level_id in element.connects_levels if level_id not in levels_by_id
+    )
+    return (*known, *unknown)
 
 
 def _raw_landing_position(

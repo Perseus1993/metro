@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, replace
-from math import ceil, hypot, sqrt
+from math import ceil, hypot, inf, nextafter, sqrt
 from typing import TYPE_CHECKING
 
 import mesa
@@ -9,6 +9,7 @@ import mesa
 from .process import FacilityKind, FacilitySpec
 from .runtime_base import FacilityProcessAgent
 from .service_events import FacilityServiceEvent
+from ..movement.waypoint_policy import intermediate_waypoint_radius
 
 if TYPE_CHECKING:
     from ..agents.passenger import PassengerAgent
@@ -27,6 +28,8 @@ class ActiveGatePass:
     duration_seconds: float = 0.0
     elapsed_seconds: float = 0.0
     remaining_seconds: float = 0.0
+    last_motion_request_time: float | None = None
+    release_slot_index: int | None = None
 
 
 class GateProcessAgent(FacilityProcessAgent):
@@ -40,10 +43,10 @@ class GateProcessAgent(FacilityProcessAgent):
         return "open"
 
     def _mechanical_service_entry_position(self) -> tuple[float, float]:
-        return self.spec.position
+        return self.portal_entry_position
 
     def _mechanical_service_release_position(self) -> tuple[float, float]:
-        return self.spec.exit_position
+        return self.portal_exit_position
 
     def _queue_crossing_service_entry_position(self) -> tuple[float, float]:
         return self._mechanical_service_entry_position()
@@ -63,6 +66,89 @@ class GateProcessAgent(FacilityProcessAgent):
             return float(simulation_clock.mesa_tick_seconds)
         return float(self.model.scenario.tick_seconds)
 
+    def _can_start_service(
+        self,
+        passenger: PassengerAgent,
+        train: TrainAgent | None,
+        *,
+        release_index: int = 0,
+        release_count: int = 1,
+    ) -> bool:
+        if not super()._can_start_service(
+            passenger,
+            train,
+            release_index=release_index,
+            release_count=release_count,
+        ):
+            return False
+
+        lane_facilities = self._shared_physical_lane_facilities()
+        opposing = tuple(
+            gate
+            for gate in lane_facilities
+            if gate is not self and gate.portal_direction != self.portal_direction
+        )
+        if any(gate.active_passes for gate in opposing):
+            return False
+
+        ready_opposing = tuple(
+            gate
+            for gate in opposing
+            if gate._head_is_ready_for_shared_lane()
+        )
+        if not ready_opposing:
+            return True
+
+        # Once the opposite facade has demand, stop adding same-direction
+        # followers and let the lane drain.  This is the service analogue of
+        # an alternating single-track block and prevents permanent starvation
+        # under sustained flow in one direction.
+        if self.active_passes:
+            return False
+
+        contenders = (self, *ready_opposing)
+        winner = min(
+            contenders,
+            key=lambda gate: (
+                gate.queue.service_order_key(gate.queue[0]),
+                gate.facility_id,
+            ),
+        )
+        return winner is self
+
+    def _head_is_ready_for_shared_lane(self) -> bool:
+        if not self.is_open or not self.queue:
+            return False
+        passenger = self.queue[0]
+        return not self.queue.is_settling(
+            passenger
+        ) and self._passenger_ready_for_service(passenger)
+
+    def _shared_physical_lane_facilities(self) -> tuple[GateProcessAgent, ...]:
+        lane_key = self._physical_lane_key()
+        return tuple(
+            facility
+            for facility in self.model.facilities
+            if isinstance(facility, GateProcessAgent)
+            and facility._physical_lane_key() == lane_key
+        )
+
+    def _physical_lane_key(self) -> tuple[object, ...]:
+        endpoints = tuple(
+            sorted(
+                (
+                    tuple(round(float(value), 6) for value in self.portal_entry_position),
+                    tuple(round(float(value), 6) for value in self.portal_exit_position),
+                )
+            )
+        )
+        return (
+            str(self.spec.source_element_id or self.facility_id),
+            str(self.portal_entry_level_id),
+            str(self.portal_exit_level_id),
+            endpoints,
+        )
+
     def _start_service(
         self,
         passenger: PassengerAgent,
@@ -76,10 +162,14 @@ class GateProcessAgent(FacilityProcessAgent):
         if passenger.unique_id is None:
             raise RuntimeError("Gate service requires a stable passenger id")
         passenger_id = int(passenger.unique_id)
-        passenger.begin_facility_service(self.spec)
-        end_position = self._planned_gate_release_position(
+        # Preflight every operation that can reject the physical admission
+        # before mutating queue ownership, Goal Graph state, or native-body
+        # lifecycle.  In particular, endpoint placement is a read-only query
+        # and must not leave a half-started service behind on failure.
+        end_position, release_slot_index = self._reserve_certified_release_slot(
             passenger,
-            release_index=release_index,
+            preferred_index=release_index,
+            persistent=True,
         )
         distance = hypot(
             end_position[0] - start_position[0],
@@ -93,12 +183,18 @@ class GateProcessAgent(FacilityProcessAgent):
             self.model.current_time_seconds + tick_seconds
         )
         end_time = start_time + duration_seconds
+        if end_time - start_time < duration_seconds:
+            # Adding an absolute start time can round the interval down by one
+            # ULP. Keep the published event contract conservative: its elapsed
+            # time must never imply a speed above the admitted walking speed.
+            end_time = nextafter(end_time, inf)
         transaction_seconds = (
             60.0
             * max(1, int(passenger.group_size))
             / max(0.001, float(self.effective_service_persons_per_min))
         )
         board_end_time = min(end_time, start_time + transaction_seconds)
+        passenger.begin_facility_service(self.spec)
         passenger.passive_facility_service = True
         passenger.set_target(
             end_position,
@@ -122,9 +218,9 @@ class GateProcessAgent(FacilityProcessAgent):
                 start_position=start_position,
                 end_position=end_position,
                 commit_time=float(self.model.current_time_seconds),
-                direction=self.spec.direction,
-                from_level=self.spec.entry_level_id,
-                to_level=self.spec.exit_level_id,
+                direction=self.portal_direction,
+                from_level=self.portal_entry_level_id,
+                to_level=self.portal_exit_level_id,
             )
         )
         self.active_passes.append(
@@ -137,6 +233,7 @@ class GateProcessAgent(FacilityProcessAgent):
                 total_steps=total_steps,
                 duration_seconds=duration_seconds,
                 remaining_seconds=duration_seconds,
+                release_slot_index=release_slot_index,
             )
         )
 
@@ -146,26 +243,18 @@ class GateProcessAgent(FacilityProcessAgent):
         *,
         release_index: int,
     ) -> tuple[float, float]:
-        forward, lateral = self._release_axes()
-        spacing = self._release_spacing()
-        column_order = self._release_column_order(release_index)
-        row = max(0, int(release_index)) // self._release_column_count()
-        candidate = (
-            self.spec.exit_position[0]
-            + forward[0] * row * spacing
-            + lateral[0] * column_order * spacing,
-            self.spec.exit_position[1]
-            + forward[1] * row * spacing
-            + lateral[1] * column_order * spacing,
-        )
-        projected = self._project_release_position(candidate)
-        return self.model.movement_backend.resolve_placement(
+        position, _slot_index = self._reserve_certified_release_slot(
             passenger,
-            projected,
-            level_id=self.spec.exit_level_id or self.spec.entry_level_id,
+            preferred_index=release_index,
+            persistent=False,
         )
+        return position
 
     def _advance_active_passes(self) -> None:
+        if self._backend_owns_gate_service_motion():
+            self._advance_active_passes_with_physical_backend()
+            return
+
         remaining: list[ActiveGatePass] = []
         completed: list[ActiveGatePass] = []
         tick_seconds = self._process_interval_seconds()
@@ -231,6 +320,108 @@ class GateProcessAgent(FacilityProcessAgent):
             self._finish_gate_pass(active)
         self.active_passes = remaining
 
+    def _advance_active_passes_with_physical_backend(self) -> None:
+        """Let JuPedSim integrate same-floor gate traversal bodies.
+
+        The process layer owns admission and service time; it only publishes
+        the lane endpoint and desired speed.  The persistent operational model
+        commits the actual position later in the same simulation interval, so
+        ordinary walkers and gate users remain in one reciprocal collision
+        world.
+        """
+
+        current_time = float(self.model.current_time_seconds)
+        tick_seconds = self._process_interval_seconds()
+        remaining: list[ActiveGatePass] = []
+        completed: list[ActiveGatePass] = []
+        for active in self.active_passes:
+            elapsed_before = float(active.elapsed_seconds)
+            elapsed_now = max(
+                elapsed_before,
+                self._elapsed_from_committed_gate_position(active),
+            )
+            if active.last_motion_request_time is not None:
+                wall_elapsed = max(
+                    0.0,
+                    current_time - active.last_motion_request_time,
+                )
+                physical_elapsed = max(0.0, elapsed_now - elapsed_before)
+                self._delay_gate_event(
+                    active,
+                    max(0.0, wall_elapsed - physical_elapsed),
+                )
+            active.elapsed_seconds = elapsed_now
+            active.remaining_seconds = max(
+                0.0,
+                active.duration_seconds - elapsed_now,
+            )
+            active.progress_steps = (
+                float(active.total_steps)
+                if active.duration_seconds <= 1e-12
+                else active.total_steps * elapsed_now / active.duration_seconds
+            )
+
+            finish_tolerance = intermediate_waypoint_radius(
+                agent_radius=float(
+                    self.model.scenario.jupedsim_agent_radius_units
+                ),
+                final_target_radius=float(
+                    self.model.scenario.jupedsim_target_radius_units
+                ),
+            )
+            distance_to_release = hypot(
+                active.passenger.pos[0] - active.end_position[0],
+                active.passenger.pos[1] - active.end_position[1],
+            )
+            crossed_release_plane = self._has_crossed_service_entry(
+                tuple(active.passenger.pos),
+                active.start_position,
+                active.end_position,
+                tolerance=finish_tolerance,
+                lane_half_width=max(
+                    self._release_min_distance(),
+                    float(self.model.scenario.jupedsim_agent_radius_units) * 1.5,
+                ),
+            )
+            # The release is an oriented portal, not an infinitesimal point.
+            # JuPedSim may settle a body a few centimetres laterally from its
+            # lane endpoint (especially for simultaneous adjacent passes).
+            # Once it has reached/crossed the release plane inside its lane,
+            # retaining the exact-point target creates a permanent force
+            # equilibrium and prevents the domain service from committing.
+            if distance_to_release <= finish_tolerance or crossed_release_plane:
+                active.elapsed_seconds = active.duration_seconds
+                active.remaining_seconds = 0.0
+                active.progress_steps = float(active.total_steps)
+                completed.append(active)
+                continue
+
+            active.passenger.move_directly_toward_target(
+                self._walking_speed_m_s() * tick_seconds,
+            )
+            active.last_motion_request_time = current_time
+            remaining.append(active)
+
+        for active in completed:
+            self._finish_gate_pass(active)
+        self.active_passes = remaining
+
+    @staticmethod
+    def _elapsed_from_committed_gate_position(active: ActiveGatePass) -> float:
+        dx = active.end_position[0] - active.start_position[0]
+        dy = active.end_position[1] - active.start_position[1]
+        length_squared = dx * dx + dy * dy
+        if length_squared <= 1e-18:
+            return active.duration_seconds
+        progress = (
+            (active.passenger.pos[0] - active.start_position[0]) * dx
+            + (active.passenger.pos[1] - active.start_position[1]) * dy
+        ) / length_squared
+        return max(
+            0.0,
+            min(active.duration_seconds, progress * active.duration_seconds),
+        )
+
     def _gate_backpressure_fraction(
         self,
         passenger: PassengerAgent,
@@ -247,7 +438,7 @@ class GateProcessAgent(FacilityProcessAgent):
         ux = dx / distance
         uy = dy / distance
         minimum_distance = self._release_min_distance()
-        level_id = self.spec.exit_level_id or self.spec.entry_level_id
+        level_id = self.portal_exit_level_id
         allowed_distance = distance
         for other in self.model.passengers:
             if other is passenger or other.current_level_id != level_id:
@@ -290,8 +481,25 @@ class GateProcessAgent(FacilityProcessAgent):
     def _finish_gate_pass(self, active: ActiveGatePass) -> None:
         passenger = active.passenger
         passenger.passive_facility_service = False
-        passenger.pos = self.model.clamp_position(active.end_position)
-        passenger.suppress_movement_for_current_step()
+        if self._backend_owns_gate_service_motion():
+            # Completion is detected from the native JuPedSim coordinate.  A
+            # waypoint-radius hit is a valid physical portal crossing; snapping
+            # Mesa to the nominal endpoint would split the two authorities by
+            # as much as the target radius and make the next walking command
+            # reverse back toward the still-native body.
+            passenger.pos = self.model.clamp_position(tuple(passenger.pos))
+            self._set_gate_event_completion_time(
+                active,
+                float(self.model.current_time_seconds),
+            )
+            self.model.movement_backend.record_facility_motion_boundary(
+                passenger,
+                time_seconds=active.end_time,
+                phase="same_floor_facility",
+            )
+        else:
+            passenger.pos = self.model.clamp_position(active.end_position)
+            passenger.suppress_movement_for_current_step()
         passenger.advance_after_movement(True)
         self.served_persons += passenger.group_size
         if passenger.unique_id is None:
@@ -300,12 +508,47 @@ class GateProcessAgent(FacilityProcessAgent):
             self.facility_id,
             (int(passenger.unique_id),),
             active.end_time,
+            poll_immediately=True,
         )
-        # Service completion changes the Goal Graph immediately.  Apply the
-        # resulting physical command in the same facility phase so a final-tick
-        # completion cannot leave graph=done while the passenger still exposes
-        # ``being_served`` in the authoritative snapshot.
-        self.model.goal_coordinator.poll(passenger)
+        self._release_certified_slot(passenger, active.release_slot_index)
+
+    def _set_gate_event_completion_time(
+        self,
+        active: ActiveGatePass,
+        completion_time: float,
+    ) -> None:
+        actual_end = max(0.0, float(completion_time))
+        active.end_time = actual_end
+        for index, event in enumerate(self.model.facility_service_events):
+            if event.event_id != active.event_id:
+                continue
+            self.model.facility_service_events[index] = replace(
+                event,
+                end_time=actual_end,
+                arrive_time=actual_end,
+                end_position=tuple(active.passenger.pos),
+                board_end_time=(
+                    None
+                    if event.board_end_time is None
+                    else min(float(event.board_end_time), actual_end)
+                ),
+            )
+            return
+
+    def _backend_owns_gate_service_motion(self) -> bool:
+        owns_service_motion = getattr(
+            self.model.movement_backend,
+            "owns_continuous_facility_service_motion",
+            None,
+        )
+        return bool(
+            callable(owns_service_motion)
+            and owns_service_motion(
+                facility_kind=str(self.spec.kind),
+                entry_level_id=self.spec.entry_level_id,
+                exit_level_id=self.spec.exit_level_id,
+            )
+        )
 
     def finalize(self) -> None:
         """Preserve in-flight passes at a truncated simulation horizon."""

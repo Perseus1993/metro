@@ -32,6 +32,8 @@ class ActiveServiceDisruptionTests(unittest.TestCase):
                 "visual_demo_station",
                 "--goal-graph-mode",
                 "active",
+                "--clock-mode",
+                "physical",
                 *event_args,
             ]
         )
@@ -90,6 +92,8 @@ class ActiveServiceDisruptionTests(unittest.TestCase):
         self.assertNotEqual(position_before_stop, passenger.pos)
         for _ in range(elevator.cycle_steps + 2):
             model.step()
+            if not elevator.cabin_passengers:
+                break
 
         self.assertEqual([], elevator.cabin_passengers)
         self.assertEqual(1, elevator.served_persons)

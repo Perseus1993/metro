@@ -3,12 +3,10 @@ from __future__ import annotations
 from collections import Counter, defaultdict
 from typing import Any
 
-from metro_station.domain.time_boundaries import (
-    first_step_not_before,
-    positive_steps_to_cover,
-)
+from metro_station.domain.time_boundaries import first_step_not_before
 
 from ..planning.plan import AgentIntent
+from ..station.alighting_demand import build_alighting_schedule
 from ..station.scenario import StationSandboxScenario
 from ..station.evacuation import EVACUATION_MODE
 
@@ -91,17 +89,7 @@ class DemandScheduler:
                 )
 
     def _build_alighting_schedule(self) -> dict[int, int]:
-        if self.scenario.scenario_mode == EVACUATION_MODE:
-            return {}
-        schedule: dict[int, int] = defaultdict(int)
-        release_steps = self._train_dwell_release_steps()
-        if not release_steps:
-            return {}
-
-        for index in range(self.scenario.exit_groups):
-            step = release_steps[index * len(release_steps) // self.scenario.exit_groups]
-            schedule[step] += 1
-        return dict(schedule)
+        return build_alighting_schedule(self.scenario)
 
     def _add_intent_spawn_schedule(
         self,
@@ -122,42 +110,3 @@ class DemandScheduler:
             jitter = self.random.uniform(-0.35, 0.35) * ticks / groups
             step = max(start_step, min(last_spawn_step, int(round(base + jitter))))
             schedule[step][intent] += 1
-
-    def _train_dwell_release_steps(self) -> list[int]:
-        if self.scenario.exit_groups <= 0:
-            return []
-
-        arrivals = self._train_arrival_steps_for_exit_demand()
-        dwell_steps = positive_steps_to_cover(
-            self.scenario.train_dwell_seconds,
-            self.scenario.tick_seconds,
-        )
-        release_steps: list[int] = []
-        for arrival_step in arrivals:
-            for offset in range(dwell_steps):
-                step = arrival_step + offset
-                if step >= self.scenario.horizon_steps:
-                    break
-                release_steps.append(step)
-        return release_steps
-
-    def _train_arrival_steps_for_exit_demand(self) -> list[int]:
-        first_arrival_step = first_step_not_before(
-            self.scenario.initial_train_offset_seconds,
-            self.scenario.tick_seconds,
-        )
-        if first_arrival_step >= self.scenario.horizon_steps:
-            return []
-
-        headway_steps = positive_steps_to_cover(
-            self.scenario.train_headway_seconds,
-            self.scenario.tick_seconds,
-        )
-        arrivals: list[int] = []
-        step = first_arrival_step
-        while step < self.scenario.horizon_steps:
-            if step <= self.scenario.demand_steps:
-                arrivals.append(step)
-            step += headway_steps
-
-        return arrivals or [first_arrival_step]

@@ -262,14 +262,7 @@ class FacilityQueueRoutingMixin(FacilityQueueGeometryMixin):
             )
         elif claimed_facility_id == facility.facility_id:
             return True
-        if facility.spec.queue_layout.slots:
-            return bool(self._available_facility_approach_slot_indices(facility))
-        reservations = self._facility_targeting_reservations.get(
-            facility.facility_id,
-            {},
-        )
-        capacity = facility.queue.max_length
-        return capacity is None or len(facility.queue) + len(reservations) < capacity
+        return bool(self._available_facility_approach_slot_indices(facility))
 
     def _reserve_facility_approach_slot(
         self,
@@ -290,20 +283,12 @@ class FacilityQueueRoutingMixin(FacilityQueueGeometryMixin):
             )
 
         reservations = self._facility_targeting_reservations[facility.facility_id]
-        if facility.spec.queue_layout.slots:
-            available_indices = self._available_facility_approach_slot_indices(facility)
-            if not available_indices:
-                raise RuntimeError(
-                    f"facility {facility.facility_id!r} has no reservable queue slot"
-                )
-            slot_index = available_indices[0]
-        else:
-            capacity = facility.queue.max_length
-            if capacity is not None and len(facility.queue) + len(reservations) >= capacity:
-                raise RuntimeError(
-                    f"facility {facility.facility_id!r} has no reservable queue slot"
-                )
-            slot_index = len(facility.queue) + len(reservations)
+        available_indices = self._available_facility_approach_slot_indices(facility)
+        if not available_indices:
+            raise RuntimeError(
+                f"facility {facility.facility_id!r} has no reservable compiled queue slot"
+            )
+        slot_index = available_indices[0]
         reservations[int(passenger.unique_id)] = int(passenger.group_size)
         self._facility_targeting_slot_indices[facility.facility_id][
             int(passenger.unique_id)
@@ -686,7 +671,4 @@ class FacilityQueueRoutingMixin(FacilityQueueGeometryMixin):
             ).items()
         ):
             return False
-        if not facility.spec.queue_layout.slots:
-            capacity = facility.queue.max_length
-            return index >= 0 and (capacity is None or index < capacity)
         return index in self._facility_approach_slot_indices(facility)

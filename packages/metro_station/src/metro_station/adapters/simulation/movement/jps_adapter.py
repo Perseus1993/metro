@@ -33,6 +33,18 @@ class JuPedSimPlacementBlocked(RuntimeError):
     """The requested coordinate cannot be inserted without moving the person."""
 
 
+class JuPedSimRelocationRejected(RuntimeError):
+    """An existing native body cannot be teleported to a new coordinate."""
+
+
+class JuPedSimRemovalPending(RuntimeError):
+    """A native body is still owned until JuPedSim confirms its removal."""
+
+
+class JuPedSimRemovalRejected(RuntimeError):
+    """JuPedSim rejected a requested native-body removal."""
+
+
 @dataclass(frozen=True)
 class _JourneyTarget:
     stage_id: int
@@ -70,6 +82,7 @@ class JuPedSimWalkingSession:
             dt=self.dt_seconds,
         )
         self._targets: dict[tuple[float, float, float], _JourneyTarget] = {}
+        self._waiting_targets: dict[tuple[float, float, float], _JourneyTarget] = {}
         self._agent_ids: dict[int, int] = {}
         self._passenger_ids: dict[int, int] = {}
         self._agent_targets: dict[int, tuple[float, float, float]] = {}
@@ -79,6 +92,7 @@ class JuPedSimWalkingSession:
         self._episode_numbers: dict[int, int] = {}
         self._active_episode_ids: dict[int, str] = {}
         self._removal_records: dict[int, JuPedSimRemovalRecord] = {}
+        self._pending_removals: dict[int, int] = {}
 
     @property
     def agent_count(self) -> int:
@@ -87,6 +101,9 @@ class JuPedSimWalkingSession:
     def active_passenger_ids(self) -> set[int]:
         return set(self._agent_ids)
 
+    def has_pending_removals(self) -> bool:
+        return bool(self._pending_removals)
+
     def sync_passengers(self, keep_passenger_ids: set[int]) -> None:
         for passenger_id in list(self._agent_ids):
             if passenger_id not in keep_passenger_ids:
@@ -94,20 +111,47 @@ class JuPedSimWalkingSession:
 
     def remove_passenger(self, passenger_id: int) -> None:
         passenger_key = int(passenger_id)
-        sim_id = self._agent_ids.pop(passenger_key, None)
-        self._agent_targets.pop(passenger_key, None)
-        self._agent_target_positions.pop(passenger_key, None)
-        self._agent_desired_speeds.pop(passenger_key, None)
-        self._last_positions.pop(passenger_key, None)
-        self._active_episode_ids.pop(passenger_key, None)
-        self._removal_records.pop(passenger_key, None)
+        if passenger_key in self._pending_removals:
+            return
+        sim_id = self._agent_ids.get(passenger_key)
         if sim_id is None:
             return
-        self._passenger_ids.pop(int(sim_id), None)
         try:
-            self._simulation.mark_agent_for_removal(int(sim_id))
-        except Exception:
-            return
+            accepted = self._simulation.mark_agent_for_removal(int(sim_id))
+        except Exception as exc:
+            raise JuPedSimRemovalRejected(
+                f"JuPedSim removal raised for passenger {passenger_key} "
+                f"native_agent_id={int(sim_id)}"
+            ) from exc
+        if accepted is False:
+            raise JuPedSimRemovalRejected(
+                f"JuPedSim rejected removal for passenger {passenger_key} "
+                f"native_agent_id={int(sim_id)}"
+            )
+        # JuPedSim applies the mark only at the beginning of its next iterate.
+        # Keep both identity maps and the last position until that transition
+        # is observed; the pending body must continue to occupy clearance.
+        self._pending_removals[passenger_key] = int(sim_id)
+
+    def flush_pending_removals_if_no_active_owners(self) -> bool:
+        """Confirm removals without advancing any still-active body."""
+
+        if not self._pending_removals:
+            return False
+        owned_sim_ids = {int(value) for value in self._agent_ids.values()}
+        pending_sim_ids = {int(value) for value in self._pending_removals.values()}
+        native_sim_ids = {int(agent.id) for agent in self._simulation.agents()}
+        if owned_sim_ids != pending_sim_ids or native_sim_ids != pending_sim_ids:
+            return False
+        # JuPedSim removes marked agents before interaction computation.  With
+        # no active owners present, one iteration confirms deletion without
+        # advancing another passenger.
+        self.iterate(1)
+        if self._pending_removals:
+            raise JuPedSimRemovalRejected(
+                "JuPedSim did not confirm an ownerless pending-removal batch"
+            )
+        return True
 
     def place_agent(
         self,
@@ -128,7 +172,11 @@ class JuPedSimWalkingSession:
                     desired_speed_mps=desired_speed_mps,
                 )
                 return current_position
-            self.remove_passenger(passenger_id)
+            raise JuPedSimRelocationRejected(
+                f"passenger {int(passenger_id)} already owns a native body at "
+                f"{current_position!r}; requested placement {position!r} requires "
+                "an explicit removal boundary before a new body can be inserted"
+            )
         return self._add_agent(
             passenger_id=passenger_id,
             position=position,
@@ -176,40 +224,102 @@ class JuPedSimWalkingSession:
         passenger_id: int,
         position: tuple[float, float],
         target: tuple[float, float],
+        target_radius: float | None = None,
         desired_speed_mps: float = 1.2,
     ) -> tuple[float, float]:
         passenger_key = int(passenger_id)
-        target_key = self._target_key(target)
-        target_info = self._journey_for_target(target)
+        self._raise_if_removal_pending(passenger_key)
+        arrival_radius = self._arrival_radius(target_radius)
+        target_key = self._target_key(target, arrival_radius)
+        target_info = self._journey_for_target(target, arrival_radius)
         sim_id = self._agent_ids.get(passenger_key)
         agent = self._agent_for_id(sim_id) if sim_id is not None else None
         if agent is None:
             if sim_id is not None:
                 self._forget_agent(passenger_key, int(sim_id))
+        if agent is None:
             return self._add_agent(
                 passenger_id=passenger_key,
                 position=position,
                 target=target,
+                target_radius=arrival_radius,
                 desired_speed_mps=desired_speed_mps,
                 allow_relocation=False,
             )
 
         agent_position = (float(agent.position[0]), float(agent.position[1]))
-        drift = hypot(agent_position[0] - position[0], agent_position[1] - position[1])
-        if drift > max(2.0, self.target_radius * 4.0):
-            self.remove_passenger(passenger_key)
-            return self._add_agent(
-                passenger_id=passenger_key,
-                position=position,
-                target=target,
-                desired_speed_mps=desired_speed_mps,
-                allow_relocation=False,
-            )
+        # The long-lived native body is the position authority. A large Mesa
+        # disagreement is repaired by returning that coordinate below, never
+        # by remove+add inside one JuPedSim boundary: removal is asynchronous
+        # and the old body still owns identity and clearance until iterate().
 
         self._set_desired_speed(agent, desired_speed_mps)
         self._agent_desired_speeds[passenger_key] = float(desired_speed_mps)
         self._last_positions[passenger_key] = agent_position
 
+        if self._agent_targets.get(passenger_key) != target_key:
+            self._simulation.switch_agent_journey(
+                int(sim_id),
+                target_info.journey_id,
+                target_info.stage_id,
+            )
+            self._agent_targets[passenger_key] = target_key
+            self._agent_target_positions[passenger_key] = target_info.position
+        return agent_position
+
+    def ensure_waiting_agent(
+        self,
+        *,
+        passenger_id: int,
+        position: tuple[float, float],
+        target: tuple[float, float] | None = None,
+        desired_speed_mps: float = 0.001,
+        stop_tolerance_m: float | None = None,
+    ) -> tuple[float, float]:
+        """Keep a passive passenger as a collision body in an active wait stage."""
+
+        passenger_key = int(passenger_id)
+        self._raise_if_removal_pending(passenger_key)
+        waiting_target = tuple(position if target is None else target)
+        target_key = self._waiting_target_key(waiting_target)
+        target_info = self._journey_for_waiting_position(waiting_target)
+        sim_id = self._agent_ids.get(passenger_key)
+        agent = self._agent_for_id(sim_id) if sim_id is not None else None
+        if agent is None:
+            if sim_id is not None:
+                self._forget_agent(passenger_key, int(sim_id))
+        if agent is None:
+            return self._add_agent(
+                passenger_id=passenger_key,
+                position=position,
+                target=waiting_target,
+                desired_speed_mps=max(0.001, float(desired_speed_mps)),
+                allow_relocation=False,
+                waiting=True,
+            )
+
+        agent_position = (float(agent.position[0]), float(agent.position[1]))
+        target_distance = hypot(
+            agent_position[0] - waiting_target[0],
+            agent_position[1] - waiting_target[1],
+        )
+        # Queue compaction moves the authoritative slot while the same body is
+        # still present in JuPedSim. Switch its waiting-set target so JuPedSim
+        # models that compaction motion; remove/re-add would collide with the
+        # still-pending old native agent.
+        stop_tolerance = (
+            max(0.001, float(stop_tolerance_m))
+            if stop_tolerance_m is not None
+            else max(0.01, self.agent_radius * 0.25)
+        )
+        waiting_speed = (
+            max(0.001, float(desired_speed_mps))
+            if target_distance > stop_tolerance
+            else 0.001
+        )
+        self._set_desired_speed(agent, waiting_speed)
+        self._agent_desired_speeds[passenger_key] = waiting_speed
+        self._last_positions[passenger_key] = agent_position
         if self._agent_targets.get(passenger_key) != target_key:
             self._simulation.switch_agent_journey(
                 int(sim_id),
@@ -226,16 +336,57 @@ class JuPedSimWalkingSession:
         *,
         sample_every_nth_iteration: int | None = None,
         sample_observer: Callable[[int, Mapping[int, tuple[float, float]]], None] | None = None,
+        pre_iteration_observer: Callable[[int], None] | None = None,
+        post_iteration_observer: Callable[
+            [int, Mapping[int, tuple[float, float]]], None
+        ]
+        | None = None,
     ) -> None:
         sample_every = max(1, int(sample_every_nth_iteration or 1))
         for iteration in range(1, max(1, int(iterations)) + 1):
             if self._simulation.agent_count() <= 0:
                 break
+            if pre_iteration_observer is not None:
+                pre_iteration_observer(iteration)
             positions_before = self.positions_by_passenger()
             self._simulation.iterate()
             self._capture_removed_agents(positions_before, iteration)
+            self._hold_arrivals_at_waypoint()
+            if post_iteration_observer is not None:
+                post_iteration_observer(iteration, self.positions_by_passenger())
             if sample_observer is not None and iteration % sample_every == 0:
                 sample_observer(iteration, self.positions_by_passenger())
+
+    def _hold_arrivals_at_waypoint(self) -> None:
+        """Stop completed local segments at the exact native arrival boundary."""
+
+        for passenger_id, sim_id in tuple(self._agent_ids.items()):
+            if passenger_id in getattr(self, "_pending_removals", {}):
+                continue
+            target_key = self._agent_targets.get(passenger_id)
+            target_position = self._agent_target_positions.get(passenger_id)
+            if target_key is None or target_position is None or target_key[2] < 0.0:
+                continue
+            agent = self._agent_for_id(sim_id)
+            if agent is None:
+                continue
+            position = (float(agent.position[0]), float(agent.position[1]))
+            if hypot(
+                position[0] - target_position[0],
+                position[1] - target_position[1],
+            ) > target_key[2] + 1e-9:
+                continue
+            waiting = self._journey_for_waiting_position(position)
+            self._simulation.switch_agent_journey(
+                int(sim_id),
+                waiting.journey_id,
+                waiting.stage_id,
+            )
+            self._set_desired_speed(agent, 0.001)
+            self._agent_targets[passenger_id] = self._waiting_target_key(position)
+            self._agent_target_positions[passenger_id] = waiting.position
+            self._agent_desired_speeds[passenger_id] = 0.001
+            self._last_positions[passenger_id] = position
 
     def positions_by_passenger(self) -> dict[int, tuple[float, float]]:
         positions: dict[int, tuple[float, float]] = {}
@@ -263,6 +414,24 @@ class JuPedSimWalkingSession:
     def episode_id_for(self, passenger_id: int) -> str | None:
         return self._active_episode_ids.get(int(passenger_id))
 
+    def waypoint_arrival_held(self, passenger_id: int) -> bool:
+        """Whether this walking body reached its projected waypoint this iterate.
+
+        JuPedSim routes to the body-safe projected stage position.  That stage
+        can be offset from the caller's nominal waypoint; once arrival is
+        converted to a waiting set, comparing only against the unprojected
+        coordinate can leave a completed body permanently classified as
+        walking.
+        """
+
+        passenger_key = int(passenger_id)
+        target_key = self._agent_targets.get(passenger_key)
+        return bool(
+            passenger_key in self._agent_ids
+            and target_key is not None
+            and target_key[2] < 0.0
+        )
+
     def set_episode_id(self, passenger_id: int, episode_id: str) -> None:
         passenger_key = int(passenger_id)
         if passenger_key not in self._agent_ids:
@@ -288,12 +457,28 @@ class JuPedSimWalkingSession:
         passenger_id: int,
         position: tuple[float, float],
         target: tuple[float, float],
+        target_radius: float | None = None,
         desired_speed_mps: float = 1.2,
         allow_relocation: bool,
+        waiting: bool = False,
     ) -> tuple[float, float]:
         passenger_key = int(passenger_id)
-        target_key = self._target_key(target)
-        target_info = self._journey_for_target(target)
+        self._raise_if_removal_pending(passenger_key)
+        if passenger_key in self._agent_ids:
+            raise RuntimeError(
+                f"passenger {passenger_key} already owns a native JuPedSim body"
+            )
+        arrival_radius = self._arrival_radius(target_radius)
+        target_key = (
+            self._waiting_target_key(target)
+            if waiting
+            else self._target_key(target, arrival_radius)
+        )
+        target_info = (
+            self._journey_for_waiting_position(target)
+            if waiting
+            else self._journey_for_target(target, arrival_radius)
+        )
         last_error: Exception | None = None
         tried_positions: set[tuple[float, float]] = set()
         candidates = (
@@ -366,20 +551,68 @@ class JuPedSimWalkingSession:
         if hasattr(model, "desiredSpeed"):
             model.desiredSpeed = float(desired_speed_mps)
 
-    def _journey_for_target(self, target: tuple[float, float]) -> _JourneyTarget:
-        target_key = self._target_key(target)
+    def _journey_for_target(
+        self,
+        target: tuple[float, float],
+        target_radius: float,
+    ) -> _JourneyTarget:
+        target_key = self._target_key(target, target_radius)
         existing = self._targets.get(target_key)
         if existing is not None:
             return existing
         stage_position = self._safe_waypoint_position(target)
-        stage_id = int(self._simulation.add_waypoint_stage(stage_position, self.target_radius))
+        stage_id = int(self._simulation.add_waypoint_stage(stage_position, target_radius))
         journey_id = int(self._simulation.add_journey(self._jps.JourneyDescription([stage_id])))
         target_info = _JourneyTarget(stage_id=stage_id, journey_id=journey_id, position=stage_position)
         self._targets[target_key] = target_info
         return target_info
 
-    def _target_key(self, target: tuple[float, float]) -> tuple[float, float, float]:
-        return (round(float(target[0]), 3), round(float(target[1]), 3), round(self.target_radius, 3))
+    def _journey_for_waiting_position(
+        self,
+        position: tuple[float, float],
+    ) -> _JourneyTarget:
+        target_key = self._waiting_target_key(position)
+        existing = self._waiting_targets.get(target_key)
+        if existing is not None:
+            return existing
+        stage_position = self._safe_waypoint_position(position)
+        stage_id = int(self._simulation.add_waiting_set_stage([stage_position]))
+        waiting_stage = self._simulation.get_stage(stage_id)
+        waiting_stage.state = self._jps.WaitingSetState.ACTIVE
+        journey_id = int(
+            self._simulation.add_journey(self._jps.JourneyDescription([stage_id]))
+        )
+        target_info = _JourneyTarget(
+            stage_id=stage_id,
+            journey_id=journey_id,
+            position=stage_position,
+        )
+        self._waiting_targets[target_key] = target_info
+        return target_info
+
+    def _target_key(
+        self,
+        target: tuple[float, float],
+        target_radius: float | None = None,
+    ) -> tuple[float, float, float]:
+        arrival_radius = self._arrival_radius(target_radius)
+        return (
+            round(float(target[0]), 3),
+            round(float(target[1]), 3),
+            round(arrival_radius, 3),
+        )
+
+    def _arrival_radius(self, target_radius: float | None) -> float:
+        radius = self.target_radius if target_radius is None else float(target_radius)
+        if radius <= 0.0:
+            raise ValueError("JuPedSim waypoint target_radius must be positive")
+        return radius
+
+    @staticmethod
+    def _waiting_target_key(
+        target: tuple[float, float],
+    ) -> tuple[float, float, float]:
+        return (round(float(target[0]), 3), round(float(target[1]), 3), -1.0)
 
     def _safe_waypoint_position(self, target: tuple[float, float]) -> tuple[float, float]:
         from shapely import Point
@@ -389,7 +622,7 @@ class JuPedSimWalkingSession:
         return project_to_safe_point(
             self.geometry,
             target,
-            clearance=max(0.02, min(self.agent_radius, self.target_radius * 0.25)),
+            clearance=max(0.02, self.agent_radius),
             require_inside=False,
         )
 
@@ -416,14 +649,19 @@ class JuPedSimWalkingSession:
         exclude_passenger_id: int | None = None,
     ) -> bool:
         min_distance = max(0.01, self.agent_radius * 2.05)
+        excluded_sim_id = (
+            self._agent_ids.get(int(exclude_passenger_id))
+            if exclude_passenger_id is not None
+            else None
+        )
         return all(
             hypot(
-                position[0] - candidate[0],
-                position[1] - candidate[1],
+                float(agent.position[0]) - candidate[0],
+                float(agent.position[1]) - candidate[1],
             )
             >= min_distance
-            for passenger_id, position in self.positions_by_passenger().items()
-            if passenger_id != exclude_passenger_id
+            for agent in self._simulation.agents()
+            if excluded_sim_id is None or int(agent.id) != int(excluded_sim_id)
         )
 
     def _placement_candidates(
@@ -450,7 +688,29 @@ class JuPedSimWalkingSession:
         try:
             return self._simulation.agent(int(sim_id))
         except Exception:
-            return None
+            # Some JuPedSim builds stop resolving ``agent(id)`` one boundary
+            # before ``agents()`` drops the body.  Identity remains the native
+            # id, never a coordinate match.
+            return next(
+                (
+                    agent
+                    for agent in self._simulation.agents()
+                    if int(agent.id) == int(sim_id)
+                ),
+                None,
+            )
+
+    def _raise_if_removal_pending(self, passenger_id: int) -> None:
+        passenger_key = int(passenger_id)
+        sim_id = self._pending_removals.get(passenger_key)
+        if sim_id is None:
+            return
+        if self._agent_for_id(sim_id) is None:
+            self._forget_agent(passenger_key, sim_id)
+            return
+        raise JuPedSimRemovalPending(
+            f"passenger {passenger_key} native_agent_id={sim_id} is pending removal"
+        )
 
     def _forget_agent(self, passenger_id: int, sim_id: int) -> None:
         self._agent_ids.pop(int(passenger_id), None)
@@ -460,6 +720,7 @@ class JuPedSimWalkingSession:
         self._last_positions.pop(int(passenger_id), None)
         self._active_episode_ids.pop(int(passenger_id), None)
         self._passenger_ids.pop(int(sim_id), None)
+        self._pending_removals.pop(int(passenger_id), None)
 
     def _capture_removed_agents(
         self,
@@ -469,6 +730,9 @@ class JuPedSimWalkingSession:
         live_sim_ids = {int(agent.id) for agent in self._simulation.agents()}
         for passenger_id, sim_id in list(self._agent_ids.items()):
             if int(sim_id) in live_sim_ids:
+                continue
+            if self._pending_removals.get(passenger_id) == int(sim_id):
+                self._forget_agent(passenger_id, int(sim_id))
                 continue
             last_position = positions_before.get(
                 passenger_id,
@@ -495,10 +759,16 @@ class JuPedSimWalkingSession:
         position = last_position or self._last_positions.get(passenger_id)
         if position is None:
             position = target or (0.0, 0.0)
+        target_key = self._agent_targets.get(passenger_id)
+        target_radius = (
+            self.target_radius
+            if target_key is None or target_key[2] < 0.0
+            else target_key[2]
+        )
         can_reach_stage = target is not None and hypot(
             target[0] - position[0],
             target[1] - position[1],
-        ) <= self.target_radius + desired_speed * self.dt_seconds + 1e-7
+        ) <= target_radius + desired_speed * self.dt_seconds + 1e-7
         self._removal_records[passenger_id] = JuPedSimRemovalRecord(
             passenger_id=passenger_id,
             reason="completed_final_waypoint" if can_reach_stage else "unexpected_disappearance",
@@ -511,6 +781,9 @@ class JuPedSimWalkingSession:
         self._forget_agent(passenger_id, sim_id)
 
     def _record_unobserved_removal(self, passenger_id: int, sim_id: int) -> None:
+        if self._pending_removals.get(passenger_id) == int(sim_id):
+            self._forget_agent(passenger_id, sim_id)
+            return
         episode_id = self._active_episode_ids.get(passenger_id, f"{passenger_id}:unknown")
         position = self._last_positions.get(passenger_id, (0.0, 0.0))
         self._removal_records[passenger_id] = JuPedSimRemovalRecord(
@@ -623,9 +896,11 @@ class JuPedSimAdapter:
             return jps.CollisionFreeSpeedModel()
         if operational_model == "social_force":
             return jps.SocialForceModel()
+        if operational_model == "anticipation_velocity":
+            return jps.AnticipationVelocityModel()
         raise ValueError(
             f"Unsupported JuPedSim operational model {operational_model!r}. "
-            "Use 'collision_free_speed' or 'social_force'."
+            "Use 'collision_free_speed', 'anticipation_velocity', or 'social_force'."
         )
 
     def _agent_parameters_for_name(
@@ -659,9 +934,17 @@ class JuPedSimAdapter:
                 radius=radius,
                 desired_speed=desired_speed,
             )
+        if operational_model == "anticipation_velocity":
+            return jps.AnticipationVelocityModelAgentParameters(
+                journey_id=journey_id,
+                stage_id=stage_id,
+                position=position,
+                radius=radius,
+                desired_speed=desired_speed,
+            )
         raise ValueError(
             f"Unsupported JuPedSim operational model {operational_model!r}. "
-            "Use 'collision_free_speed' or 'social_force'."
+            "Use 'collision_free_speed', 'anticipation_velocity', or 'social_force'."
         )
 
 

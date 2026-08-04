@@ -37,6 +37,7 @@ class PassengerSnapshot:
     current_level_id: str | None
     n: int
     goal_graph: dict[str, Any] | None = None
+    physical_layer_id: str | None = None
 
     @classmethod
     def from_passenger(cls, passenger: PassengerAgent) -> "PassengerSnapshot":
@@ -54,6 +55,10 @@ class PassengerSnapshot:
             goal_graph=None
             if passenger.goal_runtime is None
             else passenger.goal_runtime.snapshot(),
+            physical_layer_id=_optional_str(
+                getattr(passenger, "physical_motion_layer_id", None)
+                or passenger.current_level_id
+            ),
         )
 
     @classmethod
@@ -72,6 +77,9 @@ class PassengerSnapshot:
             goal_graph=None
             if payload.get("goal_graph") is None
             else dict(payload.get("goal_graph", {})),
+            physical_layer_id=_optional_str(
+                payload.get("physical_layer_id", payload.get("current_level_id"))
+            ),
         )
 
     def to_dict(self) -> dict[str, Any]:
@@ -261,6 +269,9 @@ class MetricSnapshot:
     jupedsim_missing_agents: int
     jupedsim_recovered_agents: int
     jupedsim_degraded_holds: int
+    walking_cost_evaluation_count: int
+    walking_cost_source_counts: dict[str, int]
+    spatial_capacity_event_counts: dict[str, int]
     audit_counts: dict[str, int]
 
     @classmethod
@@ -324,6 +335,9 @@ class MetricSnapshot:
             jupedsim_degraded_holds=int(
                 getattr(model.movement_backend, "degraded_hold_count", 0) or 0
             ),
+            walking_cost_evaluation_count=int(model.walking_cost_evaluation_count),
+            walking_cost_source_counts=dict(model.walking_cost_source_counts),
+            spatial_capacity_event_counts=dict(model.spatial_capacity_event_counts),
             audit_counts=dict(model.audit.summary()),
         )
 
@@ -369,6 +383,22 @@ class MetricSnapshot:
             jupedsim_missing_agents=_int(payload, "jupedsim_missing_agents"),
             jupedsim_recovered_agents=_int(payload, "jupedsim_recovered_agents"),
             jupedsim_degraded_holds=_int(payload, "jupedsim_degraded_holds"),
+            walking_cost_evaluation_count=_int(
+                payload,
+                "walking_cost_evaluation_count",
+            ),
+            walking_cost_source_counts={
+                str(key): int(value)
+                for key, value in dict(
+                    payload.get("walking_cost_source_counts", {})
+                ).items()
+            },
+            spatial_capacity_event_counts={
+                str(key): int(value)
+                for key, value in dict(
+                    payload.get("spatial_capacity_event_counts", {})
+                ).items()
+            },
             audit_counts=dict(payload.get("audit_counts", {})),
         )
 
@@ -583,7 +613,7 @@ def _facility_queue_capacity(facility: FacilityAgent) -> int:
     max_length = getattr(facility.queue, "max_length", None)
     if max_length is not None:
         return int(max_length)
-    queue_layout = facility.spec.queue_layout
+    queue_layout = facility.queue.layout
     if queue_layout.slots:
         return len(queue_layout.slots)
     return max(8, min(96, int(queue_layout.per_row) * 4))

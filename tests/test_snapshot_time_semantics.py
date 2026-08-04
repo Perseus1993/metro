@@ -130,8 +130,22 @@ def test_bulk_launch_has_one_strictly_increasing_track_per_passenger(
         movement_backend=SmallStepMovementBackend(),
     )
     model.spawn_schedule.clear()
-    for _ in range(passenger_count):
-        model._spawn_passenger(AgentIntent.ENTER_AND_BOARD)
+    launch_certificate = next(
+        item
+        for item in model.layout_graph.spatial_capacity_certificates
+        if item.resource_kind == "platform_waiting"
+    )
+    assert launch_certificate.certified_body_capacity >= passenger_count
+    # This is a timestamp stress injection, not production ingress demand.
+    # Use distinct compiler-certified cells so the test can launch a large
+    # cohort at one boundary without bypassing the physical non-overlap
+    # invariant of the finite entrance spawn reservoir.
+    for position in launch_certificate.slots[:passenger_count]:
+        model._spawn_passenger(
+            AgentIntent.ENTER_AND_BOARD,
+            initial_position=position,
+            initial_level_id=launch_certificate.level_id,
+        )
 
     model.step()
 

@@ -1,10 +1,15 @@
 from __future__ import annotations
 
 import unittest
+from collections import Counter
+from types import SimpleNamespace
 
+from metro_station.adapters.simulation.planning.goal_events import GoalEvent
+from metro_station.adapters.simulation.runtime.goal_parity import GoalParityRecorder
 from sandbox.metro_station_sandbox.movement.backend import MovementBackend, MovementResult
 from sandbox.metro_station_sandbox.movement.jps_adapter import JuPedSimAdapter
 from metro_station_acceptance.operational_acceptance import (
+    _train_full_recovery_checks,
     run_operational_acceptance,
 )
 from metro_station_acceptance.operational_acceptance_scenarios import (
@@ -27,6 +32,45 @@ class InstantMovementBackend(MovementBackend):
 
 
 class OperationalAcceptanceTests(unittest.TestCase):
+    def test_train_full_gate_rejects_distinct_ids_for_one_structured_episode(
+        self,
+    ) -> None:
+        recorder = GoalParityRecorder()
+        passenger = SimpleNamespace(unique_id=7)
+        for time_seconds, event_id in ((10.0, "poll-1"), (11.0, "poll-2")):
+            before = SimpleNamespace(
+                current_stage="boarding_door",
+                current_node_id="queue",
+                processed_event_ids=(),
+            )
+            after = SimpleNamespace(
+                current_stage="boarding_door",
+                current_node_id="queue",
+                processed_event_ids=(event_id,),
+            )
+            recorder.record_graph_transition(
+                passenger,
+                GoalEvent(
+                    kind="train_full",
+                    time_seconds=time_seconds,
+                    event_id=event_id,
+                    train_platform_id="platform:L1:up",
+                    train_arrival_sequence=3,
+                ),
+                before,
+                after,
+            )
+        self.assertEqual(2, len(recorder.events))
+        model = SimpleNamespace(
+            goal_parity=recorder,
+            train=SimpleNamespace(departed_trains=2),
+        )
+
+        checks = _train_full_recovery_checks(model, Counter(train_full=2))
+
+        self.assertFalse(checks["train_full_episode_idempotent"])
+        self.assertFalse(checks["train_full_distinct_train_runs_observed"])
+
     def test_boarding_queue_and_platform_waiting_never_dual_own_a_passenger(self) -> None:
         scenario = operational_scenario(TRAIN_FULL_RECOVERY)
         model = MetroStationModel(
@@ -71,6 +115,21 @@ class OperationalAcceptanceTests(unittest.TestCase):
                 self.assertEqual(report.spawned_persons, report.trajectory_count)
                 self.assertEqual((), report.clearance_blocker_codes)
                 self.assertTrue(report.checks["no_replan_during_service"])
+
+    @unittest.skipUnless(JPS_AVAILABLE, "JuPedSim is unavailable")
+    def test_real_jupedsim_gate_boundary_is_clock_capability_safe_at_five_seconds(
+        self,
+    ) -> None:
+        report = run_operational_acceptance(
+            FACILITY_CLOSURE_RECOVERY,
+            layout_id="visual_demo_station",
+            seed=41,
+            tick_seconds=5,
+        )
+
+        self.assertEqual(report.spawned_persons, report.terminal_persons)
+        self.assertTrue(report.checks["strict_full_clearance"])
+        self.assertTrue(report.checks["all_graphs_complete"])
 
     @unittest.skipUnless(JPS_AVAILABLE, "JuPedSim is unavailable")
     def test_real_jupedsim_recovery_scenarios_clear_for_required_seeds(self) -> None:

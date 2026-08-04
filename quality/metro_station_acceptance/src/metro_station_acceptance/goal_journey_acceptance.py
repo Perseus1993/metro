@@ -76,6 +76,7 @@ def run_evacuation_acceptance(
     minutes: int = 8,
     movement_backend: MovementBackend | None = None,
     station_design: StationDesignDocument | None = None,
+    trajectory_evidence: dict[str, Any] | None = None,
 ) -> EvacuationAcceptanceReport:
     scenario = _evacuation_scenario(
         layout_id,
@@ -92,7 +93,12 @@ def run_evacuation_acceptance(
         service_events=model.facility_service_events,
         terminal_events=model.passenger_terminal_events,
         clearance_debug=build_clearance_debug(model),
+        movement_trace=model.movement_backend.movement_trace(),
+        facility_motion_trace=model.facility_motion_trace_recorder.as_dict(),
     )
+    if trajectory_evidence is not None:
+        trajectory_evidence.clear()
+        trajectory_evidence.update(tracks)
     graph_debug = tracks["graph_debug"]
     trajectory = diagnose_tracks(tracks)
     parity_checks = model.goal_parity.report(model, include_events=False)["checks"]
@@ -141,18 +147,25 @@ def run_four_journey_acceptance(
     evacuation_persons: int = 30,
     evacuation_minutes: int = 8,
     station_design: StationDesignDocument | None = None,
+    trajectory_evidence_by_seed: dict[int, dict[str, Any]] | None = None,
 ) -> FourJourneyAcceptanceReport:
     options = dict(normal_options or {})
-    normal = tuple(
-        run_goal_graph_acceptance(
-            layout_id=layout_id,
-            seed=seed,
-            movement_backend=_backend(movement_backend_factory),
-            station_design=station_design,
-            **options,
+    normal_reports: list[GoalGraphAcceptanceReport] = []
+    for seed in seeds:
+        evidence = {} if trajectory_evidence_by_seed is not None else None
+        normal_reports.append(
+            run_goal_graph_acceptance(
+                layout_id=layout_id,
+                seed=seed,
+                movement_backend=_backend(movement_backend_factory),
+                station_design=station_design,
+                trajectory_evidence=evidence,
+                **options,
+            )
         )
-        for seed in seeds
-    )
+        if trajectory_evidence_by_seed is not None and evidence is not None:
+            trajectory_evidence_by_seed[seed] = evidence
+    normal = tuple(normal_reports)
     evacuation = tuple(
         run_evacuation_acceptance(
             layout_id=layout_id,

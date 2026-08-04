@@ -35,11 +35,14 @@ class TrainAgent(StationAgent):
         )
         self.close_step: int | None = None
         self.current_load_persons = 0
+        self.reserved_boarding_persons = 0
         self.last_departed_load_persons = 0
         self.departed_trains = 0
         self.cancelled_trains = 0
         self.last_cancelled_arrival_step: int | None = None
         self.last_departure_step: int | None = None
+        self.arrival_sequence = 0
+        self.departure_safety_hold_steps = 0
 
     @property
     def is_boarding(self) -> bool:
@@ -48,7 +51,10 @@ class TrainAgent(StationAgent):
     @property
     def capacity_remaining(self) -> int:
         capacity = self.model.train_capacity_for_platform(self.platform_id)
-        return max(0, capacity - self.current_load_persons)
+        return max(
+            0,
+            capacity - self.current_load_persons - self.reserved_boarding_persons,
+        )
 
     def step(self) -> None:
         step = self.model.step_index
@@ -62,11 +68,21 @@ class TrainAgent(StationAgent):
                 return
             self.state = "boarding"
             self.current_load_persons = 0
+            if self.reserved_boarding_persons:
+                raise RuntimeError("new train arrived with stale boarding reservations")
+            self.arrival_sequence += 1
             self.close_step = step + self._dwell_steps()
             self._record_train_event("record_train_arrival")
             return
 
         if self.state == "boarding" and self.close_step is not None and step >= self.close_step:
+            if self._has_active_door_crossing():
+                # A body already committed to the doorway is a train-safety
+                # boundary, not extra scheduled dwell. Keep the train berthed
+                # and account the explicit overrun until the physical crossing
+                # completes; no new boarding can pass the close-time preflight.
+                self.departure_safety_hold_steps += 1
+                return
             self.state = "away"
             self.last_departed_load_persons = self.current_load_persons
             self.current_load_persons = 0
@@ -74,6 +90,16 @@ class TrainAgent(StationAgent):
             self.last_departure_step = step
             self.next_arrival_step = step + self._layover_steps()
             self.close_step = None
+
+    def _has_active_door_crossing(self) -> bool:
+        doors_for_train = getattr(self.model, "boarding_doors_for_train", None)
+        if not callable(doors_for_train):
+            return False
+        return any(
+            active.train is self and active.train_arrival_sequence == self.arrival_sequence
+            for door in doors_for_train(self)
+            for active in getattr(door, "active_boardings", ())
+        )
 
     def _service_suspended(self) -> bool:
         check = getattr(self.model, "is_train_service_suspended", None)
@@ -140,10 +166,7 @@ class PlatformAgent(StationAgent):
         self._set_waiting_state(passenger)
         self.waiting.append(passenger)
         self._notify_graph_train_available(passenger)
-        if (
-            passenger.state != AgentState.WAITING_PLATFORM.value
-            and passenger in self.waiting
-        ):
+        if passenger.state != AgentState.WAITING_PLATFORM.value and passenger in self.waiting:
             self.waiting.remove(passenger)
 
     def _set_waiting_state(self, passenger: PassengerAgent) -> None:
@@ -172,9 +195,10 @@ class PlatformAgent(StationAgent):
     def _layout_waiting(self) -> None:
         speed = self._waiting_layout_speed_units_per_tick()
         occupied_positions: list[tuple[float, float]] = []
-        for index, passenger in enumerate(self.waiting):
+        for passenger in self.waiting:
+            target = self.model._reserve_platform_waiting_slot(passenger, self)
             passenger.set_target(
-                self.model.layout_graph.platform_waiting_position(index),
+                target,
                 goal_kind="waiting",
                 goal_label="platform waiting slot",
             )
@@ -187,9 +211,7 @@ class PlatformAgent(StationAgent):
     def _waiting_layout_speed_units_per_tick(self) -> float:
         scenario = self.model.scenario
         configured = float(scenario.walk_units_per_tick)
-        physical = float(scenario.jupedsim_desired_speed_mps) * float(
-            scenario.tick_seconds
-        )
+        physical = float(scenario.jupedsim_desired_speed_mps) * float(scenario.tick_seconds)
         if not self.model.simulation_clock.research_valid:
             return max(0.1, configured)
         return max(0.1, min(configured, physical))
@@ -208,6 +230,7 @@ class PlatformAgent(StationAgent):
         for passenger in tuple(self.waiting):
             if passenger.state != AgentState.WAITING_PLATFORM.value:
                 self.waiting.remove(passenger)
+                self.model._clear_platform_waiting_reservation(passenger)
                 continue
 
             self._assign_passenger_platform(passenger)

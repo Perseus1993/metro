@@ -8,7 +8,7 @@ from typing import Any, TypeGuard
 from .trajectory_truth_inputs import TrajectoryTruthInputError
 
 
-PRESENTATION_FIDELITY_GATE_SCHEMA_VERSION = "presentation_fidelity_gate_report.v1"
+PRESENTATION_FIDELITY_GATE_SCHEMA_VERSION = "presentation_fidelity_gate_report.v2"
 
 _WALKING_STATES = {
     "entering_station",
@@ -64,22 +64,28 @@ def analyze_presentation_fidelity(payload: object) -> dict[str, Any]:
         "walking_position_authority": "simulation_trace.movement_trace",
         "visual_tracks_authoritative": False,
         "visual_track_source_points_field": "points",
-        "visual_track_presentation_points_field": "presentation_points",
+        "presentation_position_source": "canonical_composite_points",
         "facility_overlays_modify_source_points": False,
+        "facility_overlays_control_passenger_bodies": False,
         "renderer_track_field": "points",
     }
+    if isinstance(simulation_trace.get("facility_motion_trace"), Mapping):
+        expected_contract["facility_motion_authority"] = (
+            "simulation_trace.facility_motion_trace"
+        )
     for key, expected in expected_contract.items():
         if replay_fidelity.get(key) != expected:
             contract_issues.append(
                 {"field": key, "expected": expected, "observed": replay_fidelity.get(key)}
             )
     if not isinstance(replay_metadata, Mapping) or (
-        replay_metadata.get("visual_tracks_policy") != "presentation_only"
+        replay_metadata.get("visual_tracks_policy")
+        != "authoritative_trace_projection"
     ):
         contract_issues.append(
             {
                 "field": "replay_package.metadata.visual_tracks_policy",
-                "expected": "presentation_only",
+                "expected": "authoritative_trace_projection",
                 "observed": (
                     replay_metadata.get("visual_tracks_policy")
                     if isinstance(replay_metadata, Mapping)
@@ -88,12 +94,22 @@ def analyze_presentation_fidelity(payload: object) -> dict[str, Any]:
             }
         )
 
+    if "visual_track_presentation_points_field" in replay_fidelity:
+        contract_issues.append(
+            {
+                "field": "visual_track_presentation_points_field",
+                "expected": "absent",
+                "observed": replay_fidelity.get("visual_track_presentation_points_field"),
+            }
+        )
+    bundle_issues = _visualization_bundle_issues(payload, agents)
     checks = {
         "authority_contract_is_explicit": _count_check(contract_issues),
         "source_points_are_simulation_only": _count_check(list(audit.source_issues)),
-        "presentation_points_are_well_formed": _count_check(
+        "no_position_bearing_presentation_track": _count_check(
             list(audit.presentation_issues)
         ),
+        "renderer_bundle_matches_canonical_tracks": _count_check(bundle_issues),
         "source_point_ledger_matches_authoritative_trace": _ledger_check(
             missing_source,
             extra_source,
@@ -108,6 +124,7 @@ def analyze_presentation_fidelity(payload: object) -> dict[str, Any]:
             "authority": [
                 "simulation_trace.snapshots",
                 "simulation_trace.movement_trace",
+                "simulation_trace.facility_motion_trace",
             ],
             "source_point_count": audit.source_point_count,
             "authoritative_observation_count": sum(authoritative_samples.values()),
@@ -165,6 +182,9 @@ def _audit_tracks(agents: Sequence[Any], *, transform_id: str) -> _TrackAudit:
         presentation = agent.get("presentation_points")
         if presentation is None:
             continue
+        presentation_issues.append(
+            {"agent_id": agent_id, "reason": "presentation_points_forbidden"}
+        )
         if not _is_sequence(presentation):
             presentation_issues.append(
                 {"agent_id": agent_id, "reason": "presentation_points_not_array"}
@@ -194,6 +214,21 @@ def _audit_tracks(agents: Sequence[Any], *, transform_id: str) -> _TrackAudit:
     )
 
 
+def _visualization_bundle_issues(
+    payload: Mapping[str, Any],
+    agents: Sequence[Any],
+) -> list[dict[str, object]]:
+    bundle = payload.get("visualization_bundle")
+    if not isinstance(bundle, Mapping):
+        return [{"reason": "visualization_bundle_missing"}]
+    tracks = bundle.get("visual_tracks")
+    if not _is_sequence(tracks):
+        return [{"reason": "visualization_bundle_tracks_missing"}]
+    if tracks != agents:
+        return [{"reason": "visualization_bundle_tracks_diverge_from_agents"}]
+    return []
+
+
 def _source_point_issue(
     point: object,
     previous_time: float | None,
@@ -214,6 +249,7 @@ def _source_point_issue(
     if meta.get("authority") not in {
         "simulation_trace.snapshots",
         "simulation_trace.movement_trace",
+        "simulation_trace.facility_motion_trace",
     }:
         return "source_point_authority_invalid"
     if meta.get("coordinate_transform") != transform_id:
@@ -248,6 +284,10 @@ def _authoritative_source_samples(
         tuple[str, float],
         tuple[tuple[str, float, float, float, str], str],
     ] = {}
+    current_samples: dict[
+        tuple[str, float],
+        tuple[str, float, float, float, str],
+    ] = {}
     for frame_index, frame in enumerate(snapshots):
         if not isinstance(frame, Mapping):
             raise TrajectoryTruthInputError(f"snapshot {frame_index} must be an object")
@@ -272,11 +312,12 @@ def _authoritative_source_samples(
                 coordinate_transform=coordinate_transform,
             )
             sample = (agent_id, time_s, x, y, "simulation_trace.snapshots")
-            result[sample] += 1
+            result[sample] = 1
             snapshot_samples[(agent_id, time_s)] = (
                 sample,
                 str(passenger.get("state", "")),
             )
+            current_samples[(agent_id, time_s)] = sample
 
     movement_trace = simulation_trace.get("movement_trace")
     if isinstance(movement_trace, Mapping):
@@ -308,7 +349,60 @@ def _authoritative_source_samples(
                 point.get("y"),
                 coordinate_transform=coordinate_transform,
             )
-            result[(agent_id, time_s, x, y, "simulation_trace.movement_trace")] += 1
+            sample = (
+                agent_id,
+                time_s,
+                x,
+                y,
+                "simulation_trace.movement_trace",
+            )
+            # A route episode closes and the next one opens on the same committed
+            # coordinate.  The renderer ledger is keyed by passenger and time and
+            # therefore represents that exact boundary sample once.  Keep set
+            # semantics for byte-identical authority observations while retaining
+            # distinct coordinates at the same time as a hard mismatch.
+            result[sample] = 1
+            current_samples[(agent_id, time_s)] = sample
+
+    facility_motion_trace = simulation_trace.get("facility_motion_trace")
+    if isinstance(facility_motion_trace, Mapping):
+        facility_points = facility_motion_trace.get("points", ())
+        if not _is_sequence(facility_points):
+            raise TrajectoryTruthInputError(
+                "simulation_trace.facility_motion_trace.points must be an array"
+            )
+        for point_index, point in enumerate(facility_points):
+            if not isinstance(point, Mapping):
+                raise TrajectoryTruthInputError(
+                    f"facility motion point {point_index} must be an object"
+                )
+            try:
+                agent_id = str(point["passenger_id"])
+                time_s = round(float(point["time_seconds"]), 2)
+            except (KeyError, TypeError, ValueError) as exc:
+                raise TrajectoryTruthInputError(
+                    f"facility motion point {point_index} has invalid identity or time"
+                ) from exc
+            key = (agent_id, time_s)
+            existing = current_samples.get(key)
+            if existing is not None:
+                result[existing] -= 1
+                if result[existing] <= 0:
+                    del result[existing]
+            x, y = _transform_position(
+                point.get("x"),
+                point.get("y"),
+                coordinate_transform=coordinate_transform,
+            )
+            sample = (
+                agent_id,
+                time_s,
+                x,
+                y,
+                "simulation_trace.facility_motion_trace",
+            )
+            result[sample] = 1
+            current_samples[key] = sample
     return result
 
 

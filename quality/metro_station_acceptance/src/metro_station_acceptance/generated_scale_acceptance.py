@@ -250,7 +250,14 @@ def merge_generated_simulation_shards(
 ) -> dict[str, Any]:
     if not payloads:
         raise ValueError("at least one generated simulation shard is required")
-    fields = ("tier", "corpus_id", "seeds", "include_operations", "shard_count")
+    fields = (
+        "tier",
+        "corpus_id",
+        "seeds",
+        "include_operations",
+        "shard_count",
+        "shard_algorithm",
+    )
     reference = payloads[0]
     for payload in payloads[1:]:
         if any(payload.get(field) != reference.get(field) for field in fields):
@@ -259,43 +266,125 @@ def merge_generated_simulation_shards(
             reference.get("global_sampled_recipe_ids", ())
         ):
             raise ValueError("generated simulation sampling fingerprints differ")
+        if tuple(payload.get("global_sampled_case_ids", ())) != tuple(
+            reference.get("global_sampled_case_ids", ())
+        ):
+            raise ValueError("generated simulation case fingerprints differ")
     shard_count = int(reference.get("shard_count", 1))
     shard_indices = tuple(int(payload.get("shard_index", 0)) for payload in payloads)
     if set(shard_indices) != set(range(shard_count)) or len(shard_indices) != shard_count:
         raise ValueError("generated simulation shard set is incomplete or duplicated")
-    records = [dict(record) for payload in payloads for record in payload.get("records", ())]
-    recipe_ids = [str(record["recipe_id"]) for record in records]
-    if len(recipe_ids) != len(set(recipe_ids)):
-        raise ValueError("generated simulation shards contain duplicate records")
-    expected_ids = tuple(str(item) for item in reference.get("global_sampled_recipe_ids", ()))
-    record_by_id = {str(record["recipe_id"]): record for record in records}
-    ordered = tuple(record_by_id[item] for item in expected_ids if item in record_by_id)
-    missing = tuple(item for item in expected_ids if item not in record_by_id)
-    failed = tuple(
-        str(record["recipe_id"]) for record in ordered if record.get("status") != "ok"
+    expected_recipe_ids = tuple(
+        str(item) for item in reference.get("global_sampled_recipe_ids", ())
+    )
+    expected_case_ids = tuple(
+        str(item) for item in reference.get("global_sampled_case_ids", ())
+    )
+    if expected_case_ids:
+        keyed_records: list[tuple[str, dict[str, Any]]] = []
+        for payload in payloads:
+            case_ids = tuple(str(item) for item in payload.get("sampled_case_ids", ()))
+            shard_records = tuple(dict(item) for item in payload.get("records", ()))
+            if len(case_ids) != len(shard_records):
+                raise ValueError("generated simulation case ids do not match records")
+            keyed_records.extend(zip(case_ids, shard_records, strict=True))
+        sample_ids = [case_id for case_id, _record in keyed_records]
+        if len(sample_ids) != len(set(sample_ids)):
+            raise ValueError("generated simulation shards contain duplicate cases")
+        record_by_id = dict(keyed_records)
+        ordered_pairs = tuple(
+            (case_id, record_by_id[case_id])
+            for case_id in expected_case_ids
+            if case_id in record_by_id
+        )
+        missing = tuple(
+            case_id for case_id in expected_case_ids if case_id not in record_by_id
+        )
+        failed = tuple(
+            case_id
+            for case_id, record in ordered_pairs
+            if record.get("status") != "ok"
+        )
+        ordered = tuple(record for _case_id, record in ordered_pairs)
+        canonical_records = tuple(
+            {"case_id": case_id, **_canonical_simulation_record(record)}
+            for case_id, record in ordered_pairs
+        )
+        sample_identity = expected_case_ids
+    else:
+        records = [
+            dict(record)
+            for payload in payloads
+            for record in payload.get("records", ())
+        ]
+        recipe_ids = [str(record["recipe_id"]) for record in records]
+        if len(recipe_ids) != len(set(recipe_ids)):
+            raise ValueError("generated simulation shards contain duplicate records")
+        record_by_id = {str(record["recipe_id"]): record for record in records}
+        ordered = tuple(
+            record_by_id[item] for item in expected_recipe_ids if item in record_by_id
+        )
+        missing = tuple(
+            item for item in expected_recipe_ids if item not in record_by_id
+        )
+        failed = tuple(
+            str(record["recipe_id"])
+            for record in ordered
+            if record.get("status") != "ok"
+        )
+        canonical_records = tuple(
+            _canonical_simulation_record(record) for record in ordered
+        )
+        sample_identity = tuple(str(record["recipe_id"]) for record in records)
+    trajectory_statuses = {
+        str(record.get("trajectory_scientific_status")) for record in ordered
+    }
+    trajectory_scientific_status = (
+        "pass"
+        if trajectory_statuses == {"pass"}
+        else "not_applicable"
+        if trajectory_statuses == {"not_applicable"}
+        else "fail"
     )
     checks = {
         "all_shards_present": set(shard_indices) == set(range(shard_count)),
-        "no_duplicate_samples": len(recipe_ids) == len(set(recipe_ids)),
+        "no_duplicate_samples": len(sample_identity) == len(set(sample_identity)),
         "no_missing_samples": not missing,
         "all_simulations_pass": bool(ordered) and not failed,
         "all_seed_evidence_present": bool(tuple(reference.get("seeds", ()))),
+        "trajectory_status_explicit": bool(ordered)
+        and trajectory_statuses <= {"pass", "fail", "not_applicable"},
     }
     canonical = {
         "tier": reference.get("tier"),
         "corpus_id": reference.get("corpus_id"),
         "seeds": tuple(reference.get("seeds", ())),
         "include_operations": reference.get("include_operations"),
-        "sampled_recipe_ids": expected_ids,
-        "records": tuple(_canonical_simulation_record(record) for record in ordered),
+        "sampled_recipe_ids": expected_recipe_ids,
+        "sampled_case_ids": expected_case_ids,
+        "records": canonical_records,
     }
     return {
         "schema_version": GENERATED_SIMULATION_MERGED_SCHEMA_VERSION,
         "status": "ok" if all(checks.values()) else "review",
+        "trajectory_scientific_status": trajectory_scientific_status,
         **canonical,
-        "failed_recipe_ids": failed,
-        "missing_recipe_ids": missing,
+        "failed_recipe_ids": tuple(
+            sorted(
+                {
+                    str(record.get("recipe_id"))
+                    for record in ordered
+                    if record.get("status") != "ok"
+                }
+            )
+        ),
+        "missing_recipe_ids": (
+            () if expected_case_ids else missing
+        ),
+        "failed_case_ids": failed if expected_case_ids else (),
+        "missing_case_ids": missing if expected_case_ids else (),
         "shard_count": shard_count,
+        "shard_algorithm": reference.get("shard_algorithm"),
         "canonical_fingerprint": semantic_fingerprint(canonical),
         "checks": checks,
     }
@@ -420,6 +509,7 @@ def _canonical_simulation_record(record: Mapping[str, Any]) -> dict[str, Any]:
         "operation_profile": record.get("operation_profile"),
         "operation_scenario_id": record.get("operation_scenario_id"),
         "status": record.get("status"),
+        "trajectory_scientific_status": record.get("trajectory_scientific_status"),
         "determinism_fingerprint": record.get("determinism_fingerprint"),
         "journeys_status": journeys.get("status") if isinstance(journeys, Mapping) else None,
         "operations_status": (

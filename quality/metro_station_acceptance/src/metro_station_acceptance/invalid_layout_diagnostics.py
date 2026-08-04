@@ -11,11 +11,17 @@ from metro_station_testkit.invalid_layout_cases import invalid_layout_cases
 class InvalidLayoutDiagnosticRecord:
     case_id: str
     expected_code: str
+    expected_codes: tuple[str, ...]
     actual_codes: tuple[str, ...]
 
     @property
     def status(self) -> str:
-        return "ok" if self.expected_code in self.actual_codes else "review"
+        return (
+            "ok"
+            if self.expected_code in self.actual_codes
+            and set(self.actual_codes) == set(self.expected_codes)
+            else "review"
+        )
 
     def as_dict(self) -> dict[str, Any]:
         return {"status": self.status, **asdict(self)}
@@ -45,6 +51,7 @@ def inspect_invalid_layout_diagnostics() -> InvalidLayoutDiagnosticsReport:
         InvalidLayoutDiagnosticRecord(
             case_id=case.case_id,
             expected_code=case.expected_code,
+            expected_codes=case.expected_codes,
             actual_codes=tuple(issue.code for issue in validate_station_design(case.document)),
         )
         for case in invalid_layout_cases()

@@ -52,7 +52,11 @@ def two_level_island_platform() -> StationDesignDocument:
             "b2_platform_floor",
             "walkable_area",
             "b2_platform",
-            rect(10, 12, 100, 20),
+            # The platform walking domain includes the lower landings of the
+            # long stairs/escalator runs (their far ends are near y=48).  The
+            # previous y=12..32 strip relied on nearest-point projection and
+            # silently moved those portals by roughly 16 m at compile time.
+            rect(10, 12, 100, 38),
             "B2 island platform",
             "floor",
             False,
@@ -189,9 +193,9 @@ def two_level_island_platform() -> StationDesignDocument:
             21,
             25,
             12,
-            8,
+            9.3,
             (27.5, 34),
-            36,
+            4,
             90,
             "Down escalator queue",
         ),
@@ -202,7 +206,7 @@ def two_level_island_platform() -> StationDesignDocument:
             "b1_concourse",
             rect(62, 24, 14, 8),
             (69.5, 32),
-            42,
+            4,
             direction_deg=90,
             label="Elevator waiting area",
         ),
@@ -308,7 +312,7 @@ def three_level_transfer() -> StationDesignDocument:
             16,
             8,
             (60, 24),
-            42,
+            4,
             90,
             "Transfer escalator queue",
         ),

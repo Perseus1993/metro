@@ -1,39 +1,20 @@
 from __future__ import annotations
 
-from dataclasses import replace
 from math import ceil, hypot
 from typing import TYPE_CHECKING
 
 import mesa
 
 from .process import FacilityKind, FacilitySpec
-from ..movement.dynamic_body_clearance import external_body_positions
 from .runtime_base import FacilityProcessAgent
 from .service_events import FacilityServiceEvent
 from .vertical_physical_resource import ActiveVerticalRide, VerticalPhysicalResource
 from .vertical_release_geometry import VerticalReleaseGeometryMixin
+from .vertical_ride_motion import VerticalRideMotionMixin
 
 if TYPE_CHECKING:
     from ..agents.passenger import PassengerAgent
     from ..agents.transit import TrainAgent
-
-
-def _point_to_segment_distance(
-    point: tuple[float, float],
-    start: tuple[float, float],
-    end: tuple[float, float],
-) -> float:
-    dx = end[0] - start[0]
-    dy = end[1] - start[1]
-    length_squared = dx * dx + dy * dy
-    if length_squared <= 1e-18:
-        return hypot(point[0] - start[0], point[1] - start[1])
-    projection = (
-        (point[0] - start[0]) * dx + (point[1] - start[1]) * dy
-    ) / length_squared
-    ratio = max(0.0, min(1.0, projection))
-    closest = (start[0] + dx * ratio, start[1] + dy * ratio)
-    return hypot(point[0] - closest[0], point[1] - closest[1])
 
 
 def _motion_segment_samples(
@@ -54,6 +35,7 @@ def _motion_segment_samples(
 
 
 class VerticalTransportProcessAgent(
+    VerticalRideMotionMixin,
     VerticalReleaseGeometryMixin,
     FacilityProcessAgent,
 ):
@@ -158,7 +140,7 @@ class VerticalTransportProcessAgent(
 
     def _connector_exit_has_clearance(self, passenger: PassengerAgent) -> bool:
         return self._has_release_clearance(
-            self.spec.exit_position,
+            self.portal_exit_position,
             self._release_min_distance(),
             passenger=passenger,
         )
@@ -230,8 +212,8 @@ class VerticalTransportProcessAgent(
         if seconds is not None:
             return max(0.0, float(seconds))
         distance = hypot(
-            self.spec.exit_position[0] - self.spec.position[0],
-            self.spec.exit_position[1] - self.spec.position[1],
+            self.portal_exit_position[0] - self.portal_entry_position[0],
+            self.portal_exit_position[1] - self.portal_entry_position[1],
         )
         return distance / max(0.001, self.travel_speed_m_s)
 
@@ -249,11 +231,15 @@ class VerticalTransportProcessAgent(
         preserve_position: bool = False,
     ) -> None:
         passenger.begin_facility_service(self.spec)
-        if self.spec.entry_level_id is not None:
-            passenger.current_level_id = self.spec.entry_level_id
+        if self.portal_entry_level_id is not None:
+            passenger.current_level_id = self.portal_entry_level_id
+        passenger.physical_motion_layer_id = (
+            "connector:"
+            + str(self.spec.source_element_id or self.spec.facility_id)
+        )
         passenger.passive_facility_service = True
         service_target = self._offset_vertical_position(
-            self.spec.exit_position,
+            self.portal_exit_position,
             lateral_offset,
         )
         passenger.set_target(
@@ -265,7 +251,7 @@ class VerticalTransportProcessAgent(
         )
         if not preserve_position:
             passenger.pos = self.model.clamp_position(
-                self._offset_vertical_position(self.spec.position, lateral_offset)
+                self._offset_vertical_position(self.portal_entry_position, lateral_offset)
             )
 
     def _finish_vertical_service(
@@ -276,21 +262,26 @@ class VerticalTransportProcessAgent(
         event_id: int | None = None,
         preferred_release_position: tuple[float, float] | None = None,
         prefer_forward_clearance: bool = False,
+        resolved_release_position: tuple[float, float] | None = None,
     ) -> bool:
-        try:
-            release_position = self._vertical_release_position(
-                passenger,
-                release_index,
-                preferred_release_position=preferred_release_position,
-                prefer_forward_clearance=prefer_forward_clearance,
-            )
-        except RuntimeError:
-            return False
+        if resolved_release_position is None:
+            try:
+                release_position = self._vertical_release_position(
+                    passenger,
+                    release_index,
+                    preferred_release_position=preferred_release_position,
+                    prefer_forward_clearance=prefer_forward_clearance,
+                )
+            except RuntimeError:
+                return False
+        else:
+            release_position = resolved_release_position
         try:
             previous_level_id = passenger.current_level_id
             completion_time = self._event_completion_time(event_id)
-            if self.spec.exit_level_id is not None:
-                passenger.current_level_id = self.spec.exit_level_id
+            if self.portal_exit_level_id is not None:
+                passenger.current_level_id = self.portal_exit_level_id
+            passenger.physical_motion_layer_id = None
             if passenger.current_level_id != previous_level_id:
                 self.model.goal_parity.record(
                     passenger,
@@ -422,7 +413,11 @@ class VerticalTransportProcessAgent(
 
     def _advance_active_rides(self) -> None:
         tick_seconds = self._process_interval_seconds()
+        interval_start_time = float(self.model.current_time_seconds)
         original_order = list(self.active_rides)
+        elapsed_before_by_ride = {
+            id(ride): float(ride.elapsed_seconds) for ride in original_order
+        }
         positions_before = {
             id(ride): tuple(ride.passenger.pos) for ride in original_order
         }
@@ -432,21 +427,13 @@ class VerticalTransportProcessAgent(
             reverse=True,
         )
         retained_ids: set[int] = set()
-        # Riders and landing-queue bodies share the same projected connector
-        # domain.  A ride may not sweep toward a settling queue follower merely
-        # because that follower has not moved yet in this process interval.
-        ride_and_queue_ids = {
-            *(int(passenger.unique_id) for passenger in self.queue),
-            *(int(ride.passenger.unique_id) for ride in original_order),
-        }
-        physical_positions_ahead: list[tuple[float, float]] = [
-            *(tuple(passenger.pos) for passenger in self.queue),
-            *external_body_positions(
-                self.model,
-                level_id=self.spec.entry_level_id,
-                excluded_passenger_ids=ride_and_queue_ids,
-            ),
-        ]
+        # Only bodies already inside this connector can constrain in-connector
+        # progress.  The facade queue is behind the entry plane, while ordinary
+        # bodies remain on the entry floor; treating either set as if it were
+        # ahead on the projected connector segment pins the first rider at the
+        # entry forever. Entry admission and downstream release have their own
+        # body-clearance checks at the two floor boundaries.
+        physical_positions_ahead: list[tuple[float, float]] = []
         progress_ratios_ahead: list[float] = []
         self._service_release_positions_this_tick = []
         release_blocked = False
@@ -506,7 +493,7 @@ class VerticalTransportProcessAgent(
                 continue
 
             continuous_exit = self._offset_vertical_position(
-                self.spec.exit_position,
+                self.portal_exit_position,
                 ride.lateral_offset,
             )
             completion_wall_seconds = (
@@ -559,6 +546,28 @@ class VerticalTransportProcessAgent(
         self.active_rides = [
             ride for ride in original_order if id(ride) in retained_ids
         ]
+        for ride in original_order:
+            elapsed_before = elapsed_before_by_ride[id(ride)]
+            elapsed_after = float(ride.elapsed_seconds)
+            progress_factor = max(
+                1e-12,
+                float(self._ride_progress_steps_per_tick(ride)),
+            )
+            trace_wall_seconds = (
+                tick_seconds
+                if id(ride) in retained_ids
+                else min(
+                    tick_seconds,
+                    max(0.0, elapsed_after - elapsed_before) / progress_factor,
+                )
+            )
+            self._record_active_ride_motion(
+                ride,
+                interval_start_time_s=interval_start_time,
+                interval_end_time_s=interval_start_time + trace_wall_seconds,
+                elapsed_before_s=elapsed_before,
+                elapsed_after_s=elapsed_after,
+            )
         sample_step = max(0.02, self._release_min_distance() * 0.2)
         self._active_ride_swept_positions_this_tick = tuple(
             sample
@@ -569,147 +578,6 @@ class VerticalTransportProcessAgent(
                 maximum_step=sample_step,
             )
         )
-
-    def _ride_elapsed_ratio(self, ride: ActiveVerticalRide, elapsed_seconds: float) -> float:
-        duration_seconds = float(ride.duration_seconds or 0.0)
-        if duration_seconds <= 1e-12:
-            return 1.0
-        return max(0.0, min(1.0, float(elapsed_seconds) / duration_seconds))
-
-    def _ride_position_at_elapsed(
-        self,
-        ride: ActiveVerticalRide,
-        elapsed_seconds: float,
-    ) -> tuple[float, float]:
-        ratio = self._ride_elapsed_ratio(ride, elapsed_seconds)
-        start_x, start_y = ride.start_position
-        end_x, end_y = self._offset_vertical_position(
-            self.spec.exit_position,
-            ride.lateral_offset,
-        )
-        return (
-            start_x + (end_x - start_x) * ratio,
-            start_y + (end_y - start_y) * ratio,
-        )
-
-    def _cap_elapsed_for_connector_spacing(
-        self,
-        ride: ActiveVerticalRide,
-        elapsed_before: float,
-        proposed_elapsed: float,
-        positions_ahead: list[tuple[float, float]],
-        progress_ratios_ahead: list[float],
-    ) -> float:
-        if not positions_ahead or proposed_elapsed <= elapsed_before + 1e-12:
-            return proposed_elapsed
-        min_distance = self._release_min_distance()
-        duration_seconds = float(ride.duration_seconds or 0.0)
-        if progress_ratios_ahead and duration_seconds > 1e-12:
-            # A follower may draw level with a leader in a physically separate
-            # lane, but it may never pass that leader.
-            proposed_elapsed = min(
-                proposed_elapsed,
-                min(progress_ratios_ahead) * duration_seconds,
-            )
-
-        position_before = self._ride_position_at_elapsed(ride, elapsed_before)
-
-        def position_is_clear(elapsed: float) -> bool:
-            position = self._ride_position_at_elapsed(ride, elapsed)
-            return all(
-                _point_to_segment_distance(occupied, position_before, position)
-                >= min_distance - 1e-9
-                for occupied in positions_ahead
-            )
-
-        if position_is_clear(proposed_elapsed):
-            return proposed_elapsed
-        # Connector progress is authoritative and monotone.  An invalid
-        # pre-existing overlap must hold until the blocking body clears; it
-        # must never be "repaired" by rewinding a rider toward the entrance.
-        low = elapsed_before
-        high = proposed_elapsed
-        if not position_is_clear(low):
-            return elapsed_before
-        for _ in range(40):
-            midpoint = (low + high) / 2.0
-            if position_is_clear(midpoint):
-                low = midpoint
-            else:
-                high = midpoint
-        return low
-
-    def _ride_progress_steps_per_tick(self, ride: ActiveVerticalRide) -> float:
-        return 1.0
-
-    def _update_active_ride_position(self, ride: ActiveVerticalRide) -> None:
-        ride.passenger.pos = self.model.clamp_position(
-            self._interpolated_individual_vertical_position(ride)
-        )
-
-    def _interpolated_individual_vertical_position(
-        self,
-        ride: ActiveVerticalRide,
-    ) -> tuple[float, float]:
-        ratio = (
-            1.0
-            if (
-                ride.total_steps <= 0
-                or ride.progress_steps >= float(ride.total_steps) - 1e-12
-                or (
-                    ride.duration_seconds is not None
-                    and ride.duration_seconds <= 1e-12
-                )
-            )
-            else (
-                max(
-                    0.0,
-                    min(
-                        1.0,
-                        ride.elapsed_seconds / ride.duration_seconds,
-                    ),
-                )
-                if ride.duration_seconds is not None
-                else max(
-                    0.0,
-                    min(1.0, ride.progress_steps / ride.total_steps),
-                )
-            )
-        )
-        start_x, start_y = ride.start_position
-        end_x, end_y = self._offset_vertical_position(
-            self.spec.exit_position,
-            ride.lateral_offset,
-        )
-        return (
-            start_x + (end_x - start_x) * ratio,
-            start_y + (end_y - start_y) * ratio,
-        )
-
-    def _delay_ride_event(self, ride: ActiveVerticalRide, delay_seconds: float) -> None:
-        if delay_seconds <= 0.0:
-            return
-        for index, event in enumerate(self.model.facility_service_events):
-            if event.event_id != ride.event_id:
-                continue
-            self.model.facility_service_events[index] = replace(
-                event,
-                end_time=event.end_time + delay_seconds,
-                arrive_time=(
-                    None if event.arrive_time is None else event.arrive_time + delay_seconds
-                ),
-            )
-            return
-
-    def _interpolated_vertical_position(
-        self,
-        progress_steps: float,
-        total_steps: int,
-    ) -> tuple[float, float]:
-        ratio = 1.0 if total_steps <= 0 else max(0.0, min(1.0, progress_steps / total_steps))
-        sx, sy = self.spec.position
-        ex, ey = self.spec.exit_position
-        return (sx + (ex - sx) * ratio, sy + (ey - sy) * ratio)
 
     def finalize(self) -> None:
         """Preserve in-flight rides at a truncated simulation horizon."""
@@ -735,15 +603,15 @@ class VerticalTransportProcessAgent(
             board_end_time=board_end_time,
             arrive_time=arrive_time,
             end_time=end_time,
-            start_position=start_position or self.spec.position,
-            end_position=self.spec.exit_position,
+            start_position=start_position or self.portal_entry_position,
+            end_position=self.portal_exit_position,
             # Facility changes are first authoritative in the interval-end
             # snapshot.  Use that physical service boundary, not the Mesa
             # callback's interval-start timestamp, as the commitment instant.
             commit_time=float(start_time),
-            direction=self.spec.direction,
-            from_level=self.spec.entry_level_id,
-            to_level=self.spec.exit_level_id,
+            direction=self.portal_direction,
+            from_level=self.portal_entry_level_id,
+            to_level=self.portal_exit_level_id,
         )
         pending_recorder = getattr(
             self.model,

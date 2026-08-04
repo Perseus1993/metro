@@ -281,13 +281,13 @@ def validate_design_schema(document: StationDesignDocument) -> list[ValidationIs
                     f"{queue.id} references unknown level {queue.level_id!r}",
                 )
             )
-        if queue.service_direction not in {None, "up", "down"}:
+        if queue.service_direction not in {None, "up", "down", "in", "out"}:
             issues.append(
                 _issue(
                     "error",
                     "queues.invalid_service_direction",
                     f"{path}.service_direction",
-                    f"{queue.id} service_direction must be 'up', 'down', or null",
+                    f"{queue.id} service_direction must be in, out, up, down, or null",
                 )
             )
         if type(queue.capacity) is not int:
@@ -390,6 +390,7 @@ def validate_design_schema(document: StationDesignDocument) -> list[ValidationIs
             issues.extend(_validate_connection_ports(connection, path, elements_by_id))
 
     unsafe_geometry_codes = {
+        "numbers.non_finite",
         "geometry.non_finite",
         "geometry.out_of_bounds",
         "geometry.invalid_size",

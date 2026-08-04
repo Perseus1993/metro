@@ -25,6 +25,7 @@ class PlatformLike(Protocol):
 
 
 class PassengerLike(Protocol):
+    group_size: int
     current_level_id: str | None
     assigned_platform_id: str | None
     assigned_line_id: str | None
@@ -36,6 +37,21 @@ class PassengerLike(Protocol):
 
 F = TypeVar("F", bound=FacilityLike)
 P = TypeVar("P", bound=PlatformLike)
+
+
+def facility_can_ever_serve_passenger(
+    passenger: PassengerLike,
+    facility: FacilityLike,
+) -> bool:
+    """Return false for permanent passenger/facility incompatibilities."""
+
+    capacity = getattr(facility, "cabin_capacity_persons", None)
+    if capacity is None:
+        return True
+    return max(1, int(getattr(passenger, "group_size", 1))) <= max(
+        0,
+        int(capacity),
+    )
 
 
 def filter_by_current_level(
@@ -101,7 +117,12 @@ def filter_vertical_transfers_for_passenger(
         if passenger.intent in {AgentIntent.EXIT_STATION.value, AgentIntent.EVACUATE_STATION.value}
         else "down"
     )
-    filtered = [item for item in candidates if item.spec.direction in {direction, "both"}]
+    filtered = [
+        item
+        for item in candidates
+        if item.spec.direction in {direction, "both"}
+        and facility_can_ever_serve_passenger(passenger, item)
+    ]
     facility_path = tuple(getattr(passenger, "evacuation_facility_path", ()))
     if passenger.intent != AgentIntent.EVACUATE_STATION.value or not facility_path:
         return filtered

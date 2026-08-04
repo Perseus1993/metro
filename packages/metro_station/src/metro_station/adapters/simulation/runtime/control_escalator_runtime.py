@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 from dataclasses import replace
-from math import hypot
 from typing import Any, Mapping
 
 from metro_station.application.control_plans import (
@@ -40,6 +39,11 @@ class EscalatorDirectionRuntime:
                     f"control measure targets a non-escalator facility {measure.target_id!r}"
                 )
             self.original_spec_by_measure_id[measure.measure_id] = facility.spec
+            opposite = _opposite(facility.spec.direction)
+            model.layout_graph.facility_portal_binding_variant(
+                facility.facility_id,
+                opposite,
+            )
 
     def apply(
         self,
@@ -50,7 +54,10 @@ class EscalatorDirectionRuntime:
         facility = model.facilities_by_id[measure.target_id]
         occupied = facility.queue_persons + facility.active_ride_persons
         if occupied:
-            return "rejected", {
+            # Direction changes are safe-drain transactions.  The scheduled
+            # timestamp is the earliest commit boundary; an in-flight body is
+            # a temporary resource conflict, not a terminally invalid plan.
+            return "deferred", {
                 "reason": "escalator_not_idle",
                 "queue_persons": facility.queue_persons,
                 "active_ride_persons": facility.active_ride_persons,
@@ -61,13 +68,27 @@ class EscalatorDirectionRuntime:
             if event.action == SET_DIRECTION
             else original.direction
         )
-        previous = facility.spec.direction
-        facility.spec = original if desired == original.direction else _reversed_spec(original)
-        facility.queue.layout = facility.spec.queue_layout
+        previous = model.facility_portal_binding(facility.facility_id).direction
+        desired_spec = (
+            original
+            if desired == original.direction
+            else _spec_for_compiled_binding(
+                original,
+                model.layout_graph.facility_portal_binding_variant(
+                    facility.facility_id,
+                    desired,
+                ),
+            )
+        )
+        binding = model.activate_facility_portal_binding(
+            facility,
+            direction=desired,
+            spec=desired_spec,
+        )
         replanned = self._replan_targeting_passengers(model, facility.facility_id)
         return "applied", {
             "direction_before": previous,
-            "direction_after": facility.spec.direction,
+            "direction_after": binding.direction,
             "passengers_replanned": replanned,
         }
 
@@ -93,24 +114,25 @@ class EscalatorDirectionRuntime:
         return replanned
 
 
-def _reversed_spec(spec):
-    dx = spec.exit_position[0] - spec.position[0]
-    dy = spec.exit_position[1] - spec.position[1]
-    length = max(0.001, hypot(dx, dy))
-    reversed_layout = QueueLayout(
-        anchor=spec.exit_position,
+def _spec_for_compiled_binding(spec, binding):
+    compiled_layout = QueueLayout(
+        anchor=binding.queue_slots[0],
         per_row=1,
         col_step=(0.0, 0.0),
-        row_step=(dx / length * 0.8, dy / length * 0.8),
+        row_step=(
+            binding.queue_slots[1][0] - binding.queue_slots[0][0],
+            binding.queue_slots[1][1] - binding.queue_slots[0][1],
+        ),
+        slots=binding.queue_slots,
     )
     return replace(
         spec,
-        direction=_opposite(spec.direction),
-        position=spec.exit_position,
-        exit_position=spec.position,
-        entry_level_id=spec.exit_level_id,
-        exit_level_id=spec.entry_level_id,
-        queue_layout=reversed_layout,
+        direction=binding.direction,
+        position=binding.entry_point,
+        exit_position=binding.exit_point,
+        entry_level_id=binding.entry_level_id,
+        exit_level_id=binding.exit_level_id,
+        queue_layout=compiled_layout,
         release_route=tuple(reversed(spec.release_route)),
     )
 

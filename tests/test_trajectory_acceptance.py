@@ -82,8 +82,9 @@ def test_four_gates_keep_explicit_evidence_boundaries() -> None:
                     "walking_position_authority": "simulation_trace.movement_trace",
                     "visual_tracks_authoritative": False,
                     "visual_track_source_points_field": "points",
-                    "visual_track_presentation_points_field": "presentation_points",
+                    "presentation_position_source": "canonical_composite_points",
                     "facility_overlays_modify_source_points": False,
+                    "facility_overlays_control_passenger_bodies": False,
                     "renderer_track_field": "points",
                     "visual_track_coordinate_transform": {
                         "id": "station_meters_to_canvas_pixels.v1",
@@ -101,7 +102,11 @@ def test_four_gates_keep_explicit_evidence_boundaries() -> None:
             "snapshots": snapshots,
             "movement_trace": movement_trace,
         },
-        "replay_package": {"metadata": {"visual_tracks_policy": "presentation_only"}},
+        "replay_package": {
+            "metadata": {
+                "visual_tracks_policy": "authoritative_trace_projection"
+            },
+        },
         "agents": [
             {
                 "id": 1,
@@ -117,6 +122,9 @@ def test_four_gates_keep_explicit_evidence_boundaries() -> None:
                 ],
             }
         ],
+    }
+    full_bundle["visualization_bundle"] = {
+        "visual_tracks": full_bundle["agents"]
     }
 
     report = run_trajectory_acceptance(

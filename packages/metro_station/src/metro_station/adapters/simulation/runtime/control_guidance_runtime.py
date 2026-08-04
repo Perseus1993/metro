@@ -53,7 +53,7 @@ class StaffGuidanceRuntime:
             admin.start_guidance(
                 target_position=facility.spec.queue_anchor,
                 target_id=facility.facility_id,
-                level_id=facility.spec.entry_level_id,
+                level_id=model.facility_portal_binding(facility.facility_id).entry_level_id,
             )
             self.admin_by_measure_id[measure.measure_id] = admin
             self.guided_passenger_ids[measure.measure_id] = set()
@@ -80,7 +80,10 @@ class StaffGuidanceRuntime:
             if measure_id in active_measure_ids
             and measure.kind == STAFF_GUIDANCE
             and measure.target_id == facility.facility_id
-            and facility.spec.entry_level_id == passenger.current_level_id
+            and passenger.model.facility_portal_binding(
+                facility.facility_id
+            ).entry_level_id
+            == passenger.current_level_id
         ]
         return min(adjustments, default=0.0)
 

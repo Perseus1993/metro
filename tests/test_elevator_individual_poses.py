@@ -68,6 +68,7 @@ def test_elevator_batch_preserves_distinct_rigid_body_poses() -> None:
         for facility in model.vertical_transports
         if isinstance(facility, ElevatorProcessAgent)
     )
+    passenger_count = min(6, int(elevator.queue.max_length or 6))
     passengers = [
         PassengerAgent(
             model,
@@ -75,7 +76,7 @@ def test_elevator_batch_preserves_distinct_rigid_body_poses() -> None:
             created_step=0,
             intent=AgentIntent.ENTER_AND_BOARD,
         )
-        for _ in range(6)
+        for _ in range(passenger_count)
     ]
     model.passengers.extend(passengers)
     for index, passenger in enumerate(passengers):
@@ -83,14 +84,26 @@ def test_elevator_batch_preserves_distinct_rigid_body_poses() -> None:
         passenger.pos = elevator._service_entry_position(index)
 
     queue_positions = [passenger.pos for passenger in passengers]
-    elevator._begin_boarding(passengers, loaded_persons=6)
+    elevator._begin_boarding(passengers, loaded_persons=passenger_count)
 
     # Boarding starts from each passenger's actual queue pose.  Beginning a
     # batch must not snap the full group into the cabin in one frame.
     assert [passenger.pos for passenger in passengers] == queue_positions
-    for _ in range(elevator.boarding_steps):
-        elevator.boarding_remaining_steps -= 1
+    boarding_seconds = elevator._elevator_config.boarding_seconds
+    for step in range(1, 41):
+        ratio = step / 40.0
+        elevator.boarding_remaining_seconds = boarding_seconds * (1.0 - ratio)
+        elevator._sync_legacy_step_counters()
         elevator._update_boarding_positions()
+        minimum_boarding_distance = min(
+            (
+                (left.pos[0] - right.pos[0]) ** 2
+                + (left.pos[1] - right.pos[1]) ** 2
+            )
+            ** 0.5
+            for left, right in combinations(passengers, 2)
+        )
+        assert minimum_boarding_distance >= elevator._release_min_distance() - 1e-9
 
     cabin_positions = [passenger.pos for passenger in passengers]
     assert len(set(cabin_positions)) == len(passengers)
@@ -107,6 +120,45 @@ def test_elevator_batch_preserves_distinct_rigid_body_poses() -> None:
     moved_relatives = _relative_positions(passengers)
     for pair, relative in cabin_relatives.items():
         assert moved_relatives[pair] == pytest.approx(relative, abs=1e-9)
+
+
+def test_elevator_dispatch_uses_largest_feasible_fifo_prefix(monkeypatch) -> None:
+    model = _model()
+    elevator = next(
+        facility
+        for facility in model.vertical_transports
+        if isinstance(facility, ElevatorProcessAgent)
+    )
+    passengers = [
+        PassengerAgent(
+            model,
+            group_size=1,
+            created_step=0,
+            intent=AgentIntent.ENTER_AND_BOARD,
+        )
+        for _ in range(4)
+    ]
+    attempted_sizes: list[int] = []
+
+    def plan(candidate):
+        attempted_sizes.append(len(candidate))
+        if len(candidate) > 2:
+            raise RuntimeError("synthetic cabin geometry limit")
+        return {int(passenger.unique_id): (0.0, 0.0) for passenger in candidate}
+
+    monkeypatch.setattr(elevator, "_plan_cabin_offsets", plan)
+
+    prefix, geometry_limited = elevator._largest_feasible_boarding_prefix(passengers)
+
+    assert attempted_sizes == [4, 3, 2]
+    assert prefix == passengers[:2]
+    assert geometry_limited
+    assert not elevator._should_wait_for_boarders(
+        loaded_persons=2,
+        blocked_by_unready=False,
+        geometry_limited=True,
+        force=False,
+    )
 
 
 def test_opposite_elevator_facades_share_one_exclusive_physical_connector() -> None:
@@ -187,6 +239,12 @@ def test_opposite_escalator_waits_without_queue_handoff_or_duplicate_join() -> N
     assert waiting.physical_resource.waiting_facility_ids == [waiting.facility_id]
 
     active.physical_resource.release(active.facility_id, (101,))
+    for _ in range(20):
+        if waiting._passenger_at_mechanical_entry(passenger):
+            break
+        waiting._layout_queue()
+        passenger.move_directly_toward_target()
+    assert waiting._passenger_at_mechanical_entry(passenger)
     waiting.step()
 
     assert waiting.queue == []
@@ -314,12 +372,18 @@ def test_shared_elevator_dispatch_does_not_starve_opposite_direction() -> None:
         model.passengers.append(passenger)
         assert elevator.join_queue(passenger, authority="goal_graph")
 
-    for _ in range(6):
+    demand_count = min(
+        6,
+        int(down.queue.max_length or 6),
+        int(up.queue.max_length or 6),
+    )
+    assert demand_count >= 2
+    for _ in range(demand_count):
         enqueue(down, AgentIntent.ENTER_AND_BOARD)
         enqueue(up, AgentIntent.EXIT_STATION)
 
     first_up_service_step: int | None = None
-    for step_index in range(40):
+    for step_index in range(80):
         for elevator in elevators:
             for index, passenger in enumerate(elevator.queue):
                 passenger.pos = elevator._service_entry_position(index)
@@ -350,11 +414,17 @@ def test_shared_elevator_dispatch_does_not_starve_opposite_direction() -> None:
         }
         if up.served_persons and first_up_service_step is None:
             first_up_service_step = step_index
-        while len(down.queue) < 6:
-            enqueue(down, AgentIntent.ENTER_AND_BOARD)
-
-    assert down.served_persons > 0
-    assert up.served_persons >= 4
+        if all(
+            not elevator.queue
+            and not elevator.cabin_passengers
+            and elevator.cabin_state == "idle"
+            for elevator in elevators
+        ):
+            break
+    else:
+        pytest.fail("shared elevator did not drain both FIFO queues within 80 ticks")
+    assert down.served_persons == demand_count
+    assert up.served_persons == demand_count
     assert abs(down.served_persons - up.served_persons) <= 1
     assert first_up_service_step is not None
     assert first_up_service_step <= 12

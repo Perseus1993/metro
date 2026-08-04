@@ -192,6 +192,7 @@ def analyze_composite_trajectory(
             "authority": [
                 "simulation_trace.snapshots",
                 "simulation_trace.movement_trace",
+                "simulation_trace.facility_motion_trace",
             ],
             "coverage": "all_passenger_states",
             "coordinate_unit": "m",
@@ -311,6 +312,49 @@ def _composite_observations(
                     )
             if snapshot is None or snapshot.state in _WALKING_STATES:
                 by_key[key] = observation
+
+    facility_motion = trace.get("facility_motion_trace")
+    if isinstance(facility_motion, Mapping):
+        points = facility_motion.get("points", ())
+        if not _is_sequence(points):
+            raise TrajectoryTruthInputError(
+                "simulation_trace.facility_motion_trace.points must be an array"
+            )
+        for point_index, point in enumerate(points):
+            if not isinstance(point, Mapping):
+                raise TrajectoryTruthInputError(
+                    f"facility motion point {point_index} must be an object"
+                )
+            source_count += 1
+            observation = _Observation(
+                agent_id=str(point.get("passenger_id")),
+                time_s=_finite_float(
+                    point.get("time_seconds"),
+                    "facility motion point time",
+                ),
+                x=_finite_float(point.get("x"), "facility motion point x"),
+                y=_finite_float(point.get("y"), "facility motion point y"),
+                state=str(point.get("phase", "facility_process")),
+                authority="simulation_trace.facility_motion_trace",
+                source_index=point_index,
+            )
+            key = (observation.agent_id, round(observation.time_s, 6))
+            snapshot = snapshot_by_key.get(key)
+            if snapshot is not None:
+                distance = hypot(observation.x - snapshot.x, observation.y - snapshot.y)
+                if distance > config.authority_position_tolerance_m:
+                    boundary_issues.append(
+                        {
+                            "agent_id": observation.agent_id,
+                            "time_s": observation.time_s,
+                            "distance_m": distance,
+                            "snapshot_state": snapshot.state,
+                            "snapshot_position": [snapshot.x, snapshot.y],
+                            "facility_position": [observation.x, observation.y],
+                            "reason": "same_time_facility_authorities_disagree",
+                        }
+                    )
+            by_key[key] = observation
 
     by_agent: defaultdict[str, list[_Observation]] = defaultdict(list)
     for observation in by_key.values():

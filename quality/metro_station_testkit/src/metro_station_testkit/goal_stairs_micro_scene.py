@@ -13,6 +13,9 @@ from metro_station.adapters.simulation.facilities.service_events import Facility
 from metro_station.adapters.simulation.facilities.vertical_runtime import StairsProcessAgent
 from metro_station.adapters.simulation.movement.backend import BatchedJuPedSimMovementBackend, MovementBackend
 from metro_station.adapters.simulation.movement.jps_adapter import JuPedSimAdapter
+from metro_station.adapters.simulation.movement.facility_motion_trace import (
+    FacilityMotionTraceRecorder,
+)
 from .goal_stairs_fixture import (
     CONCOURSE_LEVEL,
     GoalStairsMicroScenario,
@@ -20,6 +23,13 @@ from .goal_stairs_fixture import (
 )
 from .goal_stairs_micro_passenger import GoalStairsMicroPassenger
 from metro_station.adapters.simulation.runtime.simulation_clock import SimulationClock
+from metro_station.adapters.simulation.station.facility_portal_binding import (
+    FacilityPortalBinding,
+)
+from .goal_journey_fixture import (
+    compile_micro_facility_portal_binding,
+    install_micro_spatial_capacity_contract,
+)
 
 
 class ControllableStairsProcessAgent(StairsProcessAgent):
@@ -54,6 +64,13 @@ class GoalStairsMicroScene(mesa.Model):
         self.step_index = 0
         self.disabled_stair_ids: set[str] = set()
         self.facility_service_events: list[FacilityServiceEvent] = []
+        self.facility_motion_trace_recorder = FacilityMotionTraceRecorder(
+            sample_interval_seconds=0.2
+        )
+        self.goal_coordinator = SimpleNamespace(poll=lambda _passenger: None)
+        self.goal_parity = SimpleNamespace(
+            record=lambda _passenger, **_event: None,
+        )
         self._event_id = 0
         self._next_passenger_id = 1
         self._walkable_area = Polygon(
@@ -72,6 +89,16 @@ class GoalStairsMicroScene(mesa.Model):
         self.stairs = [make_stairs(self, "stairs_1", 3.4), make_stairs(self, "stairs_2", 6.6)]
         self.stairs_by_id = {stairs.facility_id: stairs for stairs in self.stairs}
         self.facilities_by_id = dict(self.stairs_by_id)
+        self._facility_portal_bindings = {
+            stairs.facility_id: compile_micro_facility_portal_binding(stairs.spec)
+            for stairs in self.stairs
+        }
+        install_micro_spatial_capacity_contract(
+            self.layout_graph,
+            (stairs.spec for stairs in self.stairs),
+            self._facility_portal_bindings.values(),
+            self.scenario,
+        )
         self.subject = self._new_passenger(self.source_position, CONCOURSE_LEVEL)
         self.passengers = [self.subject]
         self.blockers: list[GoalStairsMicroPassenger] = []
@@ -110,6 +137,9 @@ class GoalStairsMicroScene(mesa.Model):
 
     def record_facility_service_event(self, event: FacilityServiceEvent) -> None:
         self.facility_service_events.append(event)
+
+    def facility_portal_binding(self, facility_id: str) -> FacilityPortalBinding:
+        return self._facility_portal_bindings[facility_id]
 
     def tick(self) -> None:
         for stairs in self.stairs:

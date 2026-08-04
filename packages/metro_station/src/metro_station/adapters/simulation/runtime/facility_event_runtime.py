@@ -4,6 +4,7 @@ from ..agents.passenger import PassengerAgent
 from ..agents.transit import TrainAgent
 from ..facilities.runtime import FacilityProcessAgent
 from ..facilities.service_events import FacilityServiceEvent
+from ..planning.goal_state import PRE_SERVICE_REPLAN_STATES
 
 
 class FacilityEventRuntimeMixin:
@@ -29,6 +30,8 @@ class FacilityEventRuntimeMixin:
         facility_id: str,
         passenger_ids: tuple[int, ...],
         time_seconds: float,
+        *,
+        poll_immediately: bool = False,
     ) -> None:
         for passenger_id in passenger_ids:
             passenger = next(
@@ -55,11 +58,18 @@ class FacilityEventRuntimeMixin:
                     completed_facility_id=facility_id,
                 )
                 continue
-            self.goal_coordinator.service_completed(
+            state_changed = self.goal_coordinator.service_completed(
                 passenger,
                 facility_id,
                 time_seconds,
             )
+            if state_changed and poll_immediately:
+                # The runtime boundary owns Goal Graph observation and the
+                # optional same-tick follow-up command. Connector releases
+                # retain the ordinary next-tick boundary so a native body is
+                # never removed and recreated in one interval. Physical
+                # facilities never read strategic state internals.
+                self.goal_coordinator.poll(passenger)
 
     def passenger_has_active_facility_service(self, passenger: PassengerAgent) -> bool:
         facility_id = passenger.assigned_facility_id or passenger.current_goal.facility_id
@@ -95,17 +105,46 @@ class FacilityEventRuntimeMixin:
     def facility_service_start_floor(self, facility_id: str) -> float:
         return float(self._facility_service_start_floors.get(facility_id, 0.0))
 
+    def replan_pre_service_passengers_for_disruption(
+        self,
+        facility: FacilityProcessAgent,
+    ) -> int:
+        """Invalidate every pre-service commitment to a disabled facility.
+
+        ``facility.queue`` is only the physical FIFO tail of the lifecycle.
+        Committed passengers can still be walking to or attempting to capture
+        that queue, so a closure boundary must scan the authoritative Goal
+        state rather than one facility container. Active service is excluded:
+        a committed traversal finishes under the boundary policy.
+        """
+
+        replanned = 0
+        for passenger in sorted(
+            list(self.passengers),
+            key=lambda item: int(item.unique_id),
+        ):
+            state = passenger.goal_runtime.state
+            commitment = state.commitment
+            if (
+                state.interaction_state not in PRE_SERVICE_REPLAN_STATES
+                or commitment is None
+                or commitment.facility_id != facility.facility_id
+            ):
+                continue
+            if facility.has_active_service(passenger):
+                continue
+            changed = self.goal_coordinator.facility_unavailable(
+                passenger,
+                facility.facility_id,
+                reason=f"facility_disabled:{facility.facility_id}",
+            )
+            replanned += int(changed)
+        return replanned
+
     def replan_queued_passengers_for_disruption(
         self,
         facility: FacilityProcessAgent,
     ) -> int:
-        replanned = 0
-        for passenger in list(facility.queue):
-            changed = self.progress_monitor.replan_policy.replan(
-                self,
-                passenger,
-                reason=f"facility_disabled:{facility.facility_id}",
-                stalled_seconds=0.0,
-            )
-            replanned += int(changed)
-        return replanned
+        """Compatibility alias for the former queue-only API."""
+
+        return self.replan_pre_service_passengers_for_disruption(facility)

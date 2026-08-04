@@ -58,16 +58,23 @@ class SimulationStepOrchestrator:
                 passenger,
                 movement_result,
             )
-            movement_result = model._constrain_movement_to_dynamic_bodies(
-                passenger,
-                movement_result,
-            )
             movement_result = model._intercept_facility_queue_crossing(
                 passenger,
                 movement_result,
             )
+            model.movement_backend.commit_movement_result(passenger, movement_result)
             reached = passenger.apply_movement_result(movement_result)
             passenger.advance_after_movement(reached)
+        for facility in model.vertical_transports:
+            commit_native_motion = getattr(
+                facility,
+                "commit_native_facility_motion_after_movement",
+                None,
+            )
+            if callable(commit_native_motion):
+                commit_native_motion()
+        for door in model.boarding_doors:
+            door.commit_active_boardings_after_movement()
         model.progress_monitor.observe(model, list(model.passengers))
 
         model.rebuild_spatial_index()
@@ -75,9 +82,7 @@ class SimulationStepOrchestrator:
         # Publish its resulting state at the interval end, not at the start.
         model.step_index += 1
         model.datacollector.collect(model)
-        model.frames.append(
-            model.snapshot(control_event_time_seconds=interval_start_time_seconds)
-        )
+        model.frames.append(model.snapshot(control_event_time_seconds=interval_start_time_seconds))
         if model._should_stop():
             model.running = False
 

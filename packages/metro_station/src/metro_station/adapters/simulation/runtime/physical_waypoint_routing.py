@@ -5,9 +5,7 @@ from math import hypot
 from typing import Any
 
 from shapely.geometry import LineString, Point as ShapelyPoint
-
-from ..station.geometry import project_to_safe_point
-
+from shapely.ops import nearest_points
 
 Point = tuple[float, float]
 
@@ -32,9 +30,13 @@ class PhysicalWaypointRouter:
 
     def __init__(self) -> None:
         self._engines: dict[tuple[str | None, bytes], Any] = {}
+        self._navigation_contexts: dict[
+            tuple[str | None, bytes, float], tuple[Any, Any, Any]
+        ] = {}
 
     def clear(self) -> None:
         self._engines.clear()
+        self._navigation_contexts.clear()
 
     def route(
         self,
@@ -44,6 +46,7 @@ class PhysicalWaypointRouter:
         *,
         level_id: str | None,
         clearance: float,
+        include_navigation_waypoints: bool = True,
     ) -> tuple[Point, ...]:
         if not anchors:
             return ()
@@ -52,11 +55,25 @@ class PhysicalWaypointRouter:
                 f"walking domain for level {level_id!r} is empty"
             )
 
-        engine = self._routing_engine(walkable_area, level_id)
-        current = self._safe_endpoint(walkable_area, start, 0.0, "start")
+        navigation_domain, routing_domain, engine = self._navigation_context(
+            walkable_area,
+            level_id,
+            clearance,
+        )
+        current = self._safe_endpoint(
+            walkable_area,
+            navigation_domain,
+            start,
+            "agent-clear start",
+        )
         waypoints: list[Point] = []
         for anchor in anchors:
-            target = self._safe_endpoint(walkable_area, anchor, clearance, "target")
+            target = self._safe_endpoint(
+                walkable_area,
+                navigation_domain,
+                anchor,
+                "target",
+            )
             if hypot(current[0] - target[0], current[1] - target[1]) <= 0.001:
                 current = target
                 continue
@@ -69,10 +86,55 @@ class PhysicalWaypointRouter:
                 raise PhysicalRouteUnreachableError(
                     f"no walkable route on level {level_id!r} from {current!r} to {target!r}"
                 ) from exc
-            self._validate_segment(walkable_area, segment, level_id)
-            self._append_deduped(waypoints, segment[1:] if segment else (target,))
+            self._validate_segment(routing_domain, segment, level_id)
+            # JuPedSim performs its own navigation-mesh wayfinding towards a
+            # stage. Runtime movement commands therefore need semantic
+            # anchors only; replaying every RoutingEngine corner as a separate
+            # stage creates corner-local minima and lets stage tolerances cut
+            # across obstacles. The full polyline remains available for
+            # geodesic walking-cost queries and compiler evidence.
+            command_points = (
+                segment[1:]
+                if include_navigation_waypoints and segment
+                else (target,)
+            )
+            self._append_deduped(waypoints, command_points)
             current = target
         return tuple(waypoints)
+
+    def _navigation_context(
+        self,
+        walkable_area: Any,
+        level_id: str | None,
+        clearance: float,
+    ) -> tuple[Any, Any, Any]:
+        normalized_clearance = max(0.0, float(clearance))
+        key = (
+            level_id,
+            bytes(walkable_area.wkb),
+            round(normalized_clearance, 9),
+        )
+        cached = self._navigation_contexts.get(key)
+        if cached is not None:
+            return cached
+        navigation_domain = walkable_area.buffer(
+            -normalized_clearance,
+            join_style="mitre",
+        )
+        if navigation_domain.is_empty or navigation_domain.geom_type not in {
+            "Polygon",
+            "MultiPolygon",
+        }:
+            raise PhysicalRouteUnreachableError(
+                f"walking domain for level {level_id!r} has no agent-clear navigation core"
+            )
+        # Match the compiler's radius-shrunk domain while adding only a
+        # micrometre numerical skin for JuPedSim's point classifier.
+        routing_domain = navigation_domain.buffer(1e-6)
+        engine = self._routing_engine(routing_domain, level_id)
+        result = navigation_domain, routing_domain, engine
+        self._navigation_contexts[key] = result
+        return result
 
     def _routing_engine(self, walkable_area: Any, level_id: str | None):
         key = (level_id, bytes(walkable_area.wkb))
@@ -93,20 +155,21 @@ class PhysicalWaypointRouter:
     @staticmethod
     def _safe_endpoint(
         walkable_area: Any,
+        navigation_domain: Any,
         point: Point,
-        clearance: float,
         label: str,
     ) -> Point:
-        if not walkable_area.buffer(1e-7).covers(ShapelyPoint(point)):
+        source = ShapelyPoint(point)
+        if not walkable_area.covers(source) and not walkable_area.buffer(1e-7).covers(
+            source
+        ):
             raise PhysicalRouteUnreachableError(
                 f"physical route {label} {point!r} is outside the walkable area"
             )
-        return project_to_safe_point(
-            walkable_area,
-            point,
-            clearance=max(0.0, float(clearance)),
-            require_inside=True,
-        )
+        if navigation_domain.covers(source):
+            return point
+        _source, projected = nearest_points(source, navigation_domain)
+        return float(projected.x), float(projected.y)
 
     @staticmethod
     def _validate_segment(
@@ -119,10 +182,17 @@ class PhysicalWaypointRouter:
                 f"navigation mesh returned no route on level {level_id!r}"
             )
         if len(segment) == 1:
-            if walkable_area.buffer(1e-7).covers(ShapelyPoint(segment[0])):
+            geometry = ShapelyPoint(segment[0])
+            if walkable_area.covers(geometry) or walkable_area.buffer(1e-7).covers(
+                geometry
+            ):
                 return
-        elif walkable_area.buffer(1e-7).covers(LineString(segment)):
-            return
+        else:
+            geometry = LineString(segment)
+            if walkable_area.covers(geometry) or walkable_area.buffer(1e-7).covers(
+                geometry
+            ):
+                return
         raise PhysicalRouteUnreachableError(
             f"navigation mesh route leaves the walkable area on level {level_id!r}"
         )

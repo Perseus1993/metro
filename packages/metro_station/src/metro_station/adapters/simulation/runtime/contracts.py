@@ -28,6 +28,7 @@ class SimulationTrace:
     facility_events: list[dict[str, Any]]
     aggregate_metrics: dict[str, Any]
     movement_trace: dict[str, Any] = field(default_factory=dict)
+    facility_motion_trace: dict[str, Any] = field(default_factory=dict)
     terminal_events: list[dict[str, Any]] = field(default_factory=list)
     routing_decision_logs: list[dict[str, Any]] = field(default_factory=list)
     schema_version: str = SIMULATION_TRACE_SCHEMA_VERSION
@@ -40,6 +41,7 @@ class SimulationTrace:
             "snapshots": self.snapshots,
             "facility_events": self.facility_events,
             "movement_trace": self.movement_trace,
+            "facility_motion_trace": self.facility_motion_trace,
             "aggregate_metrics": self.aggregate_metrics,
             "terminal_events": self.terminal_events,
             "routing_decision_logs": self.routing_decision_logs,

@@ -8,6 +8,13 @@ import mesa
 
 from ..movement.backend import MovementResult
 from ..movement.dynamic_body_clearance import external_body_positions
+from ..spatial_capacity_admission import (
+    CertifiedPlacementTemporarilyBlocked,
+    SpatialCapacityCertificateViolation,
+    SpatialCapacityEvidence,
+    SpatialCapacityExhausted,
+    record_spatial_capacity_event,
+)
 from ..station.geometry import project_to_safe_point
 from .base import FacilityAgent
 from .facility_queue import FacilityQueue
@@ -50,12 +57,50 @@ class FacilityProcessAgent(FacilityAgent):
         return self.is_open
 
     @property
+    def portal_binding(self):
+        """The active compiled facade; the sole runtime portal authority."""
+
+        return self.model.facility_portal_binding(self.facility_id)
+
+    @property
+    def portal_entry_position(self) -> tuple[float, float]:
+        return self.portal_binding.entry_point
+
+    @property
+    def portal_exit_position(self) -> tuple[float, float]:
+        return self.portal_binding.exit_point
+
+    @property
+    def portal_entry_level_id(self) -> str:
+        return self.portal_binding.entry_level_id
+
+    @property
+    def portal_exit_level_id(self) -> str:
+        return self.portal_binding.exit_level_id
+
+    @property
+    def portal_direction(self) -> str:
+        return self.portal_binding.direction
+
+    @property
     def is_available_for_choice(self) -> bool:
         return self.is_open and not self.queue.is_full
 
     @property
     def is_available_for_queue(self) -> bool:
         return self.is_open and not self.queue.is_full
+
+    @property
+    def lifecycle_reserved_queue_slot_indices(self) -> tuple[int, ...]:
+        """Queue slots owned by an in-flight facility transaction.
+
+        These reservations are separate from queued and approaching passenger
+        ownership.  They let a process keep a physical handoff/corridor live
+        after removing its queue head, so a later approach cannot recycle the
+        just-vacated slot before the transaction has actually completed.
+        """
+
+        return ()
 
     @property
     def effective_service_persons_per_min(self) -> float:
@@ -129,7 +174,7 @@ class FacilityProcessAgent(FacilityAgent):
 
         return external_body_positions(
             self.model,
-            level_id=self.spec.entry_level_id,
+            level_id=self.portal_entry_level_id,
             excluded_passenger_ids=(
                 int(passenger.unique_id) for passenger in self.queue
             ),
@@ -190,6 +235,10 @@ class FacilityProcessAgent(FacilityAgent):
                 release_count=max(1, release_count),
             ):
                 break
+            was_already_queued = (
+                passenger.state == self.spec.queue_state
+                and passenger.assigned_facility_id == self.spec.facility_id
+            )
             passenger = self.queue.pop(0)
             try:
                 self._start_service(
@@ -198,8 +247,14 @@ class FacilityProcessAgent(FacilityAgent):
                     release_index=release_index,
                     release_count=max(1, release_count),
                 )
+            except SpatialCapacityCertificateViolation:
+                raise
             except RuntimeError:
-                passenger.enter_facility_queue(self.spec)
+                # A two-phase facility start may reject its preflight before
+                # committing any passenger state.  Restoring the list must not
+                # replay queue-entry semantics or duplicate parity evidence.
+                if not was_already_queued:
+                    passenger.enter_facility_queue(self.spec)
                 self.queue.insert(0, passenger)
                 break
             self.service_credit -= 1.0
@@ -314,8 +369,13 @@ class FacilityProcessAgent(FacilityAgent):
         return self._safe_queue_slot(max(0, int(release_index)))
 
     def _safe_queue_slot(self, index: int) -> tuple[float, float]:
-        slot = self.model.clamp_position(self.spec.queue_layout.slot(max(0, int(index))))
-        level_id = self.spec.entry_level_id
+        binding = self.portal_binding
+        if int(index) in binding.approach_slot_indices:
+            position_index = binding.approach_slot_indices.index(int(index))
+            slot = self.model.clamp_position(binding.approach_slots[position_index])
+        else:
+            slot = self.model.clamp_position(self.queue.layout.slot(max(0, int(index))))
+        level_id = self.portal_entry_level_id
         try:
             area = self.model.jupedsim_walkable_area(level_id)
             return project_to_safe_point(
@@ -346,7 +406,17 @@ class FacilityProcessAgent(FacilityAgent):
         *,
         base_position: tuple[float, float] | None = None,
     ) -> tuple[float, float]:
-        base = self.spec.exit_position if base_position is None else base_position
+        certificate = self._release_capacity_certificate()
+        if certificate is not None:
+            release_position, _slot_index = self._reserve_certified_release_slot(
+                passenger,
+                preferred_index=release_index,
+                persistent=False,
+            )
+            self._service_release_positions_this_tick.append(release_position)
+            return release_position
+
+        base = self.portal_exit_position if base_position is None else base_position
         forward, lateral = self._release_axes()
         spacing = self._release_spacing()
         column_count = self._release_column_count()
@@ -366,7 +436,7 @@ class FacilityProcessAgent(FacilityAgent):
                 release_position = self.model.movement_backend.resolve_placement(
                     passenger,
                     projected,
-                    level_id=self.spec.exit_level_id or self.spec.entry_level_id,
+                    level_id=self.portal_exit_level_id,
                 )
             except Exception:
                 continue
@@ -380,55 +450,194 @@ class FacilityProcessAgent(FacilityAgent):
 
         raise RuntimeError(f"No release placement available for {self.facility_id}")
 
+    def _release_capacity_certificate(self):
+        layout = getattr(self.model, "layout_graph", None)
+        lookup = getattr(layout, "spatial_capacity_certificate", None)
+        if not callable(lookup):
+            return None
+        try:
+            try:
+                return lookup(
+                    "release_apron",
+                    self.facility_id,
+                    level_id=self.portal_exit_level_id,
+                    activation_variant_id=self.portal_direction,
+                )
+            except KeyError:
+                return lookup(
+                    "release_apron",
+                    self.facility_id,
+                    level_id=self.portal_exit_level_id,
+                )
+        except KeyError:
+            # Synthetic unit-test models may not use DesignCompiler. A real
+            # RuntimeStationLayout always exposes the certificate and must not
+            # silently fall back to coordinate search.
+            if hasattr(layout, "spatial_capacity_certificates"):
+                raise SpatialCapacityCertificateViolation(
+                    f"facility {self.facility_id!r} has no release certificate",
+                    SpatialCapacityEvidence(
+                        certificate_id="missing",
+                        resource_kind="release_apron",
+                        owner_id=self.facility_id,
+                        certified_body_capacity=0,
+                        current_occupancy_bodies=0,
+                        requested_bodies=1,
+                        passenger_id=None,
+                    ),
+                )
+            return None
+
+    def _service_corridor_capacity_certificate(self):
+        layout = getattr(self.model, "layout_graph", None)
+        lookup = getattr(layout, "spatial_capacity_certificate", None)
+        if not callable(lookup):
+            return None
+        try:
+            try:
+                return lookup(
+                    "service_corridor",
+                    self.facility_id,
+                    level_id=self.portal_exit_level_id,
+                    activation_variant_id=self.portal_direction,
+                )
+            except KeyError:
+                return lookup(
+                    "service_corridor",
+                    self.facility_id,
+                    level_id=self.portal_exit_level_id,
+                )
+        except KeyError:
+            if hasattr(layout, "spatial_capacity_certificates"):
+                raise SpatialCapacityCertificateViolation(
+                    f"facility {self.facility_id!r} has no service-corridor certificate",
+                    SpatialCapacityEvidence(
+                        certificate_id="missing",
+                        resource_kind="service_corridor",
+                        owner_id=self.facility_id,
+                        certified_body_capacity=0,
+                        current_occupancy_bodies=0,
+                        requested_bodies=1,
+                        passenger_id=None,
+                    ),
+                )
+            return None
+
+    def _reserve_certified_release_slot(
+        self,
+        passenger: PassengerAgent,
+        *,
+        preferred_index: int,
+        persistent: bool,
+    ) -> tuple[tuple[float, float], int]:
+        certificate = self._release_capacity_certificate()
+        if certificate is None:
+            raise RuntimeError("compiled release certificate is unavailable")
+        owners_by_certificate = getattr(
+            self.model,
+            "_spatial_capacity_slot_owners",
+            None,
+        )
+        if owners_by_certificate is None:
+            owners_by_certificate = {}
+            self.model._spatial_capacity_slot_owners = owners_by_certificate
+        owners = owners_by_certificate.setdefault(certificate.certificate_id, {})
+        passenger_id = int(passenger.unique_id)
+        for slot_index, owner_id in owners.items():
+            if owner_id == passenger_id:
+                return tuple(certificate.slots[slot_index]), slot_index
+
+        capacity = certificate.certified_body_capacity
+        evidence = SpatialCapacityEvidence(
+            certificate_id=certificate.certificate_id,
+            resource_kind=certificate.resource_kind,
+            owner_id=certificate.owner_id,
+            certified_body_capacity=capacity,
+            current_occupancy_bodies=len(owners),
+            requested_bodies=1,
+            passenger_id=passenger_id,
+        )
+        if len(owners) >= capacity:
+            record_spatial_capacity_event(
+                self.model,
+                "capacity.admission_exhausted",
+                evidence,
+            )
+            raise SpatialCapacityExhausted(
+                f"release certificate {certificate.certificate_id!r} is full",
+                evidence,
+            )
+
+        order = tuple(
+            (max(0, int(preferred_index)) + offset) % capacity
+            for offset in range(capacity)
+        )
+        dynamically_blocked = False
+        native_rejections = 0
+        for slot_index in order:
+            if slot_index in owners:
+                continue
+            candidate = tuple(certificate.slots[slot_index])
+            if not self._has_release_clearance(
+                candidate,
+                self._release_min_distance(),
+                passenger=passenger,
+            ):
+                dynamically_blocked = True
+                continue
+            try:
+                resolved = self.model.movement_backend.resolve_certified_placement(
+                    passenger,
+                    candidate,
+                    level_id=certificate.level_id,
+                )
+            except RuntimeError:
+                native_rejections += 1
+                continue
+            if hypot(resolved[0] - candidate[0], resolved[1] - candidate[1]) > 1e-6:
+                raise SpatialCapacityCertificateViolation(
+                    "movement backend relocated a compiler-certified release cell",
+                    evidence,
+                )
+            if persistent:
+                owners[slot_index] = passenger_id
+            return candidate, slot_index
+
+        if native_rejections > 0:
+            dynamically_blocked = True
+        record_spatial_capacity_event(
+            self.model,
+            "placement.dynamic_blocked",
+            evidence,
+        )
+        raise CertifiedPlacementTemporarilyBlocked(
+            f"release certificate {certificate.certificate_id!r} is temporarily blocked",
+            evidence,
+        )
+
+    def _release_certified_slot(
+        self,
+        passenger: PassengerAgent,
+        slot_index: int | None,
+    ) -> None:
+        if slot_index is None:
+            return
+        certificate = self._release_capacity_certificate()
+        if certificate is None:
+            return
+        owners_by_certificate = getattr(
+            self.model,
+            "_spatial_capacity_slot_owners",
+            {},
+        )
+        owners = owners_by_certificate.get(certificate.certificate_id, {})
+        passenger_id = int(passenger.unique_id)
+        if owners.get(int(slot_index)) == passenger_id:
+            del owners[int(slot_index)]
+
     def _release_axes(self) -> tuple[tuple[float, float], tuple[float, float]]:
-        sx, sy = self.spec.position
-        ex, ey = self.spec.exit_position
-        dx = ex - sx
-        dy = ey - sy
-        length = hypot(dx, dy)
-        if length <= 0.001:
-            qx, qy = self.spec.queue_anchor
-            dx = ex - qx
-            dy = ey - qy
-            length = hypot(dx, dy)
-        if length <= 0.001:
-            graph = getattr(self.model.layout_graph, "station_graph", None)
-            if graph is not None and self.spec.source_element_id is not None:
-                exit_nodes = [
-                    graph.nodes[node_id]
-                    for node_id in graph.node_ids_for_element(self.spec.source_element_id)
-                    if node_id in graph.nodes
-                    and (
-                        self.spec.exit_level_id is None
-                        or graph.nodes[node_id].level_id == self.spec.exit_level_id
-                    )
-                ]
-                if exit_nodes:
-                    exit_node = min(
-                        exit_nodes,
-                        key=lambda node: hypot(
-                            node.position[0] - ex,
-                            node.position[1] - ey,
-                        ),
-                    )
-                    for neighbor in graph.same_level_walk_neighbor_positions(
-                        exit_node.node_id
-                    ):
-                        dx = neighbor[0] - ex
-                        dy = neighbor[1] - ey
-                        length = hypot(dx, dy)
-                        if length > 0.001:
-                            break
-            if length <= 0.001:
-                if self.spec.stage == "vertical_transfer":
-                    raise RuntimeError(
-                        f"vertical connector {self.facility_id!r} has no physical "
-                        "release orientation in geometry or station topology"
-                    )
-                return (1.0, 0.0), (0.0, 1.0)
-        forward = (dx / length, dy / length)
-        lateral = (-forward[1], forward[0])
-        return forward, lateral
+        binding = self.portal_binding
+        return binding.release_forward, binding.release_lateral
 
     def _release_spacing(self) -> float:
         scenario = self.model.scenario
@@ -513,7 +722,7 @@ class FacilityProcessAgent(FacilityAgent):
 
     def _project_release_position(self, position: tuple[float, float]) -> tuple[float, float]:
         candidate = self.model.clamp_position(position)
-        level_id = self.spec.exit_level_id or self.spec.entry_level_id
+        level_id = self.portal_exit_level_id
         try:
             area = self.model.jupedsim_walkable_area(level_id)
             return project_to_safe_point(
@@ -535,7 +744,7 @@ class FacilityProcessAgent(FacilityAgent):
         for existing in self._service_release_positions_this_tick:
             if hypot(candidate[0] - existing[0], candidate[1] - existing[1]) < min_distance:
                 return False
-        release_level_id = self.spec.exit_level_id or self.spec.entry_level_id
+        release_level_id = self.portal_exit_level_id
         for other in self.model.passengers:
             if other is passenger:
                 continue

@@ -1,9 +1,13 @@
 from __future__ import annotations
 
 from collections import Counter
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 
-from metro_station_testkit.layout_recipe import LayoutRecipe, ScenarioCorpus
+from metro_station_testkit.layout_recipe import (
+    OPERATION_PROFILES,
+    LayoutRecipe,
+    ScenarioCorpus,
+)
 
 
 @dataclass(frozen=True)
@@ -46,11 +50,22 @@ def generated_acceptance_tier_profile(tier: str) -> GeneratedAcceptanceTierProfi
             30,
             8,
         ),
+        "trajectory": GeneratedAcceptanceTierProfile(
+            "trajectory",
+            240,
+            16,
+            (7, 42, 99),
+            _normal_options(120, 120, 120, 2, 25),
+            12,
+            8,
+        ),
     }
     try:
         return profiles[tier]
     except KeyError as exc:
-        raise ValueError("generated acceptance tier must be smoke, nightly, or release") from exc
+        raise ValueError(
+            "generated acceptance tier must be smoke, nightly, release, or trajectory"
+        ) from exc
 
 
 def stratified_simulation_sample(
@@ -96,6 +111,22 @@ def stratified_simulation_sample(
         vertical_topologies[selected.vertical_topology] += 1
         fare_topologies[selected.fare_topology] += 1
     return tuple(result)
+
+
+def trajectory_geometry_corpus(corpus: ScenarioCorpus) -> ScenarioCorpus:
+    """Overlay operational diversity on the frozen physical geometry matrix."""
+
+    return ScenarioCorpus(
+        corpus_id=f"{corpus.corpus_id}-trajectory",
+        seed=corpus.seed,
+        recipes=tuple(
+            replace(
+                recipe,
+                operation_profile=OPERATION_PROFILES[index % len(OPERATION_PROFILES)],
+            )
+            for index, recipe in enumerate(corpus.recipes)
+        ),
+    )
 
 
 def _sample_score(

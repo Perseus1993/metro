@@ -16,6 +16,8 @@ class GoalParityEvent:
     node_id: str | None = None
     reason: str | None = None
     level_id: str | None = None
+    train_platform_id: str | None = None
+    train_arrival_sequence: int | None = None
 
 
 class GoalParityRecorder:
@@ -36,6 +38,8 @@ class GoalParityRecorder:
         node_id: str | None = None,
         reason: str | None = None,
         level_id: str | None = None,
+        train_platform_id: str | None = None,
+        train_arrival_sequence: int | None = None,
     ) -> None:
         event = GoalParityEvent(
             passenger_id=int(passenger.unique_id),
@@ -47,6 +51,8 @@ class GoalParityRecorder:
             node_id=node_id,
             reason=reason,
             level_id=level_id,
+            train_platform_id=train_platform_id,
+            train_arrival_sequence=train_arrival_sequence,
         )
         if self.events and self.events[-1] == event:
             return
@@ -109,6 +115,8 @@ class GoalParityRecorder:
             facility_id=event.facility_id,
             node_id=state.current_node_id,
             reason=event.reason,
+            train_platform_id=event.train_platform_id,
+            train_arrival_sequence=event.train_arrival_sequence,
         )
         if event.kind == "service_completed" and before.current_stage == "vertical_transfer":
             self.record(

@@ -46,23 +46,33 @@ def run_operational_acceptance_matrix(
     scenario_ids: tuple[str, ...] = OPERATIONAL_SCENARIOS,
     movement_backend_factory: Callable[[], MovementBackend] | None = None,
     station_design: StationDesignDocument | None = None,
+    trajectory_evidence_by_case: dict[tuple[str, int], dict[str, Any]] | None = None,
+    tick_seconds: int = 5,
 ) -> OperationalAcceptanceMatrix:
-    reports = tuple(
-        run_operational_acceptance(
-            scenario_id,
-            layout_id=layout_id,
-            seed=seed,
-            movement_backend=(
-                None if movement_backend_factory is None else movement_backend_factory()
-            ),
-            station_design=station_design,
-        )
-        for scenario_id in scenario_ids
-        for seed in seeds
-    )
+    reports: list[OperationalAcceptanceReport] = []
+    for scenario_id in scenario_ids:
+        for seed in seeds:
+            evidence = {} if trajectory_evidence_by_case is not None else None
+            reports.append(
+                run_operational_acceptance(
+                    scenario_id,
+                    layout_id=layout_id,
+                    seed=seed,
+                    movement_backend=(
+                        None
+                        if movement_backend_factory is None
+                        else movement_backend_factory()
+                    ),
+                    station_design=station_design,
+                    trajectory_evidence=evidence,
+                    tick_seconds=tick_seconds,
+                )
+            )
+            if trajectory_evidence_by_case is not None and evidence is not None:
+                trajectory_evidence_by_case[(scenario_id, seed)] = evidence
     return OperationalAcceptanceMatrix(
         layout_id=layout_id,
         seeds=seeds,
         scenario_ids=scenario_ids,
-        reports=reports,
+        reports=tuple(reports),
     )

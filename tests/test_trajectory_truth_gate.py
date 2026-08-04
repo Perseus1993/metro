@@ -73,6 +73,49 @@ class TrajectoryTruthGateTests(unittest.TestCase):
         self.assertEqual(2.0, check["examples"][0]["duration_s"])
         self.assertEqual(["10", "11"], check["examples"][0]["agent_ids"])
 
+    def test_single_timestamp_exact_overlap_is_a_hard_failure(self) -> None:
+        report = analyze_trajectory_truth(
+            [
+                _snapshot(0.0, (1, 0.0, 0.0), (2, 0.0, 0.0)),
+                _snapshot(1.0, (1, 0.5, 0.0), (2, 0.5, 1.0)),
+            ]
+        )
+
+        check = report["checks"]["different_ids_never_share_exact_position"]
+        self.assertEqual("fail", check["status"])
+        self.assertEqual(1, check["count"])
+        self.assertEqual(0.0, check["examples"][0]["time_s"])
+
+    def test_millimeter_scale_persistent_overlap_is_a_hard_failure(self) -> None:
+        report = analyze_trajectory_truth(
+            [
+                _snapshot(time_s, (1, time_s, 0.0), (2, time_s, 0.005))
+                for time_s in (0.0, 1.0, 2.0)
+            ]
+        )
+
+        check = report["checks"]["no_persistent_near_colocation"]
+        self.assertEqual("fail", check["status"])
+        self.assertEqual(1, check["count"])
+        self.assertAlmostEqual(0.005, check["examples"][0]["maximum_distance_m"])
+
+    def test_unrelated_agent_timestamps_cannot_split_persistent_pair(self) -> None:
+        snapshots = []
+        for sample_index in range(16):
+            time_s = sample_index * 0.2
+            passengers = [(3, time_s, 10.0)]
+            if sample_index % 5 == 0:
+                passengers.extend(((1, 0.0, 0.0), (2, 0.01, 0.0)))
+            snapshots.append(_snapshot(time_s, *passengers))
+
+        report = analyze_trajectory_truth(snapshots)
+
+        check = report["checks"]["no_persistent_near_colocation"]
+        self.assertEqual("fail", check["status"])
+        self.assertEqual(1, check["count"])
+        self.assertEqual(["1", "2"], check["examples"][0]["agent_ids"])
+        self.assertEqual(3.0, check["examples"][0]["duration_s"])
+
     def test_non_finite_time_regression_and_meter_speed_are_hard_failures(self) -> None:
         payload = {
             "coordinate_unit": "m",
@@ -157,6 +200,11 @@ class TrajectoryTruthGateTests(unittest.TestCase):
             analyze_trajectory_truth(
                 {"points": [{"id": 1, "t": 0.0, "x": 0.0, "y": 0.0}]},
                 config=TrajectoryTruthGateConfig(min_exact_colocation_samples=1),
+            )
+        with self.assertRaises(ValueError):
+            analyze_trajectory_truth(
+                {"points": [{"id": 1, "t": 0.0, "x": 0.0, "y": 0.0}]},
+                config=TrajectoryTruthGateConfig(min_near_colocation_samples=2),
             )
 
 

@@ -103,7 +103,7 @@ class FacilityDisruptionController:
                 time_seconds=model.current_time_seconds,
             )
             replanned = (
-                model.replan_queued_passengers_for_disruption(facility)
+                model.replan_pre_service_passengers_for_disruption(facility)
                 if event.action == DISABLE_FACILITY
                 else 0
             )

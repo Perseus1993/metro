@@ -157,6 +157,19 @@ class GoalContractTests(unittest.TestCase):
     def test_goal_event_and_command_require_target_contracts(self) -> None:
         with self.assertRaisesRegex(ValueError, "requires region_id"):
             GoalEvent(kind=GoalEventKind.ENTERED_REGION.value, time_seconds=2.0)
+        with self.assertRaisesRegex(ValueError, "requires both platform id"):
+            GoalEvent(
+                kind=GoalEventKind.TRAIN_FULL.value,
+                time_seconds=2.0,
+                train_platform_id="platform:L1:up",
+            )
+        with self.assertRaisesRegex(ValueError, "cannot be negative"):
+            GoalEvent(
+                kind=GoalEventKind.TRAIN_FULL.value,
+                time_seconds=2.0,
+                train_platform_id="platform:L1:up",
+                train_arrival_sequence=-1,
+            )
         with self.assertRaisesRegex(ValueError, "requires target_region_id"):
             GoalCommand(kind=GoalCommandKind.WALK_TO_REGION.value)
 

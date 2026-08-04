@@ -132,6 +132,7 @@ def _scenario_payload(
         "movement_backend_name": scenario.movement_backend_name,
         "movement_backend": final_metrics.get("movement_backend") or scenario.movement_backend_name,
         "jupedsim_operational_model": scenario.jupedsim_operational_model,
+        "jupedsim_agent_radius_m": float(scenario.jupedsim_agent_radius_units),
         "movement_trace_sample_seconds": float(scenario.movement_trace_sample_seconds),
         "simulation_clock": simulation_clock.as_dict(),
         "calibration_profile": scenario.calibration_profile.as_dict(),

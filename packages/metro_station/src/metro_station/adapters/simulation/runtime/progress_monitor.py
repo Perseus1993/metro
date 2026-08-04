@@ -11,6 +11,7 @@ from ..planning.plan import (
     WALKING_STATES as PLAN_WALKING_STATES,
     AgentState,
 )
+from .physical_waypoint_routing import PhysicalRouteUnreachableError
 
 if TYPE_CHECKING:
     from ..agents.passenger import PassengerAgent
@@ -102,7 +103,7 @@ class ProgressMonitor:
         passenger: PassengerAgent,
     ) -> None:
         signature = self._signature(passenger)
-        distance = self._distance_to_target(passenger)
+        distance = self._distance_to_target(model, passenger)
         record = self.records.get(passenger.unique_id)
         if record is None or record.signature != signature:
             self._record_progress(model, passenger, signature, distance)
@@ -132,7 +133,7 @@ class ProgressMonitor:
                 model,
                 passenger,
                 self._signature(passenger),
-                self._distance_to_target(passenger),
+                self._distance_to_target(model, passenger),
             )
 
     def _record_progress(
@@ -157,12 +158,14 @@ class ProgressMonitor:
         record: PassengerProgressRecord,
         distance: float,
     ) -> bool:
-        displacement = hypot(
-            passenger.pos[0] - record.position[0],
-            passenger.pos[1] - record.position[1],
-        )
         delta = model.scenario.progress_min_delta_units
-        return distance < record.distance_to_target - delta or displacement > delta
+        # Lateral crowd motion and back-and-forth jitter are not progress
+        # toward the active tactical target.  Resetting the stall clock for
+        # any displacement lets a blocked body oscillate forever while a FIFO
+        # reservation keeps the whole facility unavailable.  ``distance`` is
+        # the remaining navmesh path length below, so legitimate detours still
+        # count whenever they advance along the physical route.
+        return distance < record.distance_to_target - delta
 
     def _queue_wait_is_expected(
         self,
@@ -173,11 +176,16 @@ class ProgressMonitor:
         if facility is None:
             return False
         if facility.spec.kind == FacilityKind.ELEVATOR.value:
-            expected_cycle_seconds = (
-                float(model.scenario.elevator_max_dispatch_wait_seconds)
-                + float(model.scenario.elevator_boarding_seconds)
-                + float(model.scenario.elevator_cycle_seconds)
-                + float(model.scenario.elevator_unload_seconds)
+            # The cabin runtime may lengthen boarding to satisfy its physical
+            # speed/acceleration profile, and a queued passenger can also be
+            # waiting for the return leg.  Monitor the runtime contract rather
+            # than the configured lower bounds, otherwise a feasible slow
+            # cycle is falsely diagnosed as a stalled queue.
+            expected_cycle_seconds = float(
+                getattr(facility, "effective_cycle_seconds", 0.0)
+            ) + max(
+                0.0,
+                float(getattr(facility, "max_dispatch_wait_seconds", 0.0)),
             )
             return passenger.progress_age_seconds < expected_cycle_seconds
         if facility.spec.kind != FacilityKind.TRAIN_DOOR.value:
@@ -210,11 +218,33 @@ class ProgressMonitor:
             round(passenger.target[1], 2),
         )
 
-    def _distance_to_target(self, passenger: PassengerAgent) -> float:
-        return hypot(
-            passenger.target[0] - passenger.pos[0],
-            passenger.target[1] - passenger.pos[1],
-        )
+    def _distance_to_target(
+        self,
+        model: MetroStationModel,
+        passenger: PassengerAgent,
+    ) -> float:
+        try:
+            waypoints = model._physical_route_for_points(
+                passenger,
+                (tuple(passenger.target),),
+                include_navigation_waypoints=True,
+            )
+        except PhysicalRouteUnreachableError:
+            waypoints = ()
+        if not waypoints:
+            return hypot(
+                passenger.target[0] - passenger.pos[0],
+                passenger.target[1] - passenger.pos[1],
+            )
+        distance = 0.0
+        previous = tuple(passenger.pos)
+        for waypoint in waypoints:
+            distance += hypot(
+                waypoint[0] - previous[0],
+                waypoint[1] - previous[1],
+            )
+            previous = waypoint
+        return distance
 
 
 def _current_facility(

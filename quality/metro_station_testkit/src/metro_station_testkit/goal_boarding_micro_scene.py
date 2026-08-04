@@ -12,13 +12,23 @@ from shapely.geometry import Polygon
 from metro_station.adapters.simulation.agents.transit import TrainAgent
 from metro_station.adapters.simulation.facilities.runtime_base import BoardingDoorProcessAgent
 from metro_station.adapters.simulation.facilities.service_events import FacilityServiceEvent
-from metro_station.adapters.simulation.movement.backend import BatchedJuPedSimMovementBackend, MovementBackend
+from metro_station.adapters.simulation.movement.backend import (
+    BatchedJuPedSimMovementBackend,
+    MovementBackend,
+)
 from metro_station.adapters.simulation.movement.jps_adapter import JuPedSimAdapter
+from metro_station.adapters.simulation.movement.facility_motion_trace import (
+    FacilityMotionTraceRecorder,
+)
 from metro_station.adapters.simulation.planning.plan import AgentState
 from .goal_boarding_fixture import (
     PLATFORM_ID,
     GoalBoardingMicroScenario,
     make_boarding_door,
+)
+from .goal_journey_fixture import (
+    compile_micro_facility_portal_binding,
+    install_micro_spatial_capacity_contract,
 )
 from .goal_boarding_micro_passenger import GoalBoardingMicroPassenger
 from metro_station.adapters.simulation.runtime.simulation_clock import SimulationClock
@@ -59,6 +69,9 @@ class GoalBoardingMicroScene(mesa.Model):
         self.disabled_door_ids: set[str] = set()
         self.service_blocked_door_ids: set[str] = set()
         self.facility_service_events: list[FacilityServiceEvent] = []
+        self.facility_motion_trace_recorder = FacilityMotionTraceRecorder(
+            sample_interval_seconds=0.2
+        )
         self._event_id = 0
         self._next_passenger_id = 1
         self.boarded_persons = 0
@@ -87,12 +100,20 @@ class GoalBoardingMicroScene(mesa.Model):
         ]
         self.doors_by_id = {door.facility_id: door for door in self.doors}
         self.facilities_by_id = dict(self.doors_by_id)
+        self._facility_portal_bindings = {
+            door.facility_id: compile_micro_facility_portal_binding(door.spec)
+            for door in self.doors
+        }
+        install_micro_spatial_capacity_contract(
+            self.layout_graph,
+            (door.spec for door in self.doors),
+            self._facility_portal_bindings.values(),
+            self.scenario,
+        )
         self.subject = self._new_passenger(self.source_position)
         self.passengers = [self.subject]
         self.blockers: list[GoalBoardingMicroPassenger] = []
-        self.subject_history = [
-            (self.current_time_seconds, self.subject.pos, self.subject.state)
-        ]
+        self.subject_history = [(self.current_time_seconds, self.subject.pos, self.subject.state)]
 
     @property
     def current_time_seconds(self) -> float:
@@ -107,6 +128,9 @@ class GoalBoardingMicroScene(mesa.Model):
     def jupedsim_walkable_area(self, level_id: str | None = None):
         del level_id
         return self._walkable_area
+
+    def facility_portal_binding(self, facility_id: str):
+        return self._facility_portal_bindings[facility_id]
 
     def nearby_passengers(self, passenger, radius: float):
         nearby = []
@@ -126,9 +150,22 @@ class GoalBoardingMicroScene(mesa.Model):
     def record_facility_service_event(self, event: FacilityServiceEvent) -> None:
         self.facility_service_events.append(event)
 
+    def record_pending_facility_service_event(self, event: FacilityServiceEvent) -> None:
+        self.facility_service_events.append(event)
+
     def train_capacity_for_platform(self, platform_id: str) -> int:
         del platform_id
         return int(self.scenario.train_capacity_persons)
+
+    def boarding_doors_for_train(self, train: TrainAgent):
+        """Mirror the production transit contract used by train safety holds."""
+
+        matching = [door for door in self.doors if door.spec.platform_id == train.platform_id]
+        return matching or [
+            door
+            for door in self.doors
+            if door.spec.line_id == train.line_id and door.spec.direction == train.direction
+        ]
 
     def complete_departure(
         self,
@@ -151,6 +188,8 @@ class GoalBoardingMicroScene(mesa.Model):
             door.step(self.train)
         for passenger, result in self.movement_backend.step_all(self.passengers):
             passenger.apply_movement_result(result)
+        for door in self.doors:
+            door.commit_active_boardings_after_movement()
         self.step_index += 1
         self.subject_history.append(
             (self.current_time_seconds, self.subject.pos, self.subject.state)
@@ -162,7 +201,7 @@ class GoalBoardingMicroScene(mesa.Model):
         *,
         rows: int = 3,
         columns: int = 4,
-        spacing: float = 0.48,
+        spacing: float = 0.55,
     ) -> None:
         for row in range(rows):
             for column in range(columns):
@@ -170,9 +209,19 @@ class GoalBoardingMicroScene(mesa.Model):
                     center[0] + (column - (columns - 1) / 2) * spacing,
                     center[1] + (row - (rows - 1) / 2) * spacing,
                 )
+                if not self._blocker_position_has_clearance(position):
+                    continue
                 blocker = self._new_passenger(position, blocker=True)
                 self.blockers.append(blocker)
                 self.passengers.append(blocker)
+
+    def _blocker_position_has_clearance(self, position: tuple[float, float]) -> bool:
+        minimum_distance = self.scenario.jupedsim_agent_radius_units * 2.2 + 1e-6
+        return all(
+            hypot(position[0] - passenger.pos[0], position[1] - passenger.pos[1])
+            >= minimum_distance
+            for passenger in self.passengers
+        )
 
     def clear_blockers(self) -> None:
         for blocker in self.blockers:

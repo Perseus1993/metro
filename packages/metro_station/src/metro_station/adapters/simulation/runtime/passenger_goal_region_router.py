@@ -2,19 +2,21 @@ from __future__ import annotations
 
 from math import cos, hypot, pi, sin
 
-from shapely.geometry import LineString, Point as ShapelyPoint
-from shapely.ops import unary_union
+from shapely.geometry import Point as ShapelyPoint
 
 from ..facilities.filters import filter_facilities_for_passenger
 from ..planning.goal_choice import MinimumPerceivedCostSelector
 from ..planning.goal_events import DecisionObservation
-from ..planning.plan import AgentIntent, AgentState, FacilityStage, RouteKey
+from ..planning.plan import AgentIntent, AgentState, FacilityStage
 from ..station.geometry import project_to_safe_point
+from .decision_holding import DecisionHoldingCapacityError
 from .evacuation_journey_rerouting import refresh_evacuation_facility_path
+from .passenger_goal_decision_geometry import PassengerGoalDecisionGeometryMixin
 from .passenger_goal_observation import build_goal_facility_observations
 
 
 _DECISION_REGION_STAGES = {
+    "entry_gate_decision": FacilityStage.ENTRY_GATE.value,
     "vertical_decision": FacilityStage.VERTICAL_TRANSFER.value,
     "boarding_decision": FacilityStage.BOARDING_DOOR.value,
     "exit_gate_decision": FacilityStage.EXIT_GATE.value,
@@ -27,18 +29,12 @@ _MEMBERSHIP_REGION_STAGES = {
 }
 
 
-class PassengerGoalRegionRouter:
+class PassengerGoalRegionRouter(PassengerGoalDecisionGeometryMixin):
     """Translate strategic region ids into existing physical station routes."""
 
     def route(self, model, passenger, region_id: str) -> tuple[tuple[float, float], ...]:
         region = self._base_region(region_id)
         self._apply_target_platform_constraints(model, passenger)
-        if region == "entry_gate_decision":
-            return model.layout_graph.route_for_key(
-                RouteKey.ENTRY_GATE_DECISION,
-                passenger.pos,
-                passenger,
-            )
         if region in _DECISION_REGION_STAGES:
             target = self._decision_region_target(
                 model,
@@ -116,18 +112,22 @@ class PassengerGoalRegionRouter:
             facility
             for facility in candidates
             if level_id is None
-            or facility.spec.entry_level_id is None
-            or facility.spec.entry_level_id == level_id
+            or model.facility_portal_binding(facility.facility_id).entry_level_id
+            == level_id
         ]
-        candidates = [
+        physical_candidates = [
             facility
             for facility in candidates
-            if not bool(getattr(facility, "is_forced_disabled", False))
-            and self._facility_is_on_passenger_walkable_component(
+            if self._facility_is_on_passenger_walkable_component(
                 model,
                 passenger,
                 facility,
             )
+        ]
+        candidates = [
+            facility
+            for facility in physical_candidates
+            if not bool(getattr(facility, "is_forced_disabled", False))
         ]
         selectable = [
             facility
@@ -137,18 +137,33 @@ class PassengerGoalRegionRouter:
         ]
         if selectable:
             candidates = selectable
-        if not candidates:
+        if not physical_candidates:
             raise ValueError(
                 f"Goal Graph decision region {region_id!r} has no facility portals "
                 f"on level {level_id!r}"
             )
 
-        selection = self._tactical_facility_selection(
+        # A temporary total closure is congestion/backpressure, not a broken
+        # station topology.  Keep the physical portals as holding anchors and
+        # retry selection after control state changes.
+        selection = (
+            self._tactical_facility_selection(
+                model,
+                passenger,
+                region_id,
+                stage,
+                candidates,
+            )
+            if candidates
+            else None
+        )
+        if not candidates:
+            candidates = physical_candidates
+        self._record_selection_hysteresis(
             model,
             passenger,
             region_id,
-            stage,
-            candidates,
+            selection,
         )
         preferred_facility_id = (
             selection.facility_id if selection is not None else candidates[0].facility_id
@@ -160,6 +175,7 @@ class PassengerGoalRegionRouter:
         )
 
         if selection is not None:
+            model._clear_all_decision_holding_reservations(passenger)
             # A decision-region target is already a physical queue-side body
             # position.  Claim it before walking begins; otherwise every agent
             # can be routed to the same tail portal and only discover the
@@ -174,6 +190,48 @@ class PassengerGoalRegionRouter:
         )
         approaches = tuple(point for _facility, point in approach_records)
         area = model.jupedsim_walkable_area(level_id)
+        if selection is None:
+            if (
+                stage == FacilityStage.BOARDING_DOOR.value
+                and any(passenger in platform.waiting for platform in model.platforms)
+            ):
+                local = self._local_facilities_at_position(
+                    model,
+                    passenger,
+                    candidates,
+                    passenger.pos,
+                    area,
+                )
+                if local:
+                    model._clear_all_decision_holding_reservations(passenger)
+                    self._record_decision_context(
+                        passenger,
+                        region_id,
+                        local,
+                        passenger.pos,
+                        preferred_facility_id=preferred_facility_id,
+                    )
+                    return tuple(passenger.pos)
+            try:
+                target = model._reserve_decision_holding_slot(
+                    passenger,
+                    region_id,
+                    approaches,
+                )
+            except DecisionHoldingCapacityError:
+                # Finite holding capacity applies upstream backpressure.  The
+                # passenger is already a collision-managed physical body, so
+                # retaining the committed position is safer than aborting the
+                # run or manufacturing an overlapping overflow slot.
+                target = tuple(passenger.pos)
+            self._record_decision_context(
+                passenger,
+                region_id,
+                candidates,
+                target,
+                preferred_facility_id=preferred_facility_id,
+            )
+            return target
         decision_region = self._decision_region_domain(model, approaches, area)
         passenger_point = ShapelyPoint(passenger.pos)
         local_at_position = self._local_facilities_at_position(
@@ -280,8 +338,8 @@ class PassengerGoalRegionRouter:
             for facility in candidates
             if (
                 passenger.current_level_id is None
-                or facility.spec.entry_level_id is None
-                or facility.spec.entry_level_id == passenger.current_level_id
+                or model.facility_portal_binding(facility.facility_id).entry_level_id
+                == passenger.current_level_id
             )
             and self._has_local_portal_access(
                 model,
@@ -321,6 +379,16 @@ class PassengerGoalRegionRouter:
     ):
         """Choose a physical observation catchment by auditable generalized cost."""
 
+        region = self._base_region(region_id)
+        if current_facility_id is None:
+            current_facility_id = (
+                passenger.decision_preferred_facility_id_by_region.get(region)
+            )
+        reconsider_after_seconds = (
+            passenger.decision_reconsider_after_seconds_by_region.get(region)
+            if current_facility_id is not None
+            else None
+        )
         observations = build_goal_facility_observations(
             model,
             passenger,
@@ -335,11 +403,35 @@ class PassengerGoalRegionRouter:
                 current_region_id=region_id,
                 candidates=observations,
                 committed_facility_id=current_facility_id,
+                reconsider_after_seconds=reconsider_after_seconds,
+                commitment_duration_seconds=float(
+                    model.scenario.facility_commitment_seconds
+                ),
+                replan_cooldown_seconds=float(
+                    model.scenario.facility_replan_cooldown_seconds
+                ),
                 minimum_improvement_seconds=float(
                     model.scenario.facility_replan_minimum_improvement_seconds
                 ),
             ),
         )
+
+    def _record_selection_hysteresis(
+        self,
+        model,
+        passenger,
+        region_id: str,
+        selection,
+    ) -> None:
+        if selection is None:
+            return
+        region = self._base_region(region_id)
+        previous = passenger.decision_preferred_facility_id_by_region.get(region)
+        if previous is None or previous == selection.facility_id:
+            return
+        passenger.decision_reconsider_after_seconds_by_region[region] = float(
+            model.current_time_seconds
+        ) + float(model.scenario.facility_replan_cooldown_seconds)
 
     def decision_context_needs_reroute(
         self,
@@ -358,6 +450,28 @@ class PassengerGoalRegionRouter:
             return False
         if target is None:
             return True
+        if region in passenger.decision_holding_target_by_region:
+            live_candidates = tuple(
+                facility
+                for facility in candidates
+                if facility.spec.stage == stage
+                and not bool(getattr(facility, "is_forced_disabled", False))
+            )
+            if not live_candidates:
+                return False
+            # A holding context records only the portals that were viable when
+            # it was compiled. Dynamic recovery can make a different bank live
+            # while the old one remains saturated. Re-evaluate the complete
+            # current stage here; restricting the observation to recorded_ids
+            # strands every waiting body behind the first one-slot claimant.
+            selection = self._tactical_facility_selection(
+                model,
+                passenger,
+                region_id,
+                stage,
+                live_candidates,
+            )
+            return selection is not None
         if (
             passenger.intent == AgentIntent.EVACUATE_STATION.value
             and stage == FacilityStage.VERTICAL_TRANSFER.value
@@ -374,8 +488,10 @@ class PassengerGoalRegionRouter:
                 continue
             if (
                 passenger.current_level_id is not None
-                and facility.spec.entry_level_id is not None
-                and facility.spec.entry_level_id != passenger.current_level_id
+                and model.facility_portal_binding(
+                    facility.facility_id
+                ).entry_level_id
+                != passenger.current_level_id
             ):
                 continue
             if not self._has_local_portal_access(
@@ -409,7 +525,9 @@ class PassengerGoalRegionRouter:
                 stage,
                 candidates,
             )
-            return selection is not None and selection.facility_id not in recorded_ids
+            if selection is None or selection.facility_id in recorded_ids:
+                return False
+            return True
 
         current_facility_id = passenger.decision_preferred_facility_id_by_region.get(
             region
@@ -431,137 +549,29 @@ class PassengerGoalRegionRouter:
             return False
         if selection.facility_id not in recorded_ids:
             return True
+        self._record_selection_hysteresis(
+            model,
+            passenger,
+            region_id,
+            selection,
+        )
         passenger.decision_preferred_facility_id_by_region[region] = selection.facility_id
         return False
 
-    def clear_decision_context(self, passenger, region_id: str) -> None:
+    def clear_decision_context(
+        self,
+        passenger,
+        region_id: str,
+        *,
+        preserve_preference: bool = False,
+    ) -> None:
         region = self._base_region(region_id)
+        passenger.model._clear_decision_holding_reservation(passenger, region)
         passenger.decision_facility_ids_by_region.pop(region, None)
         passenger.decision_target_by_region.pop(region, None)
-        passenger.decision_preferred_facility_id_by_region.pop(region, None)
-
-    def _decision_region_domain(self, model, approaches, area):
-        """Build a physical decision domain from reachable facility portals.
-
-        A decision region is an area in which the downstream alternatives are
-        physically present, not a synthetic waypoint at their arithmetic mean.
-        Local portal catchments generalise to one or many facilities without
-        filling the empty space between distant banks. They are clipped to the
-        current level's walkable geometry; membership additionally requires a
-        body-clear direct approach to at least one portal.
-        """
-        observation_margin = self._decision_observation_margin(model)
-        portal_envelope = unary_union(
-            [
-                ShapelyPoint(point).buffer(observation_margin)
-                for point in approaches
-            ]
-        )
-        decision_region = area.intersection(portal_envelope)
-        if not decision_region.is_empty:
-            return decision_region
-        # Defensive fallback for malformed/tiny walkable geometries: every
-        # approach was already projected into ``area``, so at least its first
-        # portal remains a valid physical target.
-        return ShapelyPoint(approaches[0]).buffer(observation_margin).intersection(area)
-
-    def _decision_observation_margin(self, model) -> float:
-        return max(
-            float(model.scenario.jupedsim_target_radius_units) * 4.0,
-            float(getattr(model.scenario, "personal_space_units", 0.8)) * 2.0,
-            float(model.scenario.jupedsim_agent_radius_units) * 4.0,
-        )
-
-    def _has_local_portal_access(self, model, position, approaches, area) -> bool:
-        margin = self._decision_observation_margin(model)
-        body_radius = max(
-            0.02,
-            float(model.scenario.jupedsim_agent_radius_units),
-        )
-        for approach in approaches:
-            if self._distance(position, approach) > margin + 1e-9:
-                continue
-            if self._distance(position, approach) <= 1e-9:
-                return True
-            sight_line = LineString((position, approach))
-            if area.buffer(1e-7).covers(
-                sight_line.buffer(body_radius, cap_style="flat")
-            ):
-                return True
-        return False
-
-    def _representative_facility_approach(
-        self,
-        model,
-        passenger,
-        facility,
-    ) -> tuple[float, float]:
-        layout = getattr(facility, "approach_queue_layout", facility.spec.queue_layout)
-        slots = tuple(layout.slots)
-        indices = tuple(model._facility_approach_slot_indices(facility))
-        raw = (
-            slots[indices[-1]]
-            if slots and indices
-            else slots[-1]
-            if slots
-            else facility.spec.queue_layout.anchor
-        )
-        level_id = facility.spec.entry_level_id or passenger.current_level_id
-        return project_to_safe_point(
-            model.jupedsim_walkable_area(level_id),
-            model.clamp_position(raw),
-            clearance=max(0.02, model.scenario.jupedsim_agent_radius_units * 1.05),
-            require_inside=False,
-        )
-
-    def _facility_decision_points(self, model, passenger, facility):
-        """Return the physical queue catchment represented by a facility.
-
-        Including every configured queue slot matters for boarding platforms:
-        a passenger already occupying a legitimate waiting/queue-side point
-        must not first walk to a synthetic observation line and then reverse
-        back toward the selected door.
-        """
-        layout = getattr(facility, "approach_queue_layout", facility.spec.queue_layout)
-        slots = tuple(layout.slots)
-        raw_points = slots or (layout.anchor,)
-        level_id = facility.spec.entry_level_id or passenger.current_level_id
-        area = model.jupedsim_walkable_area(level_id)
-        clearance = max(0.02, model.scenario.jupedsim_agent_radius_units * 1.05)
-        projected: list[tuple[float, float]] = []
-        seen: set[tuple[float, float]] = set()
-        for point in raw_points:
-            safe = project_to_safe_point(
-                area,
-                model.clamp_position(point),
-                clearance=clearance,
-                require_inside=False,
-            )
-            key = (round(safe[0], 6), round(safe[1], 6))
-            if key in seen:
-                continue
-            seen.add(key)
-            projected.append(safe)
-        return tuple(projected)
-
-    def _facility_is_on_passenger_walkable_component(
-        self,
-        model,
-        passenger,
-        facility,
-    ) -> bool:
-        level_id = passenger.current_level_id
-        area = model.jupedsim_walkable_area(level_id)
-        passenger_point = ShapelyPoint(passenger.pos)
-        approach = ShapelyPoint(
-            self._representative_facility_approach(model, passenger, facility)
-        )
-        components = tuple(getattr(area, "geoms", (area,)))
-        return any(
-            component.buffer(1e-7).covers(passenger_point)
-            and component.buffer(1e-7).covers(approach)
-            for component in components
-        )
+        if not preserve_preference:
+            passenger.decision_preferred_facility_id_by_region.pop(region, None)
+            passenger.decision_reconsider_after_seconds_by_region.pop(region, None)
 
     def _dispersed_region_target(
         self,
@@ -627,8 +637,8 @@ class PassengerGoalRegionRouter:
             facility
             for facility in ordered
             if level_id is None
-            or facility.spec.exit_level_id is None
-            or facility.spec.exit_level_id == level_id
+            or model.facility_portal_binding(facility.facility_id).exit_level_id
+            == level_id
         ]
         if not anchors:
             raise ValueError(
@@ -655,9 +665,14 @@ class PassengerGoalRegionRouter:
             return tuple(passenger.pos)
         facility = min(
             anchors,
-            key=lambda item: self._distance(passenger.pos, item.spec.exit_position),
+            key=lambda item: self._distance(
+                passenger.pos,
+                model.facility_portal_binding(item.facility_id).exit_point,
+            ),
         )
-        exit_position = tuple(facility.spec.exit_position)
+        exit_position = tuple(
+            model.facility_portal_binding(facility.facility_id).exit_point
+        )
         coverage_radius = max(
             float(model.scenario.jupedsim_target_radius_units),
             float(getattr(facility.spec, "traversal_width_m", 0.0) or 0.0) / 2.0
@@ -677,6 +692,7 @@ class PassengerGoalRegionRouter:
             passenger,
             (target,),
             level_id=passenger.current_level_id,
+            include_navigation_waypoints=True,
         )
         return route or (target,)
 

@@ -135,6 +135,33 @@ def test_invalid_drag_or_resize_has_a_stable_reason(mutation: str, expected_code
     assert expected_code in issue_codes
 
 
+def test_nonblocking_scene_annotation_does_not_trigger_physical_overlap() -> None:
+    document = create_design("single_level_terminal")
+    gate = document.element_by_id()["gate_bank_a"]
+    decoration = next(item for item in document.elements if item.kind == "shop")
+    decoration = replace(
+        decoration,
+        geometry=gate.geometry,
+        metadata={
+            **decoration.metadata,
+            "presentation_only": True,
+            "blocking": False,
+        },
+    )
+    annotated = replace(
+        document,
+        elements=tuple(
+            decoration if item.id == decoration.id else item
+            for item in document.elements
+        ),
+    )
+
+    issue_codes = {issue.code for issue in validate_design(annotated)}
+
+    assert "layout.components_overlap" not in issue_codes
+    assert "layout.component_clearance_too_small" not in issue_codes
+
+
 def test_minimum_simulatable_layout_requires_entrance_gates_and_platform() -> None:
     document = create_design("single_level_terminal")
     incomplete = replace(
@@ -210,53 +237,63 @@ def test_valid_drag_runs_small_goal_graph_jupedsim_preview(seed: int) -> None:
     assert result["trajectory_report"] is not None
 
 
-def test_two_thousand_random_drag_payloads_are_deterministic_and_safe() -> None:
-    rng = random.Random(20260713)
+@pytest.mark.parametrize("template_id", TEMPLATE_IDS)
+@pytest.mark.parametrize("chunk_index", range(4))
+def test_two_thousand_random_drag_payloads_are_deterministic_and_safe(
+    template_id: str,
+    chunk_index: int,
+) -> None:
+    # Sixteen independently runnable 125-payload shards keep the complete
+    # 2,000-case corpus practical under the per-test watchdog.
+    rng = random.Random(f"20260713:{template_id}")
     valid_count = 0
     invalid_count = 0
-    for template_id in TEMPLATE_IDS:
-        document = create_design(template_id)
-        flow = to_react_flow(document)
-        movable_ids = [
-            node["id"]
-            for node in flow["nodes"]
-            if node.get("draggable") and str(node["id"]).startswith("element:")
-        ]
-        assert movable_ids
-        for _ in range(500):
-            nodes = copy.deepcopy(flow["nodes"])
-            node_id = rng.choice(movable_ids)
-            node = next(candidate for candidate in nodes if candidate["id"] == node_id)
-            if rng.random() < 0.7:
-                node["position"] = {
-                    "x": node["position"]["x"] + rng.uniform(-0.1, 0.1),
-                    "y": node["position"]["y"] + rng.uniform(-0.1, 0.1),
-                }
-            else:
-                node["position"] = {
-                    "x": rng.uniform(-5.0, document.constraints.canvas_width_m + 5.0),
-                    "y": rng.uniform(-5.0, document.constraints.canvas_height_m + 5.0),
-                }
-            if node["data"].get("resizable") and rng.random() < 0.15:
-                node["data"]["inspector_size_m"] = {
-                    "width": rng.uniform(0.2, 40.0),
-                    "height": rng.uniform(0.2, 25.0),
-                }
+    document = create_design(template_id)
+    flow = to_react_flow(document)
+    movable_ids = [
+        node["id"]
+        for node in flow["nodes"]
+        if node.get("draggable") and str(node["id"]).startswith("element:")
+    ]
+    assert movable_ids
+    chunk_size = 125
+    for case_index in range(500):
+        nodes = copy.deepcopy(flow["nodes"])
+        node_id = rng.choice(movable_ids)
+        node = next(candidate for candidate in nodes if candidate["id"] == node_id)
+        if rng.random() < 0.7:
+            node["position"] = {
+                "x": node["position"]["x"] + rng.uniform(-0.1, 0.1),
+                "y": node["position"]["y"] + rng.uniform(-0.1, 0.1),
+            }
+        else:
+            node["position"] = {
+                "x": rng.uniform(-5.0, document.constraints.canvas_width_m + 5.0),
+                "y": rng.uniform(-5.0, document.constraints.canvas_height_m + 5.0),
+            }
+        if node["data"].get("resizable") and rng.random() < 0.15:
+            node["data"]["inspector_size_m"] = {
+                "width": rng.uniform(0.2, 40.0),
+                "height": rng.uniform(0.2, 25.0),
+            }
 
-            edited = apply_react_flow_nodes(document, nodes)
-            first = [issue.as_dict() for issue in validate_design(edited)]
-            second = [issue.as_dict() for issue in validate_design(edited)]
+        if case_index // chunk_size != chunk_index:
+            continue
 
-            assert first == second
-            assert all(issue["code"] and issue["path"] and issue["message"] for issue in first)
-            if any(issue["severity"] == "error" for issue in first):
-                invalid_count += 1
-            else:
-                valid_count += 1
+        edited = apply_react_flow_nodes(document, nodes)
+        first = [issue.as_dict() for issue in validate_design(edited)]
+        second = [issue.as_dict() for issue in validate_design(edited)]
+
+        assert first == second
+        assert all(issue["code"] and issue["path"] and issue["message"] for issue in first)
+        if any(issue["severity"] == "error" for issue in first):
+            invalid_count += 1
+        else:
+            valid_count += 1
 
     assert valid_count > 0
     assert invalid_count > 0
-    assert valid_count + invalid_count == 2_000
+    assert valid_count + invalid_count == chunk_size
 
 
 def test_frontend_moves_attached_queue_in_the_same_drag_change() -> None:

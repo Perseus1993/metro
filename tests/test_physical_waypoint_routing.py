@@ -11,6 +11,7 @@ from metro_station.adapters.simulation.agents.passenger import PassengerAgent
 from metro_station.adapters.simulation.design import create_design
 from metro_station.adapters.simulation.design.station_generation import with_generated_queues
 from metro_station.adapters.simulation.facilities.process import FacilityKind
+from metro_station.adapters.simulation.movement.jps_adapter import JuPedSimAdapter
 from metro_station.adapters.simulation.planning.plan import AgentIntent, RouteKey
 from metro_station.adapters.simulation.runtime.mesa_model import MetroStationModel
 from metro_station.adapters.simulation.runtime.physical_waypoint_routing import (
@@ -127,6 +128,93 @@ def test_navigation_mesh_route_detours_around_blocking_geometry() -> None:
     assert len(route) >= 3
     assert route[-1] == pytest.approx((8.0, 5.0))
     assert walkable.buffer(1e-7).covers(LineString(((2.0, 5.0), *route)))
+    assert walkable.buffer(-0.1).buffer(1e-6).covers(
+        LineString(((2.0, 5.0), *route))
+    )
+
+
+def test_runtime_sends_semantic_stage_and_jupedsim_owns_local_wayfinding() -> None:
+    walkable = Polygon(
+        [(0.0, 0.0), (10.0, 0.0), (10.0, 10.0), (0.0, 10.0)],
+        holes=[[(4.0, 0.0), (6.0, 0.0), (6.0, 8.0), (4.0, 8.0)]],
+    )
+    command_route = PhysicalWaypointRouter().route(
+        walkable,
+        (2.0, 5.0),
+        ((8.0, 5.0),),
+        level_id="concourse",
+        clearance=0.18,
+        include_navigation_waypoints=False,
+    )
+    assert command_route == ((8.0, 5.0),)
+
+    adapter = JuPedSimAdapter()
+    if not adapter.status.available:
+        pytest.skip(adapter.status.message)
+    session = adapter.create_walking_session(
+        width=10.0,
+        height=10.0,
+        walkable_area=walkable,
+        operational_model="social_force",
+        agent_radius=0.18,
+        target_radius=0.45,
+        dt_seconds=0.01,
+    )
+    session.ensure_agent(
+        passenger_id=1,
+        position=(2.0, 5.0),
+        target=command_route[-1],
+        target_radius=0.45,
+        desired_speed_mps=1.2,
+    )
+    positions: list[tuple[float, float]] = []
+    for _ in range(1_500):
+        session.iterate(1)
+        position = session.position_for(1)
+        if position is not None:
+            positions.append(position)
+        if session.waypoint_arrival_held(1):
+            break
+
+    assert session.waypoint_arrival_held(1)
+    assert max(point[1] for point in positions) > 8.18
+    assert all(walkable.buffer(1e-7).covers(Point(point)) for point in positions)
+
+
+def test_default_operational_model_clears_the_visual_station_concave_corner() -> None:
+    model = _model()
+    assert model.scenario.jupedsim_operational_model == "collision_free_speed"
+    adapter = JuPedSimAdapter()
+    if not adapter.status.available:
+        pytest.skip(adapter.status.message)
+    area = model.jupedsim_walkable_area("b1_concourse")
+    session = adapter.create_walking_session(
+        width=model.layout_graph.geometry.width,
+        height=model.layout_graph.geometry.height,
+        walkable_area=area,
+        operational_model=model.scenario.jupedsim_operational_model,
+        agent_radius=model.scenario.jupedsim_agent_radius_units,
+        target_radius=model.scenario.jupedsim_target_radius_units,
+        dt_seconds=model.simulation_clock.jupedsim_dt_seconds,
+    )
+    cases = (
+        (1, (45.2133507993, 15.2753455815), (23.8196, 13.715)),
+        (2, (45.1229666055, 15.8856824601), (25.8968, 13.715)),
+    )
+    for passenger_id, position, target in cases:
+        session.ensure_agent(
+            passenger_id=passenger_id,
+            position=position,
+            target=target,
+            target_radius=model.scenario.jupedsim_target_radius_units,
+            desired_speed_mps=0.65,
+        )
+    for _ in range(12_000):
+        session.iterate(1)
+        if all(session.waypoint_arrival_held(case[0]) for case in cases):
+            break
+
+    assert all(session.waypoint_arrival_held(case[0]) for case in cases)
 
 
 def test_unreachable_or_outside_physical_target_fails_explicitly() -> None:

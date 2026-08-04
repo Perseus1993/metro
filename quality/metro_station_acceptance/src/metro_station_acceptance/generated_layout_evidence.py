@@ -81,13 +81,16 @@ def render_generated_simulation_markdown(
         f"- Samples: `{len(report.records)}`",
         f"- Seeds: `{', '.join(str(seed) for seed in report.seeds)}`",
         f"- Operations included: `{str(report.include_operations).lower()}`",
+        f"- Trajectory scientific status: `{report.trajectory_scientific_status}`",
         f"- Status: **{report.status.upper()}**",
         "",
         "## Samples",
         "",
     ]
     lines.extend(
-        f"- `{record.recipe_id}` / `{record.operation_profile}`: {record.status}"
+        f"- `{record.recipe_id}` / `{record.operation_profile}`: "
+        f"engineering={record.status}, "
+        f"trajectory_science={record.trajectory_scientific_status}"
         for record in report.records
     )
     return "\n".join(lines) + "\n"

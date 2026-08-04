@@ -272,6 +272,13 @@ def test_idle_escalator_direction_changes_and_restores() -> None:
     model.step()
     assert facility.spec.direction == "up"
     assert facility.spec.entry_level_id == "b2_platform"
+    active_binding = model.facility_portal_binding(facility_id)
+    assert active_binding.direction == facility.spec.direction
+    assert active_binding.entry_point == facility.spec.position
+    assert active_binding.exit_point == facility.spec.exit_position
+    assert active_binding.entry_level_id == facility.spec.entry_level_id
+    assert active_binding.exit_level_id == facility.spec.exit_level_id
+    assert tuple(facility.queue.layout.slots) == active_binding.queue_slots
     assert facility.spec.queue_layout.slot(0) != facility.spec.queue_layout.slot(1)
     assert model.jupedsim_walkable_area("b2_platform").covers(
         Point(facility.spec.queue_layout.slot(1))
@@ -281,9 +288,10 @@ def test_idle_escalator_direction_changes_and_restores() -> None:
     model.step()
     assert facility.spec.direction == "down"
     assert facility.spec.entry_level_id == original_entry
+    assert model.facility_portal_binding(facility_id).direction == "down"
 
 
-def test_escalator_direction_change_is_rejected_while_queue_is_occupied() -> None:
+def test_escalator_direction_change_waits_until_the_queue_is_drained() -> None:
     facility_id = "vertical:down_escalator_a:down:b1_concourse:b2_platform"
     measure = ControlMeasure(
         "reverse_busy_escalator",
@@ -308,11 +316,19 @@ def test_escalator_direction_change_is_rejected_while_queue_is_occupied() -> Non
 
     model.control_timeline_controller.apply_due(model)
 
-    applied = model.control_timeline_controller.applied_events[0]
-    assert applied.status == "rejected"
-    assert applied.details["reason"] == "escalator_not_idle"
+    assert model.control_timeline_controller.applied_events == []
+    assert model.control_timeline_controller.has_pending_events
     assert facility.spec.direction == "down"
     assert model.control_timeline_controller.active_controls() == ()
+
+    facility.queue.remove(passenger)
+    model.control_timeline_controller.apply_due(model)
+
+    applied = model.control_timeline_controller.applied_events[0]
+    assert applied.status == "applied"
+    assert applied.applied_seconds >= applied.scheduled_seconds
+    assert facility.spec.direction == "up"
+    assert model.control_timeline_controller._pending_runtime_events == []
 
 
 def test_escalator_reversal_refreshes_exact_evacuation_path_before_selection() -> None:
@@ -377,7 +393,10 @@ def test_newly_usable_reversed_escalator_can_replace_still_valid_old_path() -> N
     passenger = model._spawn_passenger(AgentIntent.EVACUATE_STATION)
     platform = model.layout_graph.station_graph.nodes_matching(kind="platform")[0]
     passenger.current_level_id = platform.level_id
-    passenger.pos = platform.position
+    passenger.pos = model.layout_graph.facility_portal_binding_variant(
+        facility_id,
+        "up",
+    ).entry_point
     passenger.goal_runtime = model.evacuation_goal_runtime_from_position(
         passenger,
         station_interior=True,
@@ -460,7 +479,7 @@ def test_blocking_selected_vertical_portal_reroots_to_walkable_alternative() -> 
     assert selected_id not in passenger.evacuation_facility_path
 
 
-def test_wall_detour_changes_evacuation_choice_without_covering_any_portal() -> None:
+def test_wall_that_does_not_change_route_cost_keeps_evacuation_choice() -> None:
     measure = ControlMeasure(
         "detour_wall",
         WATER_BARRIER,
@@ -510,7 +529,10 @@ def test_wall_detour_changes_evacuation_choice_without_covering_any_portal() -> 
         for facility in model.vertical_transports
         if facility.spec.entry_level_id == "b2_platform"
     )
-    assert passenger.evacuation_facility_path != old_path
+    # This barrier does not intersect or lengthen the selected tactical route.
+    # Replanning must therefore remain deterministic instead of switching just
+    # because a topology-change event occurred.
+    assert passenger.evacuation_facility_path == old_path
 
 
 def test_staff_guidance_biases_and_counts_target_selection() -> None:

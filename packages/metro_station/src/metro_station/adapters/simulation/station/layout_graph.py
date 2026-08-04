@@ -7,6 +7,11 @@ from dataclasses import dataclass, field
 from ..planning.plan import AgentState, FacilityStage, RouteKey
 from ..design.schema import StationDesignDocument
 from ..compilation.validation import validate_station_design
+from ..compilation.facility_portals import (
+    compile_facility_portal_bindings,
+    validate_facility_portals,
+)
+from ..compilation.geometry_reachability import GeometryCompilePolicy
 from ..facilities.process import (
     FacilityKind,
     FacilitySpec,
@@ -14,6 +19,9 @@ from ..facilities.process import (
 )
 from .scenario import StationGeometry, StationSandboxScenario
 from .graph import StationGraph
+from .facility_portal_binding import FacilityPortalBinding
+from ..compilation.decision_holding_regions import DecisionHoldingRegionBinding
+from ..compilation.spatial_capacity import SpatialCapacityCertificate, SpatialDemandContract
 
 
 from .layout_facilities import (
@@ -41,6 +49,11 @@ class LayoutGraph:
     nodes: dict[str, LayoutNode]
     edges: tuple[LayoutEdge, ...]
     facilities: tuple[FacilitySpec, ...]
+    facility_portal_bindings: tuple[FacilityPortalBinding, ...] = ()
+    facility_portal_binding_variants: tuple[FacilityPortalBinding, ...] = ()
+    decision_holding_regions: tuple[DecisionHoldingRegionBinding, ...] = ()
+    spatial_capacity_certificates: tuple[SpatialCapacityCertificate, ...] = ()
+    spatial_demand_contracts: tuple[SpatialDemandContract, ...] = ()
     station_graph: StationGraph | None = field(default=None, compare=False, repr=False)
     route_registry: dict[str, Callable[[Point, object | None], tuple[Point, ...]]] = field(
         default_factory=dict,
@@ -262,7 +275,10 @@ class LayoutGraph:
         document: StationDesignDocument,
         scenario: StationSandboxScenario,
     ) -> "LayoutGraph":
-        issues = validate_station_design(document)
+        issues = validate_station_design(
+            document,
+            geometry_policy=GeometryCompilePolicy.from_scenario(scenario),
+        )
         errors = [issue for issue in issues if issue.severity == "error"]
         if errors:
             summary = "; ".join(f"{issue.code}: {issue.message}" for issue in errors[:5])
@@ -274,6 +290,13 @@ class LayoutGraph:
         cls,
         station_graph: StationGraph,
         scenario: StationSandboxScenario,
+        *,
+        compiled_facilities: tuple[FacilitySpec, ...] | None = None,
+        compiled_portal_bindings: tuple[FacilityPortalBinding, ...] | None = None,
+        compiled_portal_binding_variants: tuple[FacilityPortalBinding, ...] | None = None,
+        compiled_decision_holding_regions: tuple[DecisionHoldingRegionBinding, ...] | None = None,
+        compiled_spatial_capacity_certificates: tuple[SpatialCapacityCertificate, ...] | None = None,
+        compiled_spatial_demand_contracts: tuple[SpatialDemandContract, ...] | None = None,
     ) -> "LayoutGraph":
         document = station_graph.source_document
         geometry = StationGeometry(
@@ -286,11 +309,48 @@ class LayoutGraph:
                 else document.constraints.canvas_height_m
             ),
         )
+        facilities = (
+            tuple(_facility_specs_from_station_graph(station_graph, scenario))
+            if compiled_facilities is None
+            else compiled_facilities
+        )
+        portal_policy = GeometryCompilePolicy.from_scenario(scenario)
+        portal_bindings = (
+            compile_facility_portal_bindings(
+                document,
+                facilities,
+                policy=portal_policy,
+                graph=station_graph,
+            )
+            if document is not None and compiled_portal_bindings is None
+            else compiled_portal_bindings or ()
+        )
+        portal_issues = (
+            validate_facility_portals(
+                document,
+                facilities,
+                portal_bindings,
+                policy=portal_policy,
+            )
+            if document is not None
+            else []
+        )
+        portal_errors = [item for item in portal_issues if item.severity == "error"]
+        if portal_errors:
+            summary = "; ".join(
+                f"{item.code}: {item.message}" for item in portal_errors[:8]
+            )
+            raise ValueError(f"Facility portal compilation failed: {summary}")
         return cls(
             geometry=geometry,
             nodes=_layout_nodes_from_station_graph(station_graph.nodes),
             edges=_layout_edges_from_station_graph(station_graph.edges),
-            facilities=tuple(_facility_specs_from_station_graph(station_graph, scenario)),
+            facilities=facilities,
+            facility_portal_bindings=portal_bindings,
+            facility_portal_binding_variants=compiled_portal_binding_variants or (),
+            decision_holding_regions=compiled_decision_holding_regions or (),
+            spatial_capacity_certificates=compiled_spatial_capacity_certificates or (),
+            spatial_demand_contracts=compiled_spatial_demand_contracts or (),
             station_graph=station_graph,
             route_registry=_route_registry_from_station_graph(station_graph),
             platform_waiting_slots_per_row=scenario.platform_waiting_slots_per_row,

@@ -14,6 +14,7 @@ from metro_station.application.replay import ReplayPackage
 
 from ..facilities.service_events import FacilityServiceEvent
 from ..movement.trajectory_trace import movement_trace_from_any
+from ..movement.facility_motion_trace import facility_motion_trace_from_any
 from ..planning.plan import WALKING_STATES
 from ..runtime.evacuation_metrics import evacuation_metrics
 from ..runtime.contracts import (
@@ -62,13 +63,6 @@ from .visual_track_samples import (
     _queue_sample_from_frame,
     _target_mode,
 )
-from .visual_track_waypoints import (
-    _finalize_presentation_service_waypoints,
-    _insert_gate_service_waypoints,
-    _insert_vertical_service_waypoints,
-)
-
-
 FrameInput = FrameSnapshot | Mapping[str, Any]
 
 
@@ -141,7 +135,11 @@ def _merge_authoritative_movement_points(
         points = record.get("points")
         occupied_times[passenger_id] = (
             {
-                round(float(point[0]), 6): index
+                # The public track schema serialises time to centiseconds.
+                # Occupancy must use that same identity; otherwise two
+                # authoritative boundary samples such as 216.395 and 216.400
+                # survive as duplicate 216.40 renderer points.
+                round(float(point[0]), 2): index
                 for index, point in enumerate(points)
                 if isinstance(point, Sequence)
                 and not isinstance(point, str | bytes)
@@ -156,7 +154,7 @@ def _merge_authoritative_movement_points(
             raise TypeError(f"movement_trace point {source_index} must be an object")
         passenger_id = int(raw_point["passenger_id"])
         time_s = float(raw_point["time_seconds"])
-        time_key = round(time_s, 6)
+        time_key = round(time_s, 2)
         record = agents_by_id.get(passenger_id)
         contexts = snapshot_context_by_id.get(passenger_id)
         if record is None or not contexts:
@@ -210,6 +208,90 @@ def _merge_authoritative_movement_points(
             points[existing_index] = movement_point
 
 
+def _merge_authoritative_facility_motion_points(
+    agents_by_id: dict[int, dict[str, object]],
+    snapshot_context_by_id: Mapping[int, list[tuple[float, PassengerSnapshot]]],
+    facility_motion_trace: Mapping[str, Any],
+    scenario: StationSandboxScenario,
+    *,
+    coordinate_transform: Mapping[str, object],
+) -> None:
+    """Merge process-owned body motion into the renderer's truth track."""
+
+    raw_points = facility_motion_trace.get("points", ())
+    if not isinstance(raw_points, Sequence) or isinstance(raw_points, str | bytes):
+        raise TypeError("facility_motion_trace.points must be an array")
+    occupied_times: dict[int, dict[float, int]] = {}
+    for passenger_id, record in agents_by_id.items():
+        points = record.get("points")
+        occupied_times[passenger_id] = (
+            {
+                round(float(point[0]), 2): index
+                for index, point in enumerate(points)
+                if isinstance(point, Sequence)
+                and not isinstance(point, str | bytes)
+                and point
+            }
+            if isinstance(points, list)
+            else {}
+        )
+
+    for source_index, raw_point in enumerate(raw_points):
+        if not isinstance(raw_point, Mapping):
+            raise TypeError(f"facility motion point {source_index} must be an object")
+        passenger_id = int(raw_point["passenger_id"])
+        time_s = float(raw_point["time_seconds"])
+        time_key = round(time_s, 2)
+        record = agents_by_id.get(passenger_id)
+        contexts = snapshot_context_by_id.get(passenger_id)
+        if record is None or not contexts:
+            raise ValueError(
+                "facility motion passenger has no simulation snapshot context: "
+                f"passenger_id={passenger_id} time={time_s}"
+            )
+        context = _snapshot_context_at(contexts, time_s)
+        px, py = _canvas_position(
+            (float(raw_point["x"]), float(raw_point["y"])),
+            scenario,
+        )
+        target = _passenger_goal_canvas_target(context, scenario)
+        target_mode = _target_mode(context)
+        diagnostic = _diagnostic_code(context, None, target)
+        points = record.get("points")
+        assert isinstance(points, list)
+        facility_point = [
+            round(time_s, 2),
+            round(px, 2),
+            round(py, 2),
+            0.0,
+            0.94,
+            round(target[0], 2) if target is not None else None,
+            round(target[1], 2) if target is not None else None,
+            target_mode,
+            diagnostic,
+            _simulation_point_meta(
+                authority="simulation_trace.facility_motion_trace",
+                coordinate_transform=coordinate_transform,
+                source_index=source_index,
+                level_id=(
+                    None
+                    if raw_point.get("level_id") is None
+                    else str(raw_point.get("level_id"))
+                ),
+                phase=str(raw_point.get("phase", "facility_process")),
+                state=context.state,
+                episode_id=str(raw_point["episode_id"]),
+                sample_index=int(raw_point["sample_index"]),
+            ),
+        ]
+        existing_index = occupied_times.get(passenger_id, {}).get(time_key)
+        if existing_index is None:
+            points.append(facility_point)
+            occupied_times.setdefault(passenger_id, {})[time_key] = len(points) - 1
+        else:
+            points[existing_index] = facility_point
+
+
 def _snapshot_context_at(
     contexts: list[tuple[float, PassengerSnapshot]],
     time_s: float,
@@ -226,9 +308,13 @@ def _assign_forward_headings(
     *,
     snapshot_interval_seconds: float,
     movement_interval_seconds: float,
+    x_units_per_meter: float = 1.0,
+    y_units_per_meter: float = 1.0,
+    motion_deadband_m: float = 0.01,
 ) -> None:
     if not points:
         return
+    previous_heading = _existing_point_heading(points[0], 0.0)
     segment_start = 0
     for index in range(len(points) - 1):
         if _heading_edge_is_continuous(
@@ -238,23 +324,52 @@ def _assign_forward_headings(
             movement_interval_seconds=movement_interval_seconds,
         ):
             continue
-        _assign_segment_forward_headings(points, segment_start, index)
+        previous_heading = _assign_segment_forward_headings(
+            points,
+            segment_start,
+            index,
+            fallback_heading=previous_heading,
+            x_units_per_meter=x_units_per_meter,
+            y_units_per_meter=y_units_per_meter,
+            motion_deadband_m=motion_deadband_m,
+        )
         segment_start = index + 1
-    _assign_segment_forward_headings(points, segment_start, len(points) - 1)
+    _assign_segment_forward_headings(
+        points,
+        segment_start,
+        len(points) - 1,
+        fallback_heading=previous_heading,
+        x_units_per_meter=x_units_per_meter,
+        y_units_per_meter=y_units_per_meter,
+        motion_deadband_m=motion_deadband_m,
+    )
 
 
 def _assign_segment_forward_headings(
     points: list[Any],
     start: int,
     end: int,
-) -> None:
+    *,
+    fallback_heading: float,
+    x_units_per_meter: float,
+    y_units_per_meter: float,
+    motion_deadband_m: float,
+) -> float:
     directions: list[float | None] = []
     for index in range(start, end):
         current = points[index]
         following = points[index + 1]
         dx = float(following[1]) - float(current[1])
         dy = float(following[2]) - float(current[2])
-        directions.append(math.atan2(dy, dx) if math.hypot(dx, dy) > 0.01 else None)
+        distance_m = math.hypot(
+            dx / max(1e-9, float(x_units_per_meter)),
+            dy / max(1e-9, float(y_units_per_meter)),
+        )
+        directions.append(
+            math.atan2(dy, dx)
+            if distance_m > max(0.0, float(motion_deadband_m))
+            else None
+        )
 
     next_heading: float | None = None
     assigned: list[float | None] = [None] * (end - start + 1)
@@ -263,13 +378,22 @@ def _assign_segment_forward_headings(
             next_heading = directions[local_index]
         assigned[local_index] = next_heading
 
-    previous_heading = 0.0
+    previous_heading = float(fallback_heading)
     for local_index, point_index in enumerate(range(start, end + 1)):
         heading = assigned[local_index]
         if heading is None:
             heading = previous_heading
         points[point_index][3] = round(float(heading), 4)
         previous_heading = float(heading)
+    return previous_heading
+
+
+def _existing_point_heading(point: Sequence[Any], fallback: float) -> float:
+    try:
+        heading = float(point[3])
+    except (IndexError, TypeError, ValueError):
+        return float(fallback)
+    return heading if math.isfinite(heading) else float(fallback)
 
 
 def _heading_edge_is_continuous(
@@ -320,6 +444,7 @@ def write_mesa_visual_tracks_js(
     routing_decision_logs: Iterable[Any] | None = None,
     clearance_debug: Mapping[str, Any] | None = None,
     movement_trace: Mapping[str, Any] | None = None,
+    facility_motion_trace: Mapping[str, Any] | None = None,
 ) -> dict[str, object]:
     payload = mesa_frames_to_visual_tracks(
         frames=frames,
@@ -330,6 +455,7 @@ def write_mesa_visual_tracks_js(
         routing_decision_logs=routing_decision_logs,
         clearance_debug=clearance_debug,
         movement_trace=movement_trace,
+        facility_motion_trace=facility_motion_trace,
     )
     output_path.parent.mkdir(parents=True, exist_ok=True)
     output_path.write_text(
@@ -370,9 +496,13 @@ def mesa_frames_to_visual_tracks(
     routing_decision_logs: Iterable[Any] | None = None,
     clearance_debug: Mapping[str, Any] | None = None,
     movement_trace: Mapping[str, Any] | None = None,
+    facility_motion_trace: Mapping[str, Any] | None = None,
 ) -> dict[str, object]:
     frame_snapshots = tuple(FrameSnapshot.from_any(frame) for frame in frames)
     normalized_movement_trace = movement_trace_from_any(movement_trace)
+    normalized_facility_motion_trace = facility_motion_trace_from_any(
+        facility_motion_trace
+    )
     coordinate_transform = _visual_track_coordinate_transform(scenario)
     duration = _duration(frame_snapshots, scenario)
     final_metrics = frame_snapshots[-1].metrics.to_dict() if frame_snapshots else {}
@@ -449,6 +579,13 @@ def mesa_frames_to_visual_tracks(
         scenario,
         coordinate_transform=coordinate_transform,
     )
+    _merge_authoritative_facility_motion_points(
+        agents_by_id,
+        snapshot_context_by_id,
+        normalized_facility_motion_trace,
+        scenario,
+        coordinate_transform=coordinate_transform,
+    )
     for record in agents_by_id.values():
         points = record.get("points")
         if not isinstance(points, list):
@@ -458,6 +595,14 @@ def mesa_frames_to_visual_tracks(
             points,
             snapshot_interval_seconds=float(scenario.tick_seconds),
             movement_interval_seconds=float(scenario.movement_trace_sample_seconds),
+            x_units_per_meter=(
+                float(coordinate_transform["canvas_width_px"])
+                / float(coordinate_transform["source_width_m"])
+            ),
+            y_units_per_meter=(
+                float(coordinate_transform["canvas_height_px"])
+                / float(coordinate_transform["source_height_m"])
+            ),
         )
 
     queue_samples = [_queue_sample_from_frame(frame, queue_ids) for frame in frame_snapshots]
@@ -470,9 +615,6 @@ def mesa_frames_to_visual_tracks(
         log.as_dict() if callable(getattr(log, "as_dict", None)) else dict(log)
         for log in (routing_decision_logs or [])
     ]
-    _insert_vertical_service_waypoints(agents_by_id, service_event_list, scenario)
-    _insert_gate_service_waypoints(agents_by_id, service_event_list, scenario)
-    _finalize_presentation_service_waypoints(agents_by_id)
     # A passenger can enter and complete during one simulation tick. Its single
     # physical sample is still required trajectory evidence and must not vanish
     # from the exported/debug population ledger.
@@ -567,13 +709,19 @@ def mesa_frames_to_visual_tracks(
                     scenario.movement_trace_sample_seconds
                 ),
                 "walking_interpolation": "linear_between_authoritative_movement_samples",
-                "facility_motion_authority": "simulation_trace.facility_events",
+                "facility_motion_authority": (
+                    "simulation_trace.facility_motion_trace"
+                ),
+                "facility_motion_trace_interval_seconds": float(
+                    scenario.movement_trace_sample_seconds
+                ),
                 "visual_track_coordinate_transform": coordinate_transform,
                 "renderer_track_field": "points",
                 "visual_tracks_authoritative": False,
                 "visual_track_source_points_field": "points",
-                "visual_track_presentation_points_field": "presentation_points",
+                "presentation_position_source": "canonical_composite_points",
                 "facility_overlays_modify_source_points": False,
+                "facility_overlays_control_passenger_bodies": False,
             },
             "routing_evidence": {
                 "decision_count": len(routing_log_list),
@@ -589,6 +737,7 @@ def mesa_frames_to_visual_tracks(
         snapshots=[frame.to_dict() for frame in frame_snapshots],
         facility_events=[event.as_dict() for event in service_event_list],
         movement_trace=normalized_movement_trace,
+        facility_motion_trace=normalized_facility_motion_trace,
         aggregate_metrics=final_metrics,
         terminal_events=terminal_event_list,
         routing_decision_logs=routing_log_list,
@@ -628,7 +777,7 @@ def mesa_frames_to_visual_tracks(
             "compatibility_envelope": VISUALIZATION_BUNDLE_SCHEMA_VERSION,
             "asset_resolution": "procedural_placeholders",
             "trajectory_authority": "#/simulation_trace",
-            "visual_tracks_policy": "presentation_only",
+            "visual_tracks_policy": "authoritative_trace_projection",
         },
     ).as_dict()
     return {

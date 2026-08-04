@@ -169,7 +169,7 @@ class GoalRuntimePortTests(unittest.TestCase):
         self.assertEqual([passenger], joined)
         self.assertEqual("riding_vertical", passenger.state)
 
-    def test_non_train_wait_command_uses_generic_waiting_state(self) -> None:
+    def test_non_train_wait_command_keeps_current_physical_waiting_state(self) -> None:
         passenger = SimpleNamespace(state="walking")
         model = SimpleNamespace(join_platform=lambda _passenger: False)
 
@@ -178,7 +178,7 @@ class GoalRuntimePortTests(unittest.TestCase):
             (GoalCommand(kind="wait_for_event", event_kind="alarm_cleared"),),
         )
 
-        self.assertEqual(AgentState.WAITING_PLATFORM.value, passenger.state)
+        self.assertEqual("walking", passenger.state)
 
 
 if __name__ == "__main__":

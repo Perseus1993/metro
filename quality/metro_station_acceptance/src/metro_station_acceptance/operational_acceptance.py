@@ -60,11 +60,14 @@ def run_operational_acceptance(
     seed: int = 42,
     movement_backend: MovementBackend | None = None,
     station_design: StationDesignDocument | None = None,
+    trajectory_evidence: dict[str, Any] | None = None,
+    tick_seconds: int = 1,
 ) -> OperationalAcceptanceReport:
     scenario = operational_scenario(
         scenario_id,
         layout_id=layout_id,
         station_design=station_design,
+        tick_seconds=tick_seconds,
     )
     model = MetroStationModel(scenario, seed=seed, movement_backend=movement_backend)
     frames = model.run()
@@ -75,7 +78,12 @@ def run_operational_acceptance(
         service_events=model.facility_service_events,
         terminal_events=model.passenger_terminal_events,
         clearance_debug=build_clearance_debug(model),
+        movement_trace=model.movement_backend.movement_trace(),
+        facility_motion_trace=model.facility_motion_trace_recorder.as_dict(),
     )
+    if trajectory_evidence is not None:
+        trajectory_evidence.clear()
+        trajectory_evidence.update(tracks)
     graph_debug = tracks["graph_debug"]
     trajectory = diagnose_tracks(tracks)
     parity_checks = model.goal_parity.report(model, include_events=False)["checks"]
@@ -158,13 +166,13 @@ def _scenario_checks(
             "pre_service_replan_exercised": any(
                 event.passengers_replanned > 0 for event in applied
             ),
-            "graph_replan_exercised": graph_events["progress_stalled"] > 0,
+            # Planned closure is handled by the Goal Graph's explicit
+            # facility-unavailable transition. Requiring progress_stalled here
+            # rewards a later and less precise recovery path.
+            "graph_replan_exercised": graph_events["facility_unavailable"] > 0,
         }
     if scenario_id == TRAIN_FULL_RECOVERY:
-        return {
-            "train_full_exercised": graph_events["train_full"] > 0,
-            "later_train_completed_journey": model.train.departed_trains > 1,
-        }
+        return _train_full_recovery_checks(model, graph_events)
     if scenario_id == TRAIN_OUTAGE_RECOVERY:
         controller = model.train_disruption_controller
         return {
@@ -181,6 +189,48 @@ def _served_entry_gate_ids(model: MetroStationModel) -> set[str]:
         event.facility_id
         for event in model.facility_service_events
         if event.facility_id.startswith("entry_gate:")
+    }
+
+
+def _train_full_recovery_checks(
+    model: MetroStationModel,
+    graph_events: Counter[str],
+) -> dict[str, bool]:
+    events = tuple(
+        event
+        for event in model.goal_parity.events
+        if event.stream == "graph" and event.kind == "train_full"
+    )
+    metadata_complete = all(
+        event.train_platform_id is not None
+        and event.train_arrival_sequence is not None
+        for event in events
+    )
+    episode_keys = tuple(
+        (
+            int(event.passenger_id),
+            str(event.train_platform_id),
+            int(event.train_arrival_sequence),
+        )
+        for event in events
+        if event.train_platform_id is not None
+        and event.train_arrival_sequence is not None
+    )
+    train_runs = {(platform_id, sequence) for _, platform_id, sequence in episode_keys}
+    return {
+        "train_full_exercised": graph_events["train_full"] > 0,
+        "later_train_completed_journey": model.train.departed_trains > 1,
+        "train_full_episode_metadata_complete": metadata_complete,
+        # Runtime polling is intentionally frequent, but one external
+        # train-capacity episode is one domain fact per passenger.  Compare
+        # independently propagated episode metadata, never event-id syntax.
+        "train_full_episode_idempotent": (
+            metadata_complete
+            and graph_events["train_full"]
+            == len(episode_keys)
+            == len(set(episode_keys))
+        ),
+        "train_full_distinct_train_runs_observed": len(train_runs) >= 2,
     }
 
 

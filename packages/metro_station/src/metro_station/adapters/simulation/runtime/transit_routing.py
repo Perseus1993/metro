@@ -27,6 +27,7 @@ class TransitRoutingMixin:
         for platform in self.platforms:
             if passenger in platform.waiting:
                 platform.waiting.remove(passenger)
+        self._clear_platform_waiting_reservation(passenger)
 
     def platform_for_passenger(self, passenger: PassengerAgent) -> PlatformAgent | None:
         if passenger.assigned_platform_id is not None:
@@ -118,7 +119,8 @@ class TransitRoutingMixin:
         for train in self.trains:
             if (
                 train.line_id == facility.spec.line_id
-                and train.direction == facility.spec.direction
+                and train.direction
+                == self.facility_portal_binding(facility.facility_id).direction
             ):
                 return train
         return None

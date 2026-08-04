@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from dataclasses import replace
 from functools import lru_cache
-from math import ceil, cos, floor, hypot, radians, sin
+from math import ceil, cos, hypot, radians, sin
 
 from shapely import from_wkb
 from shapely.geometry import LineString
@@ -32,6 +32,16 @@ from .layout_queue_path import (
     connected_queue_slot_path as _connected_queue_slot_path,
 )
 from .layout_types import Point
+
+
+def minimum_vertical_approach_distance(
+    *,
+    agent_radius_m: float,
+    personal_space_m: float,
+) -> float:
+    """Body-safe setback between a connector entry and occupiable waiting slots."""
+
+    return max(1.0, float(personal_space_m) * 1.25, float(agent_radius_m) * 2.5)
 
 
 def _queue_layout(
@@ -96,7 +106,10 @@ def _queue_layout_with_service_entry_slot(
     if not layout.slots:
         return replace(layout, anchor=service_entry)
 
-    capacity = len(layout.slots)
+    # ``layout`` contains waiting places after the service-entry point was
+    # deliberately removed by ``_queue_layout_behind_service_entry``.  Adding
+    # the operational entry slot must not evict the last real waiting place.
+    capacity = len(layout.slots) + 1
     slots = [service_entry]
     first_queue_slot = layout.slots[0]
     spacing = _queue_spacing(layout, service_entry)
@@ -244,6 +257,26 @@ def _order_slots_by_upstream_serpentine(
         return ()
 
     maximum_step = max(0.35, spacing * 1.6)
+
+    # The geometry compiler already returns a simple, connected queue path.
+    # Filtering travel-side points must not reorder that path merely because
+    # floating-point ties make a different neighbouring grid point look a few
+    # ulps closer. In a two-dimensional queue, that greedy reordering can turn
+    # a complete serpentine path into one L-shaped arm and silently discard
+    # occupiable places. Preserve the canonical path whenever filtering did
+    # not create a gap; rebuild only when it genuinely became disconnected.
+    if (
+        len(slots) <= 1
+        or (
+            all(
+                _point_distance(left, right) <= maximum_step + 1e-7
+                for left, right in zip(slots, slots[1:])
+            )
+            and LineString(slots).is_simple
+        )
+    ):
+        return slots
+
     depth_tolerance = max(0.05, spacing * 0.25)
 
     def coordinates(point: Point) -> tuple[float, float]:
@@ -328,7 +361,25 @@ def _queue_slots_from_geometry(
         if walkable_geometry is None
         else bytes(walkable_geometry.wkb)
     )
-    return _cached_queue_slots_from_geometry(queue, walkable_wkb)
+    # Queue identity, labels, landing ids, and direction labels do not change
+    # the physical slot path. Normalising them lets stacked landings and
+    # co-located directional facades share the expensive canonical-path proof
+    # while capacity, geometry, spacing, angle, and service point remain part
+    # of the cache key.
+    physical_queue = replace(
+        queue,
+        id="<physical-queue>",
+        owner_element_id="<physical-facility>",
+        level_id="<physical-level>",
+        label="",
+        service_direction=None,
+    )
+    try:
+        return _cached_queue_slots_from_geometry(physical_queue, walkable_wkb)
+    except ValueError as exc:
+        raise ValueError(
+            str(exc).replace("<physical-queue>", queue.id)
+        ) from exc
 
 
 @lru_cache(maxsize=512)
@@ -360,19 +411,12 @@ def _cached_queue_slots_from_geometry(
     base_candidates = _queue_slot_candidates(queue, walkable_geometry)
     phase_candidates = [base_candidates]
     base_points, base_domain = base_candidates
-    body_clearance = min(0.18, spacing * 0.2)
-    body_clear_domain = base_domain.buffer(-body_clearance)
-    area_capacity = max(
-        1,
-        int(floor(float(body_clear_domain.area) / (spacing * spacing))),
-    )
     # This target is independent of the declared queue capacity, preserving
-    # stable prefixes, but it does not ask a physically small domain to search
-    # for the global 128-slot compiler maximum.
-    canonical_target = min(
-        MAX_COMPILED_QUEUE_CAPACITY,
-        max(len(base_points), area_capacity),
-    )
+    # stable prefixes. It must, however, be attainable by at least one sampled
+    # lattice phase. ``area / spacing**2`` is only an optimistic density bound;
+    # using it as a path target made clipped/obstructed queue regions perform
+    # exhaustive searches for slots that do not exist.
+    canonical_target = min(MAX_COMPILED_QUEUE_CAPACITY, len(base_points))
     if canonical_target < MAX_COMPILED_QUEUE_CAPACITY:
         # Neither one lattice phase nor area / spacing**2 is a physical upper
         # bound.  A half-pitch phase can fit an additional strict slot in a
@@ -390,7 +434,7 @@ def _cached_queue_slots_from_geometry(
         )
         canonical_target = min(
             MAX_COMPILED_QUEUE_CAPACITY,
-            max(canonical_target, *(len(candidates) for candidates, _ in phase_candidates)),
+            max(len(candidates) for candidates, _ in phase_candidates),
         )
     for candidates, candidate_domain in phase_candidates:
         ordered = _sort_queue_slots(list(candidates), queue, candidate_domain)

@@ -19,6 +19,10 @@ from .geometry import (
 from .layout_graph import LayoutEdge, LayoutGraph, LayoutNode
 from .scenario import StationGeometry
 from .graph import StationGraph
+from .facility_portal_binding import FacilityPortalBinding
+from ..compilation.decision_holding_regions import DecisionHoldingRegionBinding
+from ..compilation.spatial_capacity import SpatialCapacityCertificate, SpatialDemandContract
+from ..spatial_capacity_admission import SpatialCapacityEvidence, SpatialCapacityExhausted
 
 
 Point = tuple[float, float]
@@ -47,6 +51,11 @@ class RuntimeStationLayout:
     nodes: dict[str, LayoutNode]
     edges: tuple[LayoutEdge, ...]
     facilities: tuple[FacilitySpec, ...]
+    facility_portal_bindings: tuple[FacilityPortalBinding, ...]
+    facility_portal_binding_variants: tuple[FacilityPortalBinding, ...]
+    decision_holding_regions: tuple[DecisionHoldingRegionBinding, ...]
+    spatial_capacity_certificates: tuple[SpatialCapacityCertificate, ...]
+    spatial_demand_contracts: tuple[SpatialDemandContract, ...]
     station_graph: StationGraph
     route_catalog: RouteCatalog
     walkable_geometry: Any = field(compare=False, repr=False)
@@ -72,6 +81,11 @@ class RuntimeStationLayout:
             nodes=layout_graph.nodes,
             edges=layout_graph.edges,
             facilities=layout_graph.facilities,
+            facility_portal_bindings=layout_graph.facility_portal_bindings,
+            facility_portal_binding_variants=layout_graph.facility_portal_binding_variants,
+            decision_holding_regions=layout_graph.decision_holding_regions,
+            spatial_capacity_certificates=layout_graph.spatial_capacity_certificates,
+            spatial_demand_contracts=layout_graph.spatial_demand_contracts,
             station_graph=layout_graph.station_graph,
             route_catalog=RouteCatalog(layout_graph),
             walkable_geometry=walkable_geometry,
@@ -90,7 +104,59 @@ class RuntimeStationLayout:
         slots = self._compiled_platform_waiting_slots()
         if index < len(slots):
             return slots[index]
-        return self._platform_waiting_overflow_position(index, slots)
+        raise SpatialCapacityExhausted(
+            f"platform waiting request index {index} exceeds {len(slots)} certified slots",
+            SpatialCapacityEvidence(
+                certificate_id="platform_waiting:all",
+                resource_kind="platform_waiting",
+                owner_id="platform_waiting:all",
+                certified_body_capacity=len(slots),
+                current_occupancy_bodies=len(slots),
+                requested_bodies=1,
+                passenger_id=None,
+            ),
+        )
+
+    def platform_waiting_slots(self) -> tuple[Point, ...]:
+        """Return the finite, compiled platform standing-position resource."""
+
+        return self._compiled_platform_waiting_slots()
+
+    def decision_holding_slots(
+        self,
+        region_id: str,
+        level_id: str,
+    ) -> tuple[Point, ...]:
+        for binding in self.decision_holding_regions:
+            if binding.region_id == region_id and binding.level_id == level_id:
+                return binding.slots
+        return ()
+
+    def spatial_capacity_certificate(
+        self,
+        resource_kind: str,
+        owner_id: str,
+        *,
+        level_id: str | None = None,
+        activation_variant_id: str | None = None,
+    ) -> SpatialCapacityCertificate:
+        candidates = tuple(
+            certificate
+            for certificate in self.spatial_capacity_certificates
+            if certificate.resource_kind == str(resource_kind)
+            and certificate.owner_id == str(owner_id)
+            and (level_id is None or certificate.level_id == str(level_id))
+            and (
+                activation_variant_id is None
+                or certificate.activation_variant_id == str(activation_variant_id)
+            )
+        )
+        if len(candidates) != 1:
+            raise KeyError(
+                f"expected one {resource_kind!r} capacity certificate for "
+                f"{owner_id!r}; found {len(candidates)}"
+            )
+        return candidates[0]
 
     def platform_descriptors(self) -> tuple[tuple[str, str, str], ...]:
         return self._layout_graph.platform_descriptors()
@@ -98,7 +164,40 @@ class RuntimeStationLayout:
     def facilities_for_stage(self, stage: str | FacilityStage) -> tuple[FacilitySpec, ...]:
         return self._layout_graph.facilities_for_stage(stage)
 
+    def facility_portal_binding(self, facility_id: str) -> FacilityPortalBinding:
+        for binding in self.facility_portal_bindings:
+            if binding.facility_id == facility_id:
+                return binding
+        raise KeyError(f"facility {facility_id!r} has no compiled portal binding")
+
+    def facility_portal_binding_variant(
+        self,
+        facility_id: str,
+        direction: str,
+    ) -> FacilityPortalBinding:
+        candidates = (
+            *self.facility_portal_bindings,
+            *self.facility_portal_binding_variants,
+        )
+        for binding in candidates:
+            if binding.facility_id == facility_id and binding.direction == direction:
+                return binding
+        raise KeyError(
+            f"facility {facility_id!r} has no compiled {direction!r} portal binding"
+        )
+
     def _compiled_platform_waiting_slots(self) -> tuple[Point, ...]:
+        compiled = tuple(
+            certificate
+            for certificate in self.spatial_capacity_certificates
+            if certificate.resource_kind == "platform_waiting"
+        )
+        if compiled:
+            return tuple(
+                point
+                for certificate in sorted(compiled, key=lambda item: item.certificate_id)
+                for point in certificate.slots
+            )
         cached = self._platform_waiting_slots
         if cached is not None:
             return cached

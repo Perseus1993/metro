@@ -133,11 +133,15 @@ def test_gate_follower_waits_body_clear_and_delays_physical_event() -> None:
 
     forward, _lateral = gate._release_axes()
     clearance = gate._release_min_distance() * 2.0
-    leader.pos = (
-        leader.pos[0] + forward[0] * clearance,
-        leader.pos[1] + forward[1] * clearance,
-    )
     active_follower = gate.active_passes[0]
+    # Compiler-certified followers can own a different downstream release
+    # cell.  Move the leader beyond the follower's actual cell; advancing from
+    # the leader's earlier cell can leave it directly in front of that target
+    # and should continue to apply physical backpressure.
+    leader.pos = (
+        active_follower.end_position[0] + forward[0] * clearance,
+        active_follower.end_position[1] + forward[1] * clearance,
+    )
     for _ in range(active_follower.total_steps + 2):
         gate._advance_active_passes()
         if not gate.has_active_service(follower):
@@ -227,17 +231,28 @@ def test_elevator_surplus_time_dispatches_next_fifo_batch(
         model.step_index += 1
 
     assert len(model.facility_service_events) >= 2
+    first_event = next(
+        event
+        for event in model.facility_service_events
+        if event.event_id == first_event.event_id
+    )
     second_event = model.facility_service_events[1]
     assert first_event.passenger_ids == (int(first.unique_id),)
     assert second_event.passenger_ids == (int(second.unique_id),)
     assert second_event.start_time - first_event.start_time == pytest.approx(
-        config.cycle_seconds,
+        elevator.effective_cycle_seconds,
         abs=1e-9,
     )
     for event in (first_event, second_event):
-        assert event.board_end_time - event.start_time == pytest.approx(0.6, abs=1e-9)
+        assert event.board_end_time - event.start_time == pytest.approx(
+            elevator.effective_boarding_seconds,
+            abs=1e-9,
+        )
         assert event.arrive_time - event.board_end_time == pytest.approx(0.7, abs=1e-9)
-        assert event.end_time - event.arrive_time == pytest.approx(0.4, abs=1e-9)
+        assert event.end_time - event.arrive_time == pytest.approx(
+            elevator.effective_unloading_seconds,
+            abs=1e-9,
+        )
 
 
 @pytest.mark.parametrize("tick_seconds", [1, 5])
@@ -283,12 +298,16 @@ def test_blocked_elevator_release_keeps_active_ownership_until_retry_succeeds(
     )
     event = model.facility_service_events[0]
     original_event_end = event.end_time
-    original_release = elevator._vertical_release_position
+    original_configure = elevator._configure_unloading_motion_profile
 
-    def blocked_release(*_args, **_kwargs):
-        raise RuntimeError("injected downstream body-clear blockage")
+    def blocked_unloading_profile(*_args, **_kwargs):
+        return False
 
-    monkeypatch.setattr(elevator, "_vertical_release_position", blocked_release)
+    monkeypatch.setattr(
+        elevator,
+        "_configure_unloading_motion_profile",
+        blocked_unloading_profile,
+    )
     elevator.boarding_remaining_seconds = 0.0
     elevator.travel_remaining_seconds = 0.0
     elevator.unload_remaining_seconds = 0.0
@@ -312,7 +331,11 @@ def test_blocked_elevator_release_keeps_active_ownership_until_retry_succeeds(
         assert elevator.active_event_id == event.event_id
         model.step_index += 1
 
-    monkeypatch.setattr(elevator, "_vertical_release_position", original_release)
+    monkeypatch.setattr(
+        elevator,
+        "_configure_unloading_motion_profile",
+        original_configure,
+    )
     elevator._advance_cabin()
 
     assert elevator.cabin_passengers == []

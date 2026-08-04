@@ -14,7 +14,9 @@ from metro_station_acceptance.generated_scale_acceptance import (
 from metro_station_acceptance.generated_simulation_acceptance import (
     run_generated_simulation_acceptance,
 )
-from metro_station_testkit.instant_movement_backend import InstantMovementBackend
+from metro_station_testkit.instant_movement_backend import (
+    EndpointClearInstantMovementBackend,
+)
 from metro_station_acceptance.generated_scale_evidence import (
     load_generated_scale_resume,
     write_generated_scale_evidence,
@@ -148,7 +150,7 @@ def test_generated_simulation_sampling_shards_merge_without_timing_noise() -> No
             sample_size=2,
             seeds=(42,),
             include_operations=False,
-            movement_backend_factory=InstantMovementBackend,
+            movement_backend_factory=EndpointClearInstantMovementBackend,
             shard_index=index,
             shard_count=2,
         ).as_dict()
@@ -160,3 +162,29 @@ def test_generated_simulation_sampling_shards_merge_without_timing_noise() -> No
     assert merged["status"] == "ok", merged
     assert len(merged["records"]) == 2
     assert merged["checks"]["no_missing_samples"]
+
+
+def test_generated_simulation_recipe_seed_shards_merge_the_full_case_matrix() -> None:
+    corpus = generate_scenario_corpus(count=12, seed=20261108)
+    shards = tuple(
+        run_generated_simulation_acceptance(
+            corpus,
+            tier="smoke",
+            sample_size=2,
+            seeds=(7, 42),
+            include_operations=False,
+            movement_backend_factory=EndpointClearInstantMovementBackend,
+            shard_index=index,
+            shard_count=4,
+            shard_by_seed=True,
+        ).as_dict()
+        for index in range(4)
+    )
+
+    merged = merge_generated_simulation_shards(shards)
+
+    assert merged["status"] == "ok", merged
+    assert len(merged["records"]) == 4
+    assert len(merged["sampled_case_ids"]) == 4
+    assert merged["checks"]["no_missing_samples"]
+    assert not merged["missing_case_ids"]

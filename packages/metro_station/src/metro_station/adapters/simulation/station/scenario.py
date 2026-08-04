@@ -155,6 +155,9 @@ class StationSandboxScenario:
     initial_train_offset_seconds: int = 75
     walk_units_per_tick: float = 2.0
     movement_backend_name: str = "jupedsim"
+    # JuPedSim's collision-free speed model is its reference choice for
+    # corners, bottlenecks, and queue stages.  The force model can settle into
+    # a wall equilibrium even for one pedestrian in a concave station domain.
     jupedsim_operational_model: str = "collision_free_speed"
     jupedsim_desired_speed_mps: float = 1.2
     jupedsim_free_speed_std_mps: float = 0.12
@@ -166,6 +169,13 @@ class StationSandboxScenario:
     goal_graph_catalog_path: str | None = None
     jupedsim_dt_seconds: float = 0.01
     movement_trace_sample_seconds: float = 0.2
+    cornering_acceleration_limit_m_s2: float = 3.2
+    cornering_acceleration_window_s: float = 0.4
+    cornering_lookahead_m: float = 2.5
+    cornering_recovery_m: float = 1.2
+    cornering_min_speed_mps: float = 0.35
+    cornering_unknown_transition_speed_mps: float = 0.65
+    cornering_min_turn_degrees: float = 30.0
     audit_enabled: bool = True
     audit_print_events: bool = True
     boarding_speed_multiplier: float = 4.0
@@ -313,6 +323,23 @@ class StationSandboxScenario:
         _require_positive("jupedsim_neighbor_radius_units", self.jupedsim_neighbor_radius_units)
         _require_positive("jupedsim_dt_seconds", self.jupedsim_dt_seconds)
         _require_positive("movement_trace_sample_seconds", self.movement_trace_sample_seconds)
+        _require_positive(
+            "cornering_acceleration_limit_m_s2",
+            self.cornering_acceleration_limit_m_s2,
+        )
+        _require_positive(
+            "cornering_acceleration_window_s",
+            self.cornering_acceleration_window_s,
+        )
+        _require_positive("cornering_lookahead_m", self.cornering_lookahead_m)
+        _require_positive("cornering_recovery_m", self.cornering_recovery_m)
+        _require_positive("cornering_min_speed_mps", self.cornering_min_speed_mps)
+        _require_positive(
+            "cornering_unknown_transition_speed_mps",
+            self.cornering_unknown_transition_speed_mps,
+        )
+        if not 0.0 < float(self.cornering_min_turn_degrees) <= 180.0:
+            raise ValueError("cornering_min_turn_degrees must be in (0, 180]")
         trace_ratio = self.movement_trace_sample_seconds / self.jupedsim_dt_seconds
         if abs(trace_ratio - round(trace_ratio)) > 1e-9:
             raise ValueError(
@@ -321,6 +348,15 @@ class StationSandboxScenario:
             )
         if self.movement_trace_sample_seconds > self.tick_seconds:
             raise ValueError("movement_trace_sample_seconds must not exceed tick_seconds")
+        if self.jupedsim_operational_model not in {
+            "collision_free_speed",
+            "anticipation_velocity",
+            "social_force",
+        }:
+            raise ValueError(
+                "jupedsim_operational_model must be collision_free_speed, "
+                "anticipation_velocity, or social_force"
+            )
         _require_positive("jupedsim_desired_speed_mps", self.jupedsim_desired_speed_mps)
         _require_non_negative("jupedsim_free_speed_std_mps", self.jupedsim_free_speed_std_mps)
         _require_positive("jupedsim_free_speed_min_mps", self.jupedsim_free_speed_min_mps)

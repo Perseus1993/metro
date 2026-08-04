@@ -21,6 +21,7 @@ from .transit_routing import TransitRoutingMixin
 from .passenger_demand import PassengerDemandMixin
 from .passenger_departures import PassengerDepartureMixin
 from .facility_queue_routing import FacilityQueueRoutingMixin
+from .decision_holding import DecisionHoldingMixin
 from .facility_event_runtime import FacilityEventRuntimeMixin
 from .simulation_lifecycle import SimulationLifecycleMixin
 from .model_initialization import initialize_metro_station_model
@@ -33,6 +34,7 @@ class MetroStationModel(
     SimulationLifecycleMixin,
     FacilityEventRuntimeMixin,
     PhysicalRoutingRuntimeMixin,
+    DecisionHoldingMixin,
     FacilityQueueRoutingMixin,
     StationGraphRoutingMixin,
     TransitRoutingMixin,

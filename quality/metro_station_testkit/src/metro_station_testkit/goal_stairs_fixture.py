@@ -23,6 +23,10 @@ class GoalStairsMicroScenario:
     tick_seconds: float = 0.25
     group_size: int = 1
     walk_units_per_tick: float = 0.3
+    movement_trace_sample_seconds: float = 0.2
+    jupedsim_desired_speed_mps: float = 1.2
+    cornering_acceleration_limit_m_s2: float = 3.2
+    cornering_acceleration_window_s: float = 0.4
     jupedsim_dt_seconds: float = 0.01
     jupedsim_iterations_per_tick: int = 25
     jupedsim_agent_radius_units: float = 0.22
@@ -67,6 +71,7 @@ def make_stairs(
         speed_units_per_tick=0.72,
         entry_level_id=CONCOURSE_LEVEL,
         exit_level_id=PLATFORM_LEVEL,
+        source_element_id=short_id,
         traversal_width_m=1.5,
         vertical_config=VerticalFacilityConfig(
             stairs=StairsConfig(

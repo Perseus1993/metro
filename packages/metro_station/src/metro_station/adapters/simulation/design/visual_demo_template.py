@@ -83,7 +83,9 @@ def visual_demo_station() -> StationDesignDocument:
         (0.466, 0.785),
         (0.646, 0.785),
         (0.754, 0.785),
-        (0.861, 0.785),
+        # Keep the final door inside the sloped platform safe core; its former
+        # visual coordinate required a hidden 0.61 m compiler projection.
+        (0.810, 0.760),
     )
     elements = (
         DesignElement(
@@ -326,7 +328,10 @@ def visual_demo_station() -> StationDesignDocument:
             "stairs_a",
             "stairs",
             "b1_concourse",
-            polyline(nr(((0.892, 0.426), (0.85, 0.708)))),
+            # The concourse landing is authored on the public side of the
+            # wall with the compile-time two-agent-radius portal clearance;
+            # it is not repaired later by nearest-point projection.
+            polyline(nr(((0.892, 0.3868), (0.85, 0.708)))),
             "Stairs",
             "vertical_connector",
             True,
@@ -379,7 +384,7 @@ def visual_demo_station() -> StationDesignDocument:
             0.13 * W / PX_PER_METER,
             0.10 * H / PX_PER_METER,
             n((0.285, 0.338)),
-            64,
+            11,
             90,
             "Entry gate queues",
         ),
@@ -391,7 +396,7 @@ def visual_demo_station() -> StationDesignDocument:
             0.13 * W / PX_PER_METER,
             0.052 * H / PX_PER_METER,
             n((0.800, 0.318)),
-            48,
+            12,
             90,
             "Exit gate queues",
         ),
@@ -399,11 +404,11 @@ def visual_demo_station() -> StationDesignDocument:
             "queue_down_escalator_a",
             "down_escalator_a",
             "b1_concourse",
-            *n((0.20, 0.39)),
-            0.12 * W / PX_PER_METER,
+            *n((0.19, 0.39)),
+            0.14 * W / PX_PER_METER,
             0.08 * H / PX_PER_METER,
             n((0.184, 0.428)),
-            36,
+            4,
             0,
             "Down escalator A queue",
         ),
@@ -411,11 +416,11 @@ def visual_demo_station() -> StationDesignDocument:
             "queue_down_escalator_b",
             "down_escalator_b",
             "b1_concourse",
-            *n((0.52, 0.39)),
-            0.12 * W / PX_PER_METER,
+            *n((0.499, 0.39)),
+            0.14 * W / PX_PER_METER,
             0.08 * H / PX_PER_METER,
             n((0.49, 0.428)),
-            36,
+            4,
             0,
             "Down escalator B queue",
         ),
@@ -426,7 +431,7 @@ def visual_demo_station() -> StationDesignDocument:
             "b1_concourse",
             nr_rect(0.59, 0.35, 0.11, 0.08),
             n((0.635, 0.405)),
-            42,
+            4,
             direction_deg=90,
             label="Elevator queue",
         ),
@@ -439,7 +444,7 @@ def visual_demo_station() -> StationDesignDocument:
                 0.09 * W / PX_PER_METER,
                 0.07 * H / PX_PER_METER,
                 n((door_x, _door_y)),
-                24,
+                20,
                 90,
                 f"Boarding queue {index + 1}",
             )

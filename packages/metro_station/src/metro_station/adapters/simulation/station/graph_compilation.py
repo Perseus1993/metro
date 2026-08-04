@@ -17,7 +17,10 @@ from ..design.schema import (
     QueueSpec,
     StationDesignDocument,
 )
-from ..design.vertical_landing import vertical_landing_position
+from ..design.vertical_landing import (
+    DEFAULT_VERTICAL_LANDING_CLEARANCE_M,
+    vertical_landing_position,
+)
 from .geometry import (
     element_representative_point,
     element_walkable_domain,
@@ -27,8 +30,11 @@ from .geometry import (
 from .graph_types import GraphCompileDiagnostic, GraphEdge, GraphNode, Point
 
 
-def _queues_by_owner(queues: tuple[QueueSpec, ...]) -> dict[str, QueueSpec]:
-    return {queue.owner_element_id: queue for queue in queues}
+def _queues_by_owner(queues: tuple[QueueSpec, ...]) -> dict[str, tuple[QueueSpec, ...]]:
+    grouped: dict[str, list[QueueSpec]] = {}
+    for queue in queues:
+        grouped.setdefault(queue.owner_element_id, []).append(queue)
+    return {owner_id: tuple(items) for owner_id, items in grouped.items()}
 
 
 def _distance(a: Point, b: Point) -> float:
@@ -427,7 +433,7 @@ def _vertical_node_position(
         level_id,
         levels_by_id,
         walkable_geometry=level_area,
-        clearance=0.18,
+        clearance=DEFAULT_VERTICAL_LANDING_CLEARANCE_M,
     )
 
 

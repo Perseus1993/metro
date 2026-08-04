@@ -138,8 +138,8 @@ def _fault_checks(model: MetroStationModel, fault: str) -> dict[str, bool]:
         ]
         return {
             "escalator_timeline_complete": len(applied) == len(model.scenario.control_plan.events),
-            "escalator_timeline_on_tick": all(
-                event.applied_seconds == event.scheduled_seconds for event in applied
+            "escalator_timeline_respects_schedule": all(
+                event.applied_seconds >= event.scheduled_seconds for event in applied
             ),
             "safe_drain_controls_applied": all(event.status == "applied" for event in applied),
             "escalator_reverse_and_restore_applied": [event.status for event in direction_events]

@@ -45,6 +45,7 @@ class LayoutRecipe:
     operation_profile: str = "normal"
     topology_footprint: str = "RECT"
     vertical_topology: str = "FULL"
+    requested_vertical_topology: str | None = None
     fare_topology: str = "BIDIRECTIONAL"
     schema_version: str = LAYOUT_RECIPE_SCHEMA_VERSION
 
@@ -61,6 +62,14 @@ class LayoutRecipe:
             raise ValueError(f"unknown topology footprint {self.topology_footprint!r}")
         if self.vertical_topology not in VERTICAL_TOPOLOGIES:
             raise ValueError(f"unknown vertical topology {self.vertical_topology!r}")
+        if (
+            self.requested_vertical_topology is not None
+            and self.requested_vertical_topology not in VERTICAL_TOPOLOGIES
+        ):
+            raise ValueError(
+                "unknown requested vertical topology "
+                f"{self.requested_vertical_topology!r}"
+            )
         if self.fare_topology not in FARE_TOPOLOGIES:
             raise ValueError(f"unknown fare topology {self.fare_topology!r}")
         if not 1 <= self.entrance_count <= 4:
@@ -121,6 +130,7 @@ class LayoutRecipe:
             "operation_profile": self.operation_profile,
             "topology_footprint": self.topology_footprint,
             "vertical_topology": self.vertical_topology,
+            "requested_vertical_topology": self.requested_vertical_topology,
             "fare_topology": self.fare_topology,
         }
 

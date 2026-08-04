@@ -61,6 +61,17 @@ def test_constant_realistic_motion_passes_fine_gate() -> None:
     assert report["trace_contract"]["acceleration_window_s"] == pytest.approx(0.4)
 
 
+def test_production_committed_jupedsim_authority_is_accepted() -> None:
+    payload = _trace(
+        [_point(1, index * 0.2, index * 0.2, 0.0) for index in range(8)]
+    )
+    payload["metadata"]["authority"] = "jupedsim_committed_walk"
+    for point in payload["points"]:
+        point["authority"] = "jupedsim_committed_walk"
+
+    assert analyze_trajectory_kinematics(payload)["passed"]
+
+
 def test_coarse_declared_sampling_is_a_hard_failure() -> None:
     payload = _trace(
         [_point(1, index * 0.5, index * 0.5, 0.0) for index in range(5)],
@@ -165,6 +176,36 @@ def test_unexplained_episode_gap_is_a_hard_failure() -> None:
     assert report["checks"]["episode_gaps_have_simulation_evidence"]["status"] == "fail"
 
 
+def test_back_to_back_episode_boundary_needs_no_gap_evidence() -> None:
+    payload = _trace(
+        [
+            _point(1, 0.0, 0.0, 0.0, sample_index=0),
+            _point(1, 0.2, 0.2, 0.0, sample_index=1),
+            _point(1, 0.2, 0.2, 0.0, episode=2, sample_index=0),
+            _point(1, 0.4, 0.4, 0.0, episode=2, sample_index=1),
+        ]
+    )
+
+    report = analyze_trajectory_kinematics(payload)
+
+    assert report["checks"]["episode_gaps_have_simulation_evidence"]["status"] == "pass"
+
+
+def test_one_cadence_cross_episode_teleport_still_needs_gap_evidence() -> None:
+    payload = _trace(
+        [
+            _point(1, 0.0, 0.0, 0.0, sample_index=0),
+            _point(1, 0.2, 0.2, 0.0, sample_index=1),
+            _point(1, 0.4, 5.0, 0.0, episode=2, sample_index=0),
+            _point(1, 0.6, 5.2, 0.0, episode=2, sample_index=1),
+        ]
+    )
+
+    report = analyze_trajectory_kinematics(payload)
+
+    assert report["checks"]["episode_gaps_have_simulation_evidence"]["status"] == "fail"
+
+
 def test_queue_capture_snapshot_explains_walking_episode_gap() -> None:
     movement = _trace(
         [
@@ -259,6 +300,23 @@ def test_replay_nesting_is_supported() -> None:
     )
 
     assert report["source"]["kind"] == "replay.simulation_trace.movement_trace"
+
+
+def test_native_train_door_points_are_known_nonwalking_authority() -> None:
+    train_door = _point(1, 0.1, 0.1, 0.0)
+    train_door["phase"] = "train_door_boarding"
+    payload = _trace(
+        [
+            _point(1, 0.0, 0.0, 0.0),
+            train_door,
+            _point(1, 0.2, 0.2, 0.0, sample_index=1),
+        ]
+    )
+
+    report = analyze_trajectory_kinematics(payload)
+
+    assert report["source"]["point_count"] == 2
+    assert report["source"]["kind"] == "movement_trace"
 
 
 def test_non_finite_points_are_rejected() -> None:

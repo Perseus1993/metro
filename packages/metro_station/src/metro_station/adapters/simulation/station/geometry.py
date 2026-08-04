@@ -3,7 +3,8 @@ from __future__ import annotations
 from random import Random
 from typing import Iterable
 
-from shapely.geometry import LineString, Point as ShapelyPoint, box
+from shapely import intersects_xy
+from shapely.geometry import LineString, Point as ShapelyPoint, Polygon, box
 from shapely.ops import nearest_points, unary_union
 from shapely.validation import make_valid
 
@@ -54,18 +55,48 @@ def level_walkable_geometry(
     level_id: str,
     walkable_geometry=None,
 ):
-    base = (
-        walkable_geometry if walkable_geometry is not None else document_walkable_geometry(document)
-    )
+    """Return one level's walking domain without cross-floor geometry leakage.
+
+    A station document is a stack of 2-D domains.  Unioning every floor before
+    subtracting every obstacle makes an obstacle on B1 cut the navigation mesh
+    on B2 when both floors share XY coordinates.  Level geometry is therefore
+    compiled from level-local floor parts (or its declared footprint) and only
+    level-local blocking obstacles.  ``walkable_geometry`` remains a legacy
+    fallback for documents without either form of level geometry.
+    """
+
     level_parts = [
         element_shape(element.geometry)
         for element in document.elements
         if element.level_id == level_id
         and (element.kind == "walkable_area" or element.role == "floor")
     ]
-    if not level_parts:
-        return base
-    return make_valid(base.intersection(unary_union(level_parts)))
+    if level_parts:
+        base = make_valid(unary_union(level_parts))
+    else:
+        level = document.level_by_id().get(level_id)
+        if level is not None and level.footprint:
+            base = make_valid(Polygon(level.footprint))
+        elif walkable_geometry is not None:
+            base = make_valid(walkable_geometry)
+        else:
+            base = box(
+                0.0,
+                0.0,
+                document.constraints.canvas_width_m,
+                document.constraints.canvas_height_m,
+            )
+
+    obstacles = [
+        element_shape(element.geometry)
+        for element in document.elements
+        if element.level_id == level_id
+        and (element.kind == "obstacle" or element.role == "obstacle")
+        and bool(element.metadata.get("blocking", True))
+    ]
+    if obstacles:
+        base = base.difference(unary_union(obstacles))
+    return make_valid(base)
 
 
 def element_walkable_domain(
@@ -144,17 +175,28 @@ def grid_safe_points(
     if core.is_empty:
         return ()
     min_x, min_y, max_x, max_y = core.bounds
-    points: list[Point] = []
+    candidates: list[Point] = []
     y = min_y + spacing / 2.0
     while y <= max_y - spacing / 2.0:
         x = min_x + spacing / 2.0
         while x <= max_x - spacing / 2.0:
-            candidate = (round(x, 4), round(y, 4))
-            if core.covers(ShapelyPoint(candidate)):
-                points.append(candidate)
+            candidates.append((round(x, 4), round(y, 4)))
             x += spacing
         y += spacing
-    return tuple(points)
+    if not candidates:
+        return ()
+    # Batch the lattice classification in GEOS instead of constructing and
+    # classifying thousands of Python Point objects one by one. Candidates sit
+    # half a spacing inside the grid bounds; ``intersects_xy`` also preserves
+    # the previous ``covers`` behaviour for any point exactly on a hole edge.
+    mask = intersects_xy(
+        core,
+        [point[0] for point in candidates],
+        [point[1] for point in candidates],
+    )
+    return tuple(
+        point for point, included in zip(candidates, mask, strict=True) if included
+    )
 
 
 def dedupe_points(points: Iterable[Point], *, precision: int = 3) -> tuple[Point, ...]:

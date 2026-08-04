@@ -16,6 +16,7 @@ class TruthObservation:
     x: float
     y: float
     source_index: int
+    level_id: str | None = None
 
 
 @dataclass(frozen=True)
@@ -182,6 +183,7 @@ def _observation(
             x=float(record["x"]),
             y=float(record["y"]),
             source_index=source_index,
+            level_id=_observation_level(record),
         )
     except (TypeError, ValueError) as exc:
         raise TrajectoryTruthInputError(
@@ -219,6 +221,14 @@ def _contains_presentation_tracks(payload: Mapping[str, Any]) -> bool:
 
 def _optional_text(value: object) -> str | None:
     return None if value is None else str(value)
+
+
+def _observation_level(record: Mapping[str, Any]) -> str | None:
+    for key in ("physical_layer_id", "level", "level_id", "current_level_id"):
+        value = record.get(key)
+        if value is not None:
+            return str(value)
+    return None
 
 
 def _is_sequence(value: object) -> TypeGuard[Sequence[Any]]:

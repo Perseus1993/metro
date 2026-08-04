@@ -127,7 +127,7 @@ class StairsProcessAgent(VerticalTransportProcessAgent):
 
     @property
     def fatigue_cost(self) -> float:
-        if self.spec.direction == "up":
+        if self.portal_direction == "up":
             return self._stairs_config.fatigue_cost_up
         return self._stairs_config.fatigue_cost_down
 

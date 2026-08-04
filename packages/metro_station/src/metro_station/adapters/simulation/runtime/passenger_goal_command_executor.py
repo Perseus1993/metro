@@ -139,10 +139,13 @@ class ProductionGoalCommandExecutor:
                 ),
             )
         passenger.assigned_facility_id = facility.facility_id
+        model._clear_all_decision_holding_reservations(passenger)
         if facility.spec.platform_id is not None:
             passenger.assigned_platform_id = facility.spec.platform_id
             passenger.assigned_line_id = facility.spec.line_id
-            passenger.assigned_direction = facility.spec.direction
+            passenger.assigned_direction = model.facility_portal_binding(
+                facility.facility_id
+            ).direction
         model.control_timeline_controller.record_guided_selection(passenger, facility)
         model._reserve_facility_approach_slot(passenger, facility)
         return (
@@ -207,6 +210,7 @@ class ProductionGoalCommandExecutor:
             model.leave_platform_waiting(passenger)
         if command.stage is not None:
             model._clear_facility_targeting_reservation(passenger, command.stage)
+        model._clear_all_decision_holding_reservations(passenger)
         return (
             GoalEvent(
                 kind=GoalEventKind.QUEUE_JOINED.value,
@@ -236,6 +240,7 @@ class ProductionGoalCommandExecutor:
             ).add(command.facility_id)
         if command.stage is not None:
             model._clear_facility_targeting_reservation(passenger, command.stage)
+        model._clear_all_decision_holding_reservations(passenger)
         passenger.assigned_facility_id = None
         if command.replan_cleanup_only:
             return ()

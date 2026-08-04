@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from collections.abc import Callable
 from dataclasses import replace
+from math import ceil
 
 
 from ..planning.plan import AgentState, FacilityStage, RouteKey
@@ -11,10 +12,17 @@ from ..design.helpers import (
     platform_line_id as _platform_line_id,
     vertical_direction as _vertical_direction,
 )
-from ..design.schema import DesignElement, QueueSpec
+from ..design.schema import (
+    MIN_COMPILED_QUEUE_SPACING_M,
+    DesignElement,
+    QueueSpec,
+)
+from ..design.vertical_landing import vertical_landing_outward_direction
 from ..facilities.process import (
     DEFAULT_FALLBACK_QUEUE_CAPACITY,
     DEFAULT_FALLBACK_QUEUE_SPACING,
+    DEFAULT_RELEASE_FORWARD_EXTRA,
+    DEFAULT_RELEASE_SPACING_MAX,
     FacilityKind,
     FacilitySpec,
     QueueCrossingGuard,
@@ -42,10 +50,12 @@ from .layout_gate_queues import (
     _gate_queue_crossing_guard,
 )
 from .layout_queue_geometry import (
+    MAX_COMPILED_QUEUE_CAPACITY,
     _point_distance,
     _queue_layout,
     _queue_layout_behind_service_entry,
     _queue_layout_with_service_entry_slot,
+    minimum_vertical_approach_distance,
 )
 from .layout_types import LayoutEdge, LayoutNode, Point
 from .layout_vertical_facilities import (
@@ -126,7 +136,7 @@ def _facility_specs_from_station_graph(
             facilities.extend(
                 _gate_facility_specs(
                     element,
-                    queue,
+                    owner_queues,
                     station_graph,
                     scenario,
                     walkable_geometry=element_level_domain,
@@ -185,7 +195,16 @@ def _facility_specs_from_station_graph(
                         )
                     )
         elif element.kind == "platform_edge":
-            position = _node_position(station_graph, f"platform:{element.id}")
+            # A platform edge can expose a boarding facade anywhere along its
+            # authored length.  Generated holding areas deliberately scan that
+            # facade for a clear interval, so the compiled door portal must be
+            # the selected service point rather than the graph representative
+            # (which remains the platform node's routing centroid).
+            position = (
+                _node_position(station_graph, f"platform:{element.id}")
+                if queue is None
+                else queue.service_point_m
+            )
             line_id = _platform_line_id(element)
             direction = _platform_direction(element)
             queue_layout = _queue_layout(
@@ -223,7 +242,7 @@ def _facility_specs_from_station_graph(
 
 def _gate_facility_specs(
     element: DesignElement,
-    queue: QueueSpec | None,
+    queues: tuple[QueueSpec, ...],
     station_graph: StationGraph,
     scenario: StationSandboxScenario,
     *,
@@ -232,12 +251,13 @@ def _gate_facility_specs(
     gate_direction = _gate_direction(element)
     facilities: list[FacilitySpec] = []
     if gate_direction in {"entry", "bidirectional"}:
+        queue = _gate_facade_queue(queues, direction="in")
         position = _node_position(station_graph, f"gate:{element.id}:entry")
         exit_position = _node_position(station_graph, f"gate:{element.id}:paid")
         facilities.extend(
             _gate_lane_facility_specs(
                 element,
-                queue if gate_direction == "entry" else None,
+                queue,
                 scenario,
                 stage=FacilityStage.ENTRY_GATE.value,
                 facility_prefix="entry_gate",
@@ -254,6 +274,7 @@ def _gate_facility_specs(
             )
         )
     if gate_direction in {"exit", "bidirectional"}:
+        queue = _gate_facade_queue(queues, direction="out")
         position = _node_position(station_graph, f"gate:{element.id}:exit")
         exit_position = _node_position(station_graph, f"gate:{element.id}:unpaid")
         facilities.extend(
@@ -276,6 +297,22 @@ def _gate_facility_specs(
             )
         )
     return facilities
+
+
+def _gate_facade_queue(
+    queues: tuple[QueueSpec, ...],
+    *,
+    direction: str,
+) -> QueueSpec | None:
+    exact = tuple(queue for queue in queues if queue.service_direction == direction)
+    if len(exact) > 1:
+        raise ValueError(f"multiple gate queues declare direction {direction!r}")
+    if exact:
+        return exact[0]
+    legacy = tuple(queue for queue in queues if queue.service_direction is None)
+    if len(legacy) > 1:
+        raise ValueError("multiple undirected gate queues declared")
+    return legacy[0] if legacy else None
 
 
 def _gate_lane_facility_specs(
@@ -535,7 +572,17 @@ def _vertical_facility_spec(
             f"{element.id!r} {level_pair[0]!r} {direction!r}"
         )
     queue_for_compilation = (
-        replace(queue, service_point_m=service_entry) if queue is not None else None
+        replace(
+            queue,
+            service_point_m=service_entry,
+            capacity=_vertical_queue_compilation_capacity(
+                queue,
+                element,
+                scenario,
+            ),
+        )
+        if queue is not None
+        else None
     )
     queue_layout = _queue_layout(
         queue_for_compilation,
@@ -583,6 +630,53 @@ def _vertical_facility_spec(
             exit_position,
             scenario,
         ),
+        release_forward_hint=(
+            vertical_landing_outward_direction(element)
+            if element.kind == FacilityKind.ELEVATOR.value
+            and _point_distance(service_entry, exit_position) <= 0.001
+            else None
+        ),
+    )
+
+
+def _vertical_queue_compilation_capacity(
+    queue: QueueSpec,
+    element: DesignElement,
+    scenario: StationSandboxScenario,
+) -> int:
+    """Include operational portal/corridor slots without shrinking occupancy.
+
+    Source capacity counts waiting bodies. The internal path also needs one
+    service-entry point and, for elevators, enough prefix points to keep the
+    full unloading corridor free. The reserve follows the same physical
+    release constants as ``FacilitySpec`` instead of a template-sized magic
+    number.
+    """
+
+    minimum_approach_distance = minimum_vertical_approach_distance(
+        agent_radius_m=float(scenario.jupedsim_agent_radius_units),
+        personal_space_m=float(scenario.personal_space_units),
+    )
+    # The service point and every sub-setback prefix point are non-occupiable
+    # topology bridges. Generate enough tail candidates that removing those
+    # bridge points cannot silently shrink the authored waiting capacity.
+    reserve = max(
+        1,
+        int(ceil(minimum_approach_distance / max(0.001, float(queue.spacing_m)))),
+    )
+    if element.kind == FacilityKind.ELEVATOR.value:
+        corridor_length = (
+            DEFAULT_RELEASE_SPACING_MAX * DEFAULT_RELEASE_FORWARD_EXTRA
+        )
+        reserve += int(
+            ceil(
+                corridor_length
+                / max(MIN_COMPILED_QUEUE_SPACING_M, float(queue.spacing_m))
+            )
+        )
+    return min(
+        MAX_COMPILED_QUEUE_CAPACITY,
+        int(queue.capacity) + reserve,
     )
 
 

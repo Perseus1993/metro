@@ -121,6 +121,8 @@ class GoalEvent:
     facility_id: str | None = None
     reason: str | None = None
     observation: DecisionObservation | None = None
+    train_platform_id: str | None = None
+    train_arrival_sequence: int | None = None
 
     def __post_init__(self) -> None:
         try:
@@ -133,6 +135,14 @@ class GoalEvent:
             value = getattr(self, field_name)
             if value is not None and not value.strip():
                 raise ValueError(f"goal event {field_name} cannot be blank")
+        if self.train_platform_id is not None and not self.train_platform_id.strip():
+            raise ValueError("goal event train_platform_id cannot be blank")
+        if (self.train_platform_id is None) != (self.train_arrival_sequence is None):
+            raise ValueError(
+                "goal event train episode requires both platform id and arrival sequence"
+            )
+        if self.train_arrival_sequence is not None and self.train_arrival_sequence < 0:
+            raise ValueError("goal event train arrival sequence cannot be negative")
         if kind == GoalEventKind.ENTERED_REGION and not self.region_id:
             raise ValueError("entered-region event requires region_id")
         if kind == GoalEventKind.CANDIDATES_UPDATED and self.observation is None:

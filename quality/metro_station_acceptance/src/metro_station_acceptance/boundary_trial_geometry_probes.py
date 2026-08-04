@@ -63,7 +63,7 @@ def _footprint_design(variant: str) -> StationDesignDocument:
     }
     geometry = shop.geometry.moved_to(
         right_edges[variant] - shop.geometry.width_m,
-        shop.geometry.y_m,
+        60.0,
     )
     return replace(
         document,
@@ -112,4 +112,3 @@ def _queue_footprint_design(variant: str) -> StationDesignDocument:
         2,
     )
     return replace(document, elements=(*document.elements, owner), queues=(*document.queues, queue))
-

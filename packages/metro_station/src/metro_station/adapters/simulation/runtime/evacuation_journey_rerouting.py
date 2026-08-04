@@ -8,9 +8,15 @@ from metro_station.domain.journeys import journey_graph_for_facility_chain
 from shapely.geometry import Point as ShapelyPoint
 
 from ..agents.passenger import PassengerAgent
+from ..facilities.filters import facility_can_ever_serve_passenger
 from ..planning.plan import AgentIntent, FacilityStage
 from .passenger_goal_runtime import PassengerGoalRuntime
-from .physical_waypoint_routing import PhysicalWaypointRouter
+from .physical_waypoint_routing import (
+    PhysicalRouteUnreachableError,
+    PhysicalWaypointRouter,
+)
+from .walking_cost_accounting import record_walking_cost_source
+from ..movement.waypoint_policy import tactical_route_clearance
 
 
 def reroot_evacuation_goal_runtime(
@@ -24,12 +30,14 @@ def reroot_evacuation_goal_runtime(
     station_graph = getattr(model.layout_graph, "station_graph", None)
     if station_graph is None:
         return model.goal_runtime_for_intent(AgentIntent.EVACUATE_STATION)
-    facility_path = (
-        _vertical_facility_path_to_exit_component(model, passenger)
-        if station_interior
-        else ()
-    )
+    if station_interior:
+        facility_path, facility_path_cost = (
+            _vertical_facility_path_and_cost_to_exit_component(model, passenger)
+        )
+    else:
+        facility_path, facility_path_cost = (), 0.0
     passenger.evacuation_facility_path = facility_path
+    passenger.evacuation_facility_path_cost_seconds = facility_path_cost
     facility_chain = (
         (FacilityStage.VERTICAL_TRANSFER.value,) * len(facility_path)
         + (FacilityStage.EXIT_GATE.value,)
@@ -51,15 +59,75 @@ def refresh_evacuation_facility_path(
 ) -> tuple[str, ...]:
     """Recompute current-cost connectors at a physical decision boundary."""
 
-    facility_path = _vertical_facility_path_to_exit_component(model, passenger)
-    passenger.evacuation_facility_path = facility_path
-    return facility_path
+    proposed_path, proposed_cost = _vertical_facility_path_and_cost_to_exit_component(
+        model,
+        passenger,
+    )
+    current_path = tuple(passenger.evacuation_facility_path)
+    if proposed_path == current_path:
+        passenger.evacuation_facility_path_cost_seconds = proposed_cost
+        return current_path
+
+    region_id = "vertical_decision"
+    now = float(model.current_time_seconds)
+    reconsider_after = passenger.decision_reconsider_after_seconds_by_region.get(
+        region_id,
+        0.0,
+    )
+    current_cost = _evacuation_facility_path_cost_seconds(
+        model,
+        passenger,
+        current_path,
+        require_open=True,
+    )
+    if current_cost is not None:
+        passenger.evacuation_facility_path_cost_seconds = current_cost
+        if now < reconsider_after:
+            return current_path
+        minimum_improvement = max(
+            0.0,
+            float(model.scenario.facility_replan_minimum_improvement_seconds),
+        )
+        if current_cost - proposed_cost < minimum_improvement:
+            return current_path
+
+    passenger.evacuation_facility_path = proposed_path
+    passenger.evacuation_facility_path_cost_seconds = proposed_cost
+    if current_path:
+        passenger.decision_reconsider_after_seconds_by_region[region_id] = now + float(
+            model.scenario.facility_replan_cooldown_seconds
+        )
+    return proposed_path
+
+
+def _evacuation_facility_path_is_viable(
+    model: Any,
+    passenger: PassengerAgent,
+    facility_path: tuple[str, ...],
+) -> bool:
+    return (
+        _evacuation_facility_path_cost_seconds(
+            model,
+            passenger,
+            facility_path,
+            require_open=True,
+        )
+        is not None
+    )
 
 
 def _vertical_facility_path_to_exit_component(
     model: Any,
     passenger: PassengerAgent,
 ) -> tuple[str, ...]:
+    path, _cost = _vertical_facility_path_and_cost_to_exit_component(model, passenger)
+    return path
+
+
+def _vertical_facility_path_and_cost_to_exit_component(
+    model: Any,
+    passenger: PassengerAgent,
+) -> tuple[tuple[str, ...], float]:
     start_level = passenger.current_level_id
     if start_level is None:
         station_graph = model.layout_graph.station_graph
@@ -95,27 +163,30 @@ def _vertical_facility_path_to_exit_component(
     start = component(start_level, tuple(passenger.pos))
     targets = {
         component(
-            str(gate.spec.entry_level_id or start_level),
-            tuple(gate.spec.position),
+            str(model.facility_portal_binding(gate.facility_id).entry_level_id or start_level),
+            tuple(model.facility_portal_binding(gate.facility_id).entry_point),
         )
         for gate in exit_gates
     }
     if start in targets:
-        return ()
+        return (), 0.0
 
     all_adjacency: dict[tuple[str, int], list[tuple[float, tuple[str, int], str]]] = {}
     available_adjacency: dict[
         tuple[str, int], list[tuple[float, tuple[str, int], str]]
     ] = {}
     for facility in model._facilities_for_stage(FacilityStage.VERTICAL_TRANSFER.value):
-        if facility.spec.direction not in {"up", "both"}:
+        if not facility_can_ever_serve_passenger(passenger, facility):
             continue
-        entry_level = facility.spec.entry_level_id
-        exit_level = facility.spec.exit_level_id
+        binding = model.facility_portal_binding(facility.facility_id)
+        if binding.direction not in {"up", "both"}:
+            continue
+        entry_level = binding.entry_level_id
+        exit_level = binding.exit_level_id
         if entry_level is None or exit_level is None or entry_level == exit_level:
             continue
-        source = component(entry_level, tuple(facility.spec.position))
-        target = component(exit_level, tuple(facility.spec.exit_position))
+        source = component(entry_level, tuple(binding.entry_point))
+        target = component(exit_level, tuple(binding.exit_point))
         edge = (
             _vertical_service_cost_seconds(model, facility),
             target,
@@ -137,7 +208,6 @@ def _vertical_facility_path_to_exit_component(
         start,
         targets,
         available_adjacency,
-        require_walkable_routes=True,
     )
     if available_path is not None:
         return available_path
@@ -150,7 +220,6 @@ def _vertical_facility_path_to_exit_component(
         start,
         targets,
         all_adjacency,
-        require_walkable_routes=False,
     )
     if physical_path is not None:
         return physical_path
@@ -168,9 +237,7 @@ def _shortest_facility_path(
     adjacency: dict[
         tuple[str, int], list[tuple[float, tuple[str, int], str]]
     ],
-    *,
-    require_walkable_routes: bool,
-) -> tuple[str, ...] | None:
+) -> tuple[tuple[str, ...], float] | None:
     start_state = (start, "")
     heap: list[
         tuple[float, tuple[tuple[str, int], str], tuple[str, ...]]
@@ -182,7 +249,7 @@ def _shortest_facility_path(
             continue
         component_state, previous_facility_id = state
         if component_state in targets:
-            return path
+            return path, cost
         start_position = (
             tuple(passenger.pos)
             if not previous_facility_id
@@ -200,9 +267,12 @@ def _shortest_facility_path(
                     start_position=start_position,
                     level_id=component_state[0],
                     use_passenger_route_provider=not previous_facility_id,
-                    require_walkable_route=require_walkable_routes,
                 )
-            except (RuntimeError, ValueError):
+            except PhysicalRouteUnreachableError as exc:
+                _record_evacuation_walking_cost_failure(model, exc)
+                continue
+            except (RuntimeError, ValueError) as exc:
+                _record_evacuation_walking_cost_failure(model, exc)
                 continue
             new_cost = cost + walking_seconds + service_cost
             next_state = (next_component, facility_id)
@@ -210,6 +280,88 @@ def _shortest_facility_path(
                 continue
             best_cost[next_state] = new_cost
             heappush(heap, (new_cost, next_state, (*path, facility_id)))
+    return None
+
+
+def _evacuation_facility_path_cost_seconds(
+    model: Any,
+    passenger: PassengerAgent,
+    facility_path: tuple[str, ...],
+    *,
+    require_open: bool,
+) -> float | None:
+    """Validate and cost a complete directed connector chain from the body.
+
+    This is deliberately stricter than checking that every named facility
+    exists: every entry must be on the current physical level/component, every
+    exit must feed the next entry, and the final component must contain an exit
+    gate portal.  It is therefore safe to use as the hysteresis incumbent cost.
+    """
+
+    level_id = passenger.current_level_id
+    if level_id is None:
+        station_graph = model.layout_graph.station_graph
+        nearest = station_graph.nearest_node(passenger.pos)
+        level_id = nearest.level_id
+    if level_id is None:
+        return None
+
+    position = tuple(passenger.pos)
+    total_seconds = 0.0
+    for index, facility_id in enumerate(facility_path):
+        facility = model.facilities_by_id.get(facility_id)
+        if facility is None or (require_open and not facility.is_open):
+            return None
+        if not facility_can_ever_serve_passenger(passenger, facility):
+            return None
+        if not _facility_portals_are_walkable(model, facility):
+            return None
+        binding = model.facility_portal_binding(facility_id)
+        if binding.direction not in {"up", "both"}:
+            return None
+        entry_level = binding.entry_level_id
+        exit_level = binding.exit_level_id
+        if (
+            entry_level is None
+            or exit_level is None
+            or entry_level == exit_level
+            or str(entry_level) != str(level_id)
+        ):
+            return None
+        try:
+            total_seconds += _walking_seconds_to_facility(
+                model,
+                passenger,
+                facility,
+                start_position=position,
+                level_id=str(level_id),
+                use_passenger_route_provider=index == 0,
+            )
+        except (PhysicalRouteUnreachableError, RuntimeError, ValueError) as exc:
+            _record_evacuation_walking_cost_failure(model, exc)
+            return None
+        total_seconds += _vertical_service_cost_seconds(model, facility)
+        level_id = str(exit_level)
+        position = tuple(binding.exit_point)
+
+    exit_gates = model._facilities_for_stage(FacilityStage.EXIT_GATE.value)
+    for exit_gate in exit_gates:
+        binding = model.facility_portal_binding(exit_gate.facility_id)
+        if str(binding.entry_level_id) != str(level_id):
+            continue
+        try:
+            total_seconds += _walking_seconds_to_facility(
+                model,
+                passenger,
+                exit_gate,
+                start_position=position,
+                level_id=str(level_id),
+                use_passenger_route_provider=not facility_path,
+            )
+        except (PhysicalRouteUnreachableError, RuntimeError, ValueError) as exc:
+            _record_evacuation_walking_cost_failure(model, exc)
+            continue
+        return total_seconds
     return None
 
 
@@ -236,17 +388,10 @@ def _walking_seconds_to_facility(
     start_position: tuple[float, float],
     level_id: str,
     use_passenger_route_provider: bool,
-    require_walkable_route: bool,
 ) -> float:
     """Use the tactical waypoint route for every same-component transfer."""
 
     walk_speed = max(0.001, float(model.desired_walk_speed_mps(passenger)))
-    if not require_walkable_route:
-        queue_anchor = facility.spec.queue_anchor
-        return hypot(
-            start_position[0] - queue_anchor[0],
-            start_position[1] - queue_anchor[1],
-        ) / walk_speed
     if use_passenger_route_provider:
         route = tuple(model.facility_walking_route(passenger, facility))
     else:
@@ -260,11 +405,10 @@ def _walking_seconds_to_facility(
             start_position,
             (target,),
             level_id=level_id,
-            clearance=max(
-                0.02,
-                min(
-                    float(model.scenario.jupedsim_agent_radius_units),
-                    float(model.scenario.jupedsim_target_radius_units) * 0.25,
+            clearance=tactical_route_clearance(
+                agent_radius=float(model.scenario.jupedsim_agent_radius_units),
+                final_target_radius=float(
+                    model.scenario.jupedsim_target_radius_units
                 ),
             ),
         )
@@ -273,18 +417,40 @@ def _walking_seconds_to_facility(
         hypot(right[0] - left[0], right[1] - left[1])
         for left, right in zip(points, points[1:])
     )
+    record_walking_cost_source(model, "physical_waypoint_geodesic")
     return distance / walk_speed
 
 
+def _record_evacuation_walking_cost_failure(
+    model: Any,
+    error: Exception,
+) -> None:
+    """Make every rejected evacuation cost candidate observable.
+
+    An unreachable candidate is an expected negative feasibility result. Any
+    other route exception is a configuration/runtime defect; it is still
+    counted separately so acceptance cannot report a false zero, and strict
+    simulations fail immediately rather than silently changing route costs.
+    """
+
+    if isinstance(error, PhysicalRouteUnreachableError):
+        record_walking_cost_source(model, "physical_route_unreachable")
+        return
+    record_walking_cost_source(model, "physical_route_error")
+    if bool(getattr(model.scenario, "jupedsim_strict", True)):
+        raise error
+
+
 def _facility_portals_are_walkable(model: Any, facility: Any) -> bool:
-    entry_level = facility.spec.entry_level_id
-    exit_level = facility.spec.exit_level_id
+    binding = model.facility_portal_binding(facility.facility_id)
+    entry_level = binding.entry_level_id
+    exit_level = binding.exit_level_id
     if entry_level is None or exit_level is None:
         return False
     entry_area = model.jupedsim_walkable_area(entry_level).buffer(1e-7)
     exit_area = model.jupedsim_walkable_area(exit_level).buffer(1e-7)
-    return entry_area.covers(ShapelyPoint(facility.spec.position)) and exit_area.covers(
-        ShapelyPoint(facility.spec.exit_position)
+    return entry_area.covers(ShapelyPoint(binding.entry_point)) and exit_area.covers(
+        ShapelyPoint(binding.exit_point)
     )
 
 

@@ -87,6 +87,7 @@ class MovementTraceRecorder:
         level_id: str | None,
         positions: Mapping[int, tuple[float, float]],
         episode_ids: Mapping[int, str],
+        phases_by_passenger: Mapping[int, str] | None = None,
     ) -> None:
         for passenger_id, position in sorted(positions.items()):
             passenger_id = int(passenger_id)
@@ -121,18 +122,64 @@ class MovementTraceRecorder:
                 episode_id=episode_id,
                 sample_index=sample_index,
                 authority=self.authority,
+                phase=str(
+                    (phases_by_passenger or {}).get(passenger_id, "walking")
+                ),
             )
             self._points.append(point)
             self._last_time_by_episode[episode_id] = float(time_seconds)
             self._level_by_episode[episode_id] = level_id
             self._sample_index_by_episode[episode_id] = sample_index
 
+    def discard_passenger_samples_after(
+        self,
+        passenger_id: int,
+        *,
+        time_seconds: float,
+    ) -> None:
+        """Rollback an uncommitted backend proposal for one passenger."""
+
+        passenger_id = int(passenger_id)
+        kept = [
+            point
+            for point in self._points
+            if not (
+                point.passenger_id == passenger_id
+                and point.time_seconds > float(time_seconds) + 1e-9
+            )
+        ]
+        if len(kept) == len(self._points):
+            return
+        self._points = kept
+        self._rebuild_indexes()
+
+    def _rebuild_indexes(self) -> None:
+        self._last_time_by_episode.clear()
+        self._level_by_episode.clear()
+        self._sample_index_by_episode.clear()
+        self._active_episode_by_passenger.clear()
+        self._closed_episode_ids.clear()
+        for point in self._points:
+            active = self._active_episode_by_passenger.get(point.passenger_id)
+            if active is not None and active != point.episode_id:
+                self._closed_episode_ids.add(active)
+            self._active_episode_by_passenger[point.passenger_id] = point.episode_id
+            self._last_time_by_episode[point.episode_id] = point.time_seconds
+            self._level_by_episode[point.episode_id] = point.level_id
+            self._sample_index_by_episode[point.episode_id] = point.sample_index
+
     def as_dict(self) -> dict[str, Any]:
         return {
             "schema_version": MOVEMENT_TRACE_SCHEMA_VERSION,
             "metadata": {
                 "authority": self.authority,
-                "coverage": ["walking"],
+                "coverage": [
+                    "walking",
+                    "passive_layout",
+                    "same_floor_facility",
+                    "elevator_boarding",
+                    "elevator_unloading",
+                ],
                 "coordinates": "station_model_meters",
                 "sample_interval_seconds": self.sample_interval_seconds,
                 "integration_dt_seconds": self.integration_dt_seconds,
@@ -149,7 +196,13 @@ def empty_movement_trace(*, reason: str) -> dict[str, Any]:
         "schema_version": MOVEMENT_TRACE_SCHEMA_VERSION,
         "metadata": {
             "authority": "jupedsim",
-            "coverage": ["walking"],
+            "coverage": [
+                "walking",
+                "passive_layout",
+                "same_floor_facility",
+                "elevator_boarding",
+                "elevator_unloading",
+            ],
             "visual_only": False,
             "enabled": False,
             "reason": str(reason),

@@ -6,6 +6,7 @@ from math import sin as math_sin
 
 from ..agents.passenger import PassengerAgent
 from ..facilities.runtime import FacilityProcessAgent
+from ..movement.cornering_speed import desired_cornering_speed_mps
 from ..planning.plan import CROWD_INTERACTION_STATES, AgentState
 from ..station.geometry import level_walkable_geometry
 
@@ -166,7 +167,10 @@ class SpatialQueryMixin:
         free_speed = float(
             getattr(passenger, "free_walk_speed_mps", self.scenario.jupedsim_desired_speed_mps)
         )
-        return free_speed * self.walk_speed_factor(passenger)
+        return desired_cornering_speed_mps(
+            passenger,
+            free_speed * self.walk_speed_factor(passenger),
+        )
 
     def crowding_index(self) -> float:
         active = self.active_passengers()

@@ -25,6 +25,10 @@ class GoalBoardingMicroScenario:
     tick_seconds: float = 0.25
     group_size: int = 1
     walk_units_per_tick: float = 0.3
+    movement_trace_sample_seconds: float = 0.2
+    jupedsim_desired_speed_mps: float = 1.2
+    cornering_acceleration_limit_m_s2: float = 3.2
+    cornering_acceleration_window_s: float = 0.4
     initial_train_offset_seconds: float = 15.0
     train_dwell_seconds: float = 20.0
     train_headway_seconds: float = 60.0

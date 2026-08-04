@@ -34,6 +34,7 @@ def operational_scenario(
     *,
     layout_id: str = "visual_demo_station",
     station_design: StationDesignDocument | None = None,
+    tick_seconds: int = 5,
 ) -> StationSandboxScenario:
     if scenario_id not in OPERATIONAL_SCENARIOS:
         raise ValueError(f"unknown operational acceptance scenario {scenario_id!r}")
@@ -42,7 +43,7 @@ def operational_scenario(
         "hour": 18,
         "minutes": 27,
         "demand_minutes": 2,
-        "tick_seconds": 5,
+        "tick_seconds": tick_seconds,
         "group_size": 1,
         "entry_count_hour": 120,
         "exit_count_hour": 0,
@@ -92,7 +93,15 @@ def _scenario_overrides(
             "gate_service_persons_per_min": 30,
         }
     if scenario_id == FACILITY_CLOSURE_RECOVERY:
-        disrupted_lanes = entry_facility_ids[:5]
+        # Keep exactly one escape lane when possible.  Generated fare-control
+        # banks range from two to many lanes; a fixed "first five" subset can
+        # miss every active commitment in a large bank and silently fail to
+        # exercise the recovery path the scenario claims to test.
+        disrupted_lanes = (
+            entry_facility_ids[:-1]
+            if len(entry_facility_ids) > 1
+            else entry_facility_ids
+        )
         return {
             "entry_count_hour": 1200,
             "gate_service_persons_per_min": 6,

@@ -113,9 +113,20 @@ def test_plugin_intermediate_nodes_only_constrain_physical_route_when_explicitly
     captured_anchors: list[tuple[tuple[float, float], ...]] = []
     original = model._physical_route_for_points
 
-    def capture(passenger, anchors, *, level_id=None):
+    def capture(
+        passenger,
+        anchors,
+        *,
+        level_id=None,
+        include_navigation_waypoints=False,
+    ):
         captured_anchors.append(tuple(anchors))
-        return original(passenger, anchors, level_id=level_id)
+        return original(
+            passenger,
+            anchors,
+            level_id=level_id,
+            include_navigation_waypoints=include_navigation_waypoints,
+        )
 
     monkeypatch.setattr(model, "_physical_route_for_points", capture)
     route, decisions = _route_once(model)

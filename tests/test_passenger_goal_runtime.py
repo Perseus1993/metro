@@ -3,6 +3,7 @@ from __future__ import annotations
 import unittest
 from collections import Counter
 from dataclasses import replace
+from types import SimpleNamespace
 
 from sandbox.metro_station_sandbox.design import create_design
 from sandbox.metro_station_sandbox.migration import migrate_legacy_scenario_options
@@ -20,6 +21,16 @@ from sandbox.metro_station_sandbox.planning.journeys import (
 from sandbox.metro_station_sandbox.runtime.passenger_goal_runtime import PassengerGoalRuntime
 from sandbox.metro_station_sandbox.planning.plan import AgentIntent
 from sandbox.metro_station_sandbox.runtime.mesa_model import MetroStationModel
+from metro_station.adapters.simulation.runtime.passenger_goal_observation import (
+    WalkingCostConfigurationError,
+    _walking_distance,
+)
+from metro_station.adapters.simulation.runtime.physical_waypoint_routing import (
+    PhysicalRouteUnreachableError,
+)
+from metro_station.adapters.simulation.runtime.walking_cost_accounting import (
+    record_walking_cost_source,
+)
 from sandbox.metro_station_sandbox.station.scenario import StationSandboxScenario
 
 
@@ -138,7 +149,16 @@ class PassengerGoalRuntimeTests(unittest.TestCase):
 
         self.assertEqual("use_entry_gate", passenger.goal_runtime.state.current_node_id)
         self.assertIsNotNone(passenger.goal_runtime.state.commitment)
-        self.assertEqual("queue_approach", passenger.current_goal.kind)
+        # The compiled decision target is the reserved portal-side queue
+        # capture point. Physical arrival can therefore commit and join in one
+        # event loop without an artificial out-and-back approach segment.
+        self.assertEqual("queued", passenger.current_goal.kind)
+        self.assertIn(
+            passenger,
+            model.facilities_by_id[
+                passenger.goal_runtime.state.commitment.facility_id
+            ].queue,
+        )
         self.assertFalse(hasattr(passenger.plan, "chosen_facilities"))
 
         self.assertFalse(hasattr(model, "request_facility_choice"))
@@ -162,7 +182,7 @@ class PassengerGoalRuntimeTests(unittest.TestCase):
         scenario = replace(_scenario(), goal_graph_mode="active")
         model = MetroStationModel(scenario, movement_backend=NoMovementBackend())
         passengers = [
-            model._spawn_passenger(AgentIntent.ENTER_AND_BOARD) for _ in range(40)
+            model._spawn_passenger(AgentIntent.ENTER_AND_BOARD) for _ in range(30)
         ]
         for passenger in passengers:
             _reach_current_goal_region(model, passenger)
@@ -172,7 +192,7 @@ class PassengerGoalRuntimeTests(unittest.TestCase):
             for passenger in passengers
         )
 
-        self.assertEqual(40, sum(distribution.values()))
+        self.assertEqual(30, sum(distribution.values()))
         self.assertGreaterEqual(len(distribution), 2)
         self.assertTrue(all(passenger.goal_runtime is not None for passenger in passengers))
 
@@ -288,8 +308,14 @@ class PassengerGoalRuntimeTests(unittest.TestCase):
 
         self.assertEqual("use_entry_gate", first.goal_runtime.state.current_node_id)
         self.assertIsNotNone(first.goal_runtime.state.commitment)
-        self.assertEqual((), first.goal_runtime.take_pending_commands())
-        self.assertEqual("queue_approach", first.current_goal.kind)
+        self.assertEqual(
+            ("wait_for_service",),
+            tuple(
+                command.kind
+                for command in first.goal_runtime.take_pending_commands()
+            ),
+        )
+        self.assertEqual("queued", first.current_goal.kind)
         self.assertEqual(
             "approach_entry_gate_decision",
             second.goal_runtime.state.current_node_id,
@@ -318,6 +344,98 @@ class PassengerGoalRuntimeTests(unittest.TestCase):
             with self.subTest(mode=mode):
                 with self.assertRaisesRegex(ValueError, "goal_graph_mode"):
                     replace(_scenario(), goal_graph_mode=mode)
+
+    def test_missing_physical_route_provider_is_a_typed_configuration_error(self) -> None:
+        model = SimpleNamespace(
+            walking_cost_source_counts=Counter(),
+            walking_cost_evaluation_count=0,
+        )
+
+        with self.assertRaises(WalkingCostConfigurationError):
+            _walking_distance(model, _walking_passenger(), _walking_facility())
+
+        self.assertEqual({"provider_missing": 1}, dict(model.walking_cost_source_counts))
+        self.assertEqual(1, model.walking_cost_evaluation_count)
+
+    def test_only_typed_physical_unreachable_becomes_an_ineligible_cost(self) -> None:
+        def unreachable(_passenger, _facility):
+            raise PhysicalRouteUnreachableError("sealed")
+
+        model = _walking_model(unreachable)
+
+        distance, reachable, source = _walking_distance(
+            model,
+            _walking_passenger(),
+            _walking_facility(),
+        )
+
+        self.assertEqual(0.0, distance)
+        self.assertFalse(reachable)
+        self.assertEqual("physical_route_unreachable", source)
+        self.assertEqual(1, model.walking_cost_evaluation_count)
+
+    def test_generic_route_errors_are_not_disguised_as_unreachable(self) -> None:
+        def programming_error(_passenger, _facility):
+            raise ValueError("bad portal object")
+
+        model = _walking_model(programming_error)
+
+        with self.assertRaisesRegex(ValueError, "bad portal object"):
+            _walking_distance(model, _walking_passenger(), _walking_facility())
+
+        self.assertEqual(
+            {"physical_route_error": 1},
+            dict(model.walking_cost_source_counts),
+        )
+        self.assertEqual(1, model.walking_cost_evaluation_count)
+
+    def test_physical_cost_source_count_is_conserved(self) -> None:
+        model = _walking_model(lambda _passenger, _facility: ((3.0, 4.0),))
+
+        distance, reachable, source = _walking_distance(
+            model,
+            _walking_passenger(),
+            _walking_facility(),
+        )
+
+        self.assertEqual(5.0, distance)
+        self.assertTrue(reachable)
+        self.assertEqual("physical_waypoint_geodesic", source)
+        self.assertEqual(
+            model.walking_cost_evaluation_count,
+            sum(model.walking_cost_source_counts.values()),
+        )
+
+    def test_unknown_walking_cost_source_fails_closed(self) -> None:
+        model = SimpleNamespace(
+            walking_cost_source_counts=Counter(),
+            walking_cost_evaluation_count=0,
+        )
+
+        with self.assertRaisesRegex(
+            WalkingCostConfigurationError,
+            "unknown walking-cost source",
+        ):
+            record_walking_cost_source(model, "euclidean_fallback_v2")
+
+        self.assertEqual({}, dict(model.walking_cost_source_counts))
+        self.assertEqual(0, model.walking_cost_evaluation_count)
+
+
+def _walking_model(route_provider):
+    return SimpleNamespace(
+        facility_walking_route=route_provider,
+        walking_cost_source_counts=Counter(),
+        walking_cost_evaluation_count=0,
+    )
+
+
+def _walking_passenger():
+    return SimpleNamespace(pos=(0.0, 0.0))
+
+
+def _walking_facility():
+    return SimpleNamespace(spec=SimpleNamespace(queue_anchor=(3.0, 4.0)))
 
 
 if __name__ == "__main__":

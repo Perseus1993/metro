@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from dataclasses import dataclass
 from math import hypot
 from typing import TYPE_CHECKING, Protocol, overload
 
@@ -8,6 +9,23 @@ if TYPE_CHECKING:
 
 
 Point = tuple[float, float]
+
+
+@dataclass(frozen=True)
+class ApproachReservationState:
+    """Immutable queue-owned reservation/priority transaction snapshot."""
+
+    slots: tuple[tuple[int, int], ...]
+    priorities: tuple[tuple[int, int], ...]
+    next_priority: int
+
+
+@dataclass(frozen=True)
+class PreparedApproachRebalance:
+    """Validated replacement for one simultaneous reservation cohort."""
+
+    slot_by_unique_id: tuple[tuple[int, int], ...]
+    fifo_unique_ids: tuple[int, ...]
 
 
 class QueueLayoutLike(Protocol):
@@ -133,6 +151,18 @@ class FacilityQueue(list):
             raise RuntimeError("queue layout input contains co-located bodies")
         indexed_passengers = list(enumerate(self))
         for index, passenger in indexed_passengers:
+            committed_motion = getattr(
+                passenger,
+                "passive_layout_committed_delta",
+                None,
+            )
+            if committed_motion is not None:
+                if hypot(committed_motion[0], committed_motion[1]) > 1e-6:
+                    self._last_layout_motion_by_passenger_id[id(passenger)] = (
+                        float(committed_motion[0]),
+                        float(committed_motion[1]),
+                    )
+                passenger.passive_layout_committed_delta = None
             unprocessed_positions = [
                 other.pos
                 for other in self
@@ -235,6 +265,12 @@ class FacilityQueue(list):
             )
             is not None
         )
+        # A newly joined body may still stand on its approach portal while it
+        # compacts toward an earlier assigned slot.  Keep that physical slot
+        # owned until the body has actually left it; otherwise a following
+        # arrival can be routed into the same coordinate and permanently pin
+        # both people at the queue tail.
+        claimed.update(self._nearest_explicit_slot_index(passenger) for passenger in self)
         claimed.update(self._reserved_slot_index_by_unique_id.values())
         return tuple(sorted(claimed))
 
@@ -283,6 +319,80 @@ class FacilityQueue(list):
         """
 
         return self._reserved_slot_index_by_unique_id.get(int(passenger_unique_id))
+
+    def approach_reservation_state(self) -> ApproachReservationState:
+        return ApproachReservationState(
+            slots=tuple(sorted(self._reserved_slot_index_by_unique_id.items())),
+            priorities=tuple(
+                sorted(self._reservation_priority_by_unique_id.items())
+            ),
+            next_priority=int(self._next_priority),
+        )
+
+    def prepare_approach_rebalance(
+        self,
+        slot_by_unique_id: dict[int, int],
+        fifo_unique_ids: tuple[int, ...],
+    ) -> PreparedApproachRebalance:
+        """Validate a cohort replacement without mutating queue ownership."""
+
+        normalized = {
+            int(unique_id): max(0, int(slot_index))
+            for unique_id, slot_index in slot_by_unique_id.items()
+        }
+        fifo = tuple(int(unique_id) for unique_id in fifo_unique_ids)
+        if not normalized or set(fifo) != set(normalized) or len(fifo) != len(set(fifo)):
+            raise ValueError("approach rebalance FIFO must name the slot cohort exactly once")
+        if any(
+            unique_id not in self._reserved_slot_index_by_unique_id
+            or unique_id not in self._reservation_priority_by_unique_id
+            for unique_id in normalized
+        ):
+            raise ValueError("approach rebalance requires an existing queue reservation")
+        proposed_slots = dict(self._reserved_slot_index_by_unique_id)
+        proposed_slots.update(normalized)
+        if len(set(proposed_slots.values())) != len(proposed_slots):
+            raise ValueError("approach rebalance would duplicate a reserved slot")
+        return PreparedApproachRebalance(
+            slot_by_unique_id=tuple(sorted(normalized.items())),
+            fifo_unique_ids=fifo,
+        )
+
+    def apply_approach_rebalance(self, prepared: PreparedApproachRebalance) -> None:
+        """Atomically replace queue slots and FIFO priorities for one cohort."""
+
+        slot_by_unique_id = dict(prepared.slot_by_unique_id)
+        # Revalidate against current state so a stale prepared transaction can
+        # never overwrite an intervening reservation.
+        checked = self.prepare_approach_rebalance(
+            slot_by_unique_id,
+            prepared.fifo_unique_ids,
+        )
+        priorities = sorted(
+            self._reservation_priority_by_unique_id[unique_id]
+            for unique_id in slot_by_unique_id
+        )
+        next_slots = dict(self._reserved_slot_index_by_unique_id)
+        next_priorities = dict(self._reservation_priority_by_unique_id)
+        next_slots.update(dict(checked.slot_by_unique_id))
+        for unique_id, priority in zip(
+            checked.fifo_unique_ids,
+            priorities,
+            strict=True,
+        ):
+            next_priorities[unique_id] = priority
+        self._reserved_slot_index_by_unique_id = next_slots
+        self._reservation_priority_by_unique_id = next_priorities
+
+    def restore_approach_reservation_state(
+        self,
+        state: ApproachReservationState,
+    ) -> None:
+        """Restore an exact immutable snapshot without replaying business logic."""
+
+        self._reserved_slot_index_by_unique_id = dict(state.slots)
+        self._reservation_priority_by_unique_id = dict(state.priorities)
+        self._next_priority = int(state.next_priority)
 
     @property
     def approach_slot_reservations(self) -> tuple[tuple[int, int], ...]:
@@ -336,6 +446,25 @@ class FacilityQueue(list):
 
     def is_settling(self, passenger: PassengerAgent) -> bool:
         return self.settling_motion_fraction(passenger) <= 0.0
+
+    def service_order_key(self, passenger: PassengerAgent) -> tuple[float, int]:
+        """Return a stable arrival key usable by a shared physical resource.
+
+        Directional facade queues normally own independent FIFO counters.  A
+        bidirectional lane arbiter therefore needs the physical join time as
+        the common ordering domain.  Legacy/directly inserted occupants have
+        no recorded join boundary and are conservatively treated as already
+        waiting before timestamped arrivals.
+        """
+
+        passenger_id = id(passenger)
+        return (
+            self._joined_time_seconds_by_passenger_id.get(
+                passenger_id,
+                float("-inf"),
+            ),
+            self._priority_by_passenger_id.get(passenger_id, -1),
+        )
 
     def settling_motion_fraction(self, passenger: PassengerAgent) -> float:
         joined_time_seconds = self._joined_time_seconds_by_passenger_id.get(id(passenger))

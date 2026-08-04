@@ -81,8 +81,8 @@ class PassengerGoalCoordinator:
             self.model.current_time_seconds + self.model.scenario.tick_seconds,
         )
 
-    def service_completed(self, passenger, facility_id: str, time_seconds: float) -> None:
-        self._observe_service_fact(
+    def service_completed(self, passenger, facility_id: str, time_seconds: float) -> bool:
+        return self._observe_service_fact(
             passenger,
             GoalEventKind.SERVICE_COMPLETED,
             facility_id,
@@ -95,7 +95,8 @@ class PassengerGoalCoordinator:
         kind: GoalEventKind,
         facility_id: str,
         time_seconds: float,
-    ) -> None:
+    ) -> bool:
+        state_before = passenger.goal_runtime.state
         event = self.service_observer.observe(
             ProductionServiceObservationContext(
                 kind=kind,
@@ -106,7 +107,7 @@ class PassengerGoalCoordinator:
             passenger.goal_runtime.state,
         )
         if event is None:
-            return
+            return False
         previous_completion = (
             passenger.last_completed_facility_id,
             passenger.last_completed_facility_position,
@@ -129,6 +130,7 @@ class PassengerGoalCoordinator:
                 passenger.last_completed_facility_event_id,
                 passenger.last_completed_facility_level_id,
             ) = previous_completion
+        return passenger.goal_runtime.state != state_before
 
     def replan(self, passenger, reason: str) -> bool:
         before = passenger.goal_runtime.state.retry_count
@@ -144,6 +146,12 @@ class PassengerGoalCoordinator:
         )
         self.handle(passenger, event)
         changed = passenger.goal_runtime.state.retry_count > before
+        if (
+            not changed
+            and reason == "movement_stalled"
+            and self._reroute_stalled_region_approach(passenger, reason=reason)
+        ):
+            changed = True
         if event.event_id in passenger.goal_runtime.state.processed_event_ids:
             self.model.goal_parity.record(
                 passenger,
@@ -156,6 +164,111 @@ class PassengerGoalCoordinator:
                 reason=reason,
             )
         return changed
+
+    def _reroute_stalled_region_approach(self, passenger, *, reason: str) -> bool:
+        """Recompute an uncommitted region route after a physical stall.
+
+        ``PROGRESS_STALLED`` is a facility-choice event only after a
+        commitment exists.  Before the decision region, the correct recovery
+        is tactical: release any provisional portal/holding ownership and ask
+        the physical router for a fresh path from the current native position.
+        """
+
+        state = passenger.goal_runtime.state
+        node = passenger.goal_runtime.graph.node(state.current_node_id)
+        if (
+            state.commitment is not None
+            or self.model.passenger_has_active_facility_service(passenger)
+        ):
+            return False
+        active = self._active_decision_route(passenger, node, state)
+        if active is None:
+            return False
+        region_id, stage = active
+        router = self.executor.region_router
+        base_region = router._base_region(region_id)
+        # A decision-holding reservation is intentional backpressure, not a
+        # stale route.  Releasing it on every crowd-induced stall makes dense
+        # passengers synchronously reshuffle the finite holding grid and none
+        # of them keeps a stable route long enough to enter a newly freed
+        # facility.  Preserve the owned body target while recomputing the
+        # tactical path; ``route`` will atomically exchange it for an approach
+        # slot as soon as a facility becomes selectable.
+        has_holding_reservation = (
+            base_region in passenger.decision_holding_target_by_region
+        )
+        if not has_holding_reservation:
+            self.model._clear_all_facility_targeting_reservations(passenger)
+            router.clear_decision_context(
+                passenger,
+                region_id,
+                preserve_preference=False,
+            )
+        self._execute(
+            passenger,
+            (
+                GoalCommand(
+                    kind=GoalCommandKind.WALK_TO_REGION.value,
+                    goal_node_id=state.current_node_id,
+                    stage=stage,
+                    target_region_id=region_id,
+                    reason=reason,
+                ),
+            ),
+        )
+        passenger.last_replan_reason = reason
+        self.model.audit.record(
+            "passenger_replanned_stalled_region_approach",
+            source="goal_runtime",
+            step=int(self.model.step_index),
+            context={
+                "passenger_id": int(passenger.unique_id),
+                "region_id": region_id,
+                "stage": stage,
+                "reason": reason,
+            },
+        )
+        return True
+
+    def facility_unavailable(
+        self,
+        passenger,
+        facility_id: str,
+        *,
+        reason: str,
+    ) -> bool:
+        """Invalidate a committed pre-service facility at the control boundary.
+
+        A dynamic closure is a known environmental fact, not a progress-stall
+        heuristic.  Sending the dedicated event lets the pure goal reducer
+        clear the stale commitment and synchronously execute its queue cleanup
+        before a replacement is selected.
+        """
+
+        before = passenger.goal_runtime.state
+        event = GoalEvent(
+            kind=GoalEventKind.FACILITY_UNAVAILABLE.value,
+            time_seconds=self.model.current_time_seconds,
+            event_id=self._fact_id(passenger, "facility_unavailable", facility_id),
+            stage=before.current_stage,
+            facility_id=facility_id,
+            reason=reason,
+        )
+        self.handle(passenger, event)
+        after = passenger.goal_runtime.state
+        handled = event.event_id in after.processed_event_ids
+        if handled:
+            self.model.goal_parity.record(
+                passenger,
+                stream="physical",
+                kind=GoalEventKind.FACILITY_UNAVAILABLE.value,
+                time_seconds=self.model.current_time_seconds,
+                stage=before.current_stage,
+                facility_id=facility_id,
+                node_id=before.current_node_id,
+                reason=reason,
+            )
+        return bool(handled and after.retry_count > before.retry_count)
 
     def poll(self, passenger) -> None:
         state = passenger.goal_runtime.state
@@ -262,7 +375,11 @@ class PassengerGoalCoordinator:
             candidates,
         ):
             return
-        router.clear_decision_context(passenger, region_id)
+        router.clear_decision_context(
+            passenger,
+            region_id,
+            preserve_preference=True,
+        )
         self._execute(
             passenger,
             (

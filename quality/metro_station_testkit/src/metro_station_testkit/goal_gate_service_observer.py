@@ -32,6 +32,11 @@ class GoalGateServiceObserver:
         if event.facility_id != state.commitment.facility_id:
             return None
         phase = self._phase_by_event_id.get(event.event_id, 0)
+        if (
+            phase == 1
+            and event.event_id not in context.completed_facility_service_event_ids
+        ):
+            return None
         self._phase_by_event_id[event.event_id] = phase + 1
         kind = GoalEventKind.SERVICE_STARTED if phase == 0 else GoalEventKind.SERVICE_COMPLETED
         return GoalEvent(

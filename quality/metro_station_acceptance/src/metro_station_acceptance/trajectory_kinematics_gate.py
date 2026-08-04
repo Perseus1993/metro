@@ -10,6 +10,7 @@ from .trajectory_truth_inputs import TrajectoryTruthInputError
 
 
 TRAJECTORY_KINEMATICS_GATE_SCHEMA_VERSION = "trajectory_kinematics_gate_report.v1"
+_JUPEDSIM_AUTHORITIES = frozenset({"jupedsim", "jupedsim_committed_walk"})
 
 
 @dataclass(frozen=True)
@@ -35,6 +36,7 @@ class TrajectoryKinematicsGateConfig:
     moving_speed_threshold_m_s: float = 0.2
     continuity_interval_factor: float = 1.5
     time_epsilon_s: float = 1e-9
+    position_epsilon_m: float = 1e-6
     max_issue_examples: int = 20
 
     def validate(self) -> None:
@@ -235,7 +237,7 @@ def _extract_movement_trace(
     metadata = trace.get("metadata")
     if not isinstance(metadata, Mapping):
         raise TrajectoryTruthInputError("movement_trace.metadata must be an object")
-    if metadata.get("authority") != "jupedsim":
+    if metadata.get("authority") not in _JUPEDSIM_AUTHORITIES:
         raise TrajectoryTruthInputError("movement trace authority must be jupedsim")
     if bool(metadata.get("visual_only")):
         raise TrajectoryTruthInputError("visual_only movement trace cannot be truth evidence")
@@ -250,7 +252,28 @@ def _extract_movement_trace(
         raise TrajectoryTruthInputError("movement_trace.points must be an array")
     if not raw_points:
         raise TrajectoryTruthInputError("movement_trace contains no points")
-    points = [_kinematic_point(item, index) for index, item in enumerate(raw_points)]
+    points: list[KinematicPoint] = []
+    for index, item in enumerate(raw_points):
+        if not isinstance(item, Mapping):
+            raise TrajectoryTruthInputError(
+                f"movement point {index} must be an object"
+            )
+        phase = str(item.get("phase", "walking"))
+        if phase not in {
+            "walking",
+            "passive_layout",
+            "same_floor_facility",
+            "elevator_boarding",
+            "elevator_unloading",
+            "train_door_boarding",
+        }:
+            raise TrajectoryTruthInputError(
+                f"movement point {index} has unsupported phase {phase!r}"
+            )
+        if phase == "walking":
+            points.append(_kinematic_point(item, index))
+    if not points:
+        raise TrajectoryTruthInputError("movement_trace contains no walking points")
     return points, metadata, source_kind, evidence_trace
 
 
@@ -259,7 +282,7 @@ def _kinematic_point(value: object, source_index: int) -> KinematicPoint:
         raise TrajectoryTruthInputError(f"movement point {source_index} must be an object")
     if bool(value.get("visual_only")):
         raise TrajectoryTruthInputError(f"movement point {source_index} is visual_only")
-    if value.get("authority", "jupedsim") != "jupedsim":
+    if value.get("authority", "jupedsim") not in _JUPEDSIM_AUTHORITIES:
         raise TrajectoryTruthInputError(f"movement point {source_index} is not JuPedSim truth")
     if value.get("phase", "walking") != "walking":
         raise TrajectoryTruthInputError(f"movement point {source_index} is not walking")
@@ -393,6 +416,17 @@ def _episode_gap_evidence_issues(
                 transitions.append((agent_id, previous, current))
     issues: list[dict[str, object]] = []
     for agent_id, previous, current in transitions:
+        same_boundary = (
+            abs(current.time_s - previous.time_s) <= config.time_epsilon_s
+            and current.level_id == previous.level_id
+            and math.hypot(current.x - previous.x, current.y - previous.y)
+            <= config.position_epsilon_m
+        )
+        if same_boundary:
+            # Back-to-back route episodes may share their exact tick-boundary
+            # anchor. This is an explicit identity transition, not an
+            # unobserved temporal gap requiring snapshot/process coverage.
+            continue
         if not _has_gap_evidence(
             evidence_trace,
             agent_id=agent_id,
@@ -427,6 +461,7 @@ _WALKING_STATES = {
 # snapshots, rather than the walking engine, are authoritative until capture
 # succeeds or replanning selects a new target.
 _NON_WALKING_INTERACTION_STATES = {
+    "evaluate_candidates",
     "capture_queue",
     "queueing",
     "in_service",

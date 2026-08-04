@@ -11,13 +11,21 @@ from shapely.geometry import Polygon
 
 from metro_station.adapters.simulation.agents.transit import TrainAgent
 from metro_station.adapters.simulation.facilities.service_events import FacilityServiceEvent
-from metro_station.adapters.simulation.movement.backend import BatchedJuPedSimMovementBackend, MovementBackend
+from metro_station.adapters.simulation.movement.backend import (
+    BatchedJuPedSimMovementBackend,
+    MovementBackend,
+)
 from metro_station.adapters.simulation.movement.jps_adapter import JuPedSimAdapter
+from metro_station.adapters.simulation.movement.facility_motion_trace import (
+    FacilityMotionTraceRecorder,
+)
 from metro_station.adapters.simulation.planning.plan import AgentState
 from .goal_journey_fixture import (
     CONCOURSE_LEVEL,
     PLATFORM_ID,
     GoalJourneyMicroScenario,
+    compile_micro_facility_portal_binding,
+    install_micro_spatial_capacity_contract,
     make_door,
     make_gate,
     make_stairs,
@@ -60,7 +68,13 @@ class GoalJourneyMicroScene(mesa.Model):
         self.disabled_door_ids: set[str] = set()
         self.service_blocked_door_ids: set[str] = set()
         self.facility_service_events: list[FacilityServiceEvent] = []
+        self.facility_motion_trace_recorder = FacilityMotionTraceRecorder(
+            sample_interval_seconds=0.2
+        )
         self.goal_coordinator = SimpleNamespace(poll=lambda _passenger: None)
+        self.goal_parity = SimpleNamespace(
+            record=lambda _passenger, **_event: None,
+        )
         self._event_id = 0
         self._next_passenger_id = 1
         self.boarded_persons = 0
@@ -91,6 +105,17 @@ class GoalJourneyMicroScene(mesa.Model):
         self.doors = [make_door(self, "door_1", 5.0), make_door(self, "door_2", 9.0)]
         self.facilities = [*self.gates, *self.stairs, *self.doors]
         self.facilities_by_id = {item.facility_id: item for item in self.facilities}
+        portal_bindings = tuple(
+            compile_micro_facility_portal_binding(item.spec) for item in self.facilities
+        )
+        self._active_facility_portal_bindings = {item.facility_id: item for item in portal_bindings}
+        self.layout_graph.facility_portal_bindings = portal_bindings
+        install_micro_spatial_capacity_contract(
+            self.layout_graph,
+            (item.spec for item in self.facilities),
+            portal_bindings,
+            self.scenario,
+        )
         self.subject = self._new_passenger(self.source_position)
         self.passengers = [self.subject]
         self.crowd: list[GoalJourneyPassenger] = []
@@ -109,6 +134,14 @@ class GoalJourneyMicroScene(mesa.Model):
     def jupedsim_walkable_area(self, level_id: str | None = None):
         del level_id
         return self._walkable_area
+
+    def facility_portal_binding(self, facility_id: str):
+        try:
+            return self._active_facility_portal_bindings[facility_id]
+        except KeyError as exc:
+            raise KeyError(
+                f"facility {facility_id!r} has no compiled micro-scene portal binding"
+            ) from exc
 
     def nearby_passengers(self, passenger, radius: float):
         nearby = []
@@ -136,12 +169,24 @@ class GoalJourneyMicroScene(mesa.Model):
         facility_id: str,
         passenger_ids: tuple[int, ...],
         time_seconds: float,
+        *,
+        poll_immediately: bool = False,
     ) -> None:
-        del facility_id, passenger_ids, time_seconds
+        del facility_id, passenger_ids, time_seconds, poll_immediately
 
     def train_capacity_for_platform(self, platform_id: str) -> int:
         del platform_id
         return int(self.scenario.train_capacity_persons)
+
+    def boarding_doors_for_train(self, train: TrainAgent):
+        """Mirror the production transit contract used by train safety holds."""
+
+        matching = [door for door in self.doors if door.spec.platform_id == train.platform_id]
+        return matching or [
+            door
+            for door in self.doors
+            if door.spec.line_id == train.line_id and door.spec.direction == train.direction
+        ]
 
     def complete_departure(self, passenger: GoalJourneyPassenger, *, boarded: bool = True) -> None:
         if passenger.state == AgentState.DEPARTED.value:
@@ -163,6 +208,8 @@ class GoalJourneyMicroScene(mesa.Model):
             door.step(self.train)
         for passenger, result in self.movement_backend.step_all(self.passengers):
             passenger.apply_movement_result(result)
+        for door in self.doors:
+            door.commit_active_boardings_after_movement()
         self.step_index += 1
 
     def add_blocker_cluster(

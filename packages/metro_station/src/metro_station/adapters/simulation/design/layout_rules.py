@@ -340,7 +340,11 @@ def _validate_vertical_topology(
 def _is_independent_component(element: DesignElement) -> bool:
     if element.role == "floor" or element.kind == "walkable_area":
         return False
-    if element.kind == "obstacle" and not bool(element.metadata.get("blocking", True)):
+    # Non-blocking scene annotations and decorations may overlap the physical
+    # layout by design.  Their metadata already excludes them from the
+    # walkable-obstacle domain; applying physical component separation here
+    # would make the editor/rendering model contradict the compiler geometry.
+    if not bool(element.metadata.get("blocking", True)):
         return False
     return True
 

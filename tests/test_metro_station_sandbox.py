@@ -1,8 +1,7 @@
 from __future__ import annotations
 
 import unittest
-from copy import deepcopy
-from math import inf, nan
+from math import inf, nan, pi
 from math import hypot
 from random import Random
 from dataclasses import replace
@@ -67,6 +66,7 @@ from sandbox.metro_station_sandbox.facilities.runtime import (
 )
 from sandbox.metro_station_sandbox.facilities.service_events import FacilityServiceEvent
 from sandbox.metro_station_sandbox.facilities.vertical import (
+    ElevatorConfig,
     EscalatorConfig,
     EscalatorMode,
     VerticalFacilityConfig,
@@ -80,6 +80,7 @@ from sandbox.metro_station_sandbox.movement.backend import (
 )
 from sandbox.metro_station_sandbox.planning.selection import pick_least_loaded, pick_logit
 from sandbox.metro_station_sandbox.runtime.mesa_model import MetroStationModel
+from sandbox.metro_station_sandbox.runtime.demand_scheduler import DemandScheduler
 from sandbox.metro_station_sandbox.runtime.snapshots import FacilitySnapshot, PassengerSnapshot
 from sandbox.metro_station_sandbox.station.graph import StationGraph
 from sandbox.metro_station_sandbox.station.layout_graph import LayoutGraph
@@ -110,16 +111,14 @@ from metro_station_visualizer.queue_runtime import (
     NativeQueueRuntime,
 )
 from metro_station_visualizer.mesa_export import mesa_frames_to_visual_tracks
-from metro_station.adapters.simulation.simulation_outputs.visual_track_waypoints import (
-    _finalize_presentation_service_waypoints,
-    _insert_gate_service_waypoints,
-    _insert_vertical_service_waypoints,
-)
 from metro_station_visualizer.region_flow import (
     build_point_capture_flow,
     build_region_capture_flow,
 )
 from metro_station_visualizer.specs import FACILITY_QUEUES, GATE_QUEUE_SPECS
+from metro_station_testkit.goal_journey_fixture import (
+    compile_micro_facility_portal_binding,
+)
 
 
 class InstantMovementBackend(MovementBackend):
@@ -396,22 +395,19 @@ class VisualExportPayloadTests(unittest.TestCase):
         )
         agent = payload["agents"][0]
         source_points = agent["points"]
-        points = agent["presentation_points"]
-        by_time = {point[0]: point for point in points}
         source_by_time = {point[0]: point for point in source_points}
 
+        self.assertNotIn("presentation_points", agent)
         self.assertEqual(source_by_time[0.0][1:3], source_by_time[5.0][1:3])
         self.assertTrue(all(point[9]["visual_only"] is False for point in source_points))
         replay_fidelity = payload["simulation_trace"]["metadata"]["replay_fidelity"]
         self.assertEqual("points", replay_fidelity["visual_track_source_points_field"])
         self.assertEqual(
-            "presentation_points",
-            replay_fidelity["visual_track_presentation_points_field"],
+            "canonical_composite_points",
+            replay_fidelity["presentation_position_source"],
         )
         self.assertFalse(replay_fidelity["facility_overlays_modify_source_points"])
-        self.assertGreater(by_time[5.0][2], by_time[0.0][2])
-        self.assertLess(by_time[5.0][2], by_time[10.0][2])
-        self.assertEqual("vertical_service_visual_smoothing", by_time[5.0][9]["reason"])
+        self.assertFalse(replay_fidelity["facility_overlays_control_passenger_bodies"])
 
     def test_gate_service_visual_tracks_queue_front_before_gate(self) -> None:
         scenario = scenario_for("visual_demo_station", minutes=1)
@@ -477,31 +473,13 @@ class VisualExportPayloadTests(unittest.TestCase):
             service_events=[event],
         )
         source_points = payload["agents"][0]["points"]
-        points = payload["agents"][0]["presentation_points"]
-        inserted = [
-            point
-            for point in points
-            if point[9].get("reason") == "gate_service_visual_smoothing"
-        ]
-        max_visual_speed = max(
-            hypot(next_point[1] - point[1], next_point[2] - point[2])
-            / (next_point[0] - point[0])
-            for point, next_point in zip(points, points[1:])
-        )
-
-        queue_inserted = [point for point in inserted if point[8] == "queue"]
-        service_inserted = [point for point in inserted if point[8] == "target"]
-
-        self.assertGreaterEqual(len(queue_inserted), 2)
-        self.assertEqual(2, len(service_inserted))
+        self.assertNotIn("presentation_points", payload["agents"][0])
         self.assertTrue(all(point[9]["visual_only"] is False for point in source_points))
-        self.assertGreater(min(point[0] for point in inserted), points[0][0])
-        self.assertLess(max(point[0] for point in inserted), points[-1][0])
-        self.assertEqual("enqueued", queue_inserted[-1][7])
-        self.assertAlmostEqual(points[0][5], queue_inserted[-1][1])
-        self.assertAlmostEqual(points[0][6], queue_inserted[-1][2])
-        self.assertEqual("targeting", service_inserted[0][7])
-        self.assertLessEqual(max_visual_speed, 25.0)
+        self.assertFalse(
+            payload["simulation_trace"]["metadata"]["replay_fidelity"][
+                "facility_overlays_control_passenger_bodies"
+            ]
+        )
 
     def test_gate_service_visual_uses_event_entry_when_queue_target_is_stale(self) -> None:
         scenario = scenario_for("visual_demo_station", minutes=1)
@@ -561,17 +539,10 @@ class VisualExportPayloadTests(unittest.TestCase):
             facilities=[],
             service_events=[event],
         )
-        points = payload["agents"][0]["presentation_points"]
-        inserted_queue_points = [
-            point
-            for point in points
-            if point[9].get("reason") == "gate_service_visual_smoothing"
-            and point[8] == "queue"
-        ]
-
-        self.assertGreaterEqual(len(inserted_queue_points), 1)
-        self.assertNotAlmostEqual(points[0][6], inserted_queue_points[-1][2])
-        self.assertLess(inserted_queue_points[-1][2], points[0][6])
+        agent = payload["agents"][0]
+        self.assertNotIn("presentation_points", agent)
+        self.assertEqual(2, len(agent["points"]))
+        self.assertTrue(all(not point[9]["visual_only"] for point in agent["points"]))
 
     def test_simultaneous_stairs_events_get_visual_lane_offsets(self) -> None:
         scenario = scenario_for("visual_demo_station", minutes=1)
@@ -633,17 +604,15 @@ class VisualExportPayloadTests(unittest.TestCase):
             facilities=[],
             service_events=events,
         )
-        points_by_id = {
-            agent["id"]: {point[0]: point for point in agent["presentation_points"]}
-            for agent in payload["agents"]
-        }
-        first_midpoint = points_by_id[1][5.0]
-        second_midpoint = points_by_id[2][5.0]
-
-        self.assertNotEqual(first_midpoint[1], second_midpoint[1])
-        self.assertEqual(first_midpoint[2], second_midpoint[2])
-        self.assertEqual("vertical_service_visual_smoothing", first_midpoint[9]["reason"])
-        self.assertEqual("vertical_service_visual_smoothing", second_midpoint[9]["reason"])
+        self.assertTrue(all("presentation_points" not in agent for agent in payload["agents"]))
+        self.assertEqual(2, len(payload["vertical_service_events"]))
+        self.assertTrue(
+            all(
+                not point[9]["visual_only"]
+                for agent in payload["agents"]
+                for point in agent["points"]
+            )
+        )
 
     def test_elevator_batch_events_get_visual_car_offsets(self) -> None:
         scenario = scenario_for("visual_demo_station", minutes=1)
@@ -694,97 +663,16 @@ class VisualExportPayloadTests(unittest.TestCase):
             facilities=[],
             service_events=[event],
         )
-        points_by_id = {
-            agent["id"]: {point[0]: point for point in agent["presentation_points"]}
-            for agent in payload["agents"]
-        }
-        first_midpoint = points_by_id[1][5.0]
-        second_midpoint = points_by_id[2][5.0]
-
-        self.assertNotEqual(first_midpoint[1], second_midpoint[1])
-        self.assertEqual(first_midpoint[2], second_midpoint[2])
-        self.assertEqual("vertical_service_visual_smoothing", first_midpoint[9]["reason"])
-        self.assertEqual("vertical_service_visual_smoothing", second_midpoint[9]["reason"])
-
-    def test_facility_presentation_decorator_order_is_stable(self) -> None:
-        scenario = scenario_for("visual_demo_station", minutes=1)
-        source_points = [
-            [
-                0.0,
-                200.0,
-                200.0,
-                0.5,
-                0.94,
-                300.0,
-                300.0,
-                "enqueued",
-                "queue",
-                {"source": "simulation", "visual_only": False},
-            ],
-            [
-                5.0,
-                210.0,
-                205.0,
-                0.5,
-                0.94,
-                300.0,
-                300.0,
-                "targeting",
-                "target",
-                {"source": "simulation", "visual_only": False},
-            ],
-            [
-                10.0,
-                220.0,
-                210.0,
-                0.5,
-                0.94,
-                300.0,
-                300.0,
-                "targeting",
-                "target",
-                {"source": "simulation", "visual_only": False},
-            ],
-        ]
-        events = [
-            FacilityServiceEvent(
-                event_id=1,
-                facility_id="vertical:stairs_a:down:b1_concourse:b2_platform",
-                facility_kind=FacilityKind.STAIRS.value,
-                mode="down",
-                passenger_ids=(1,),
-                start_time=0.0,
-                end_time=10.0,
-                start_position=(10.0, 10.0),
-                end_position=(10.0, 40.0),
-            ),
-            FacilityServiceEvent(
-                event_id=2,
-                facility_id="entry_gate:gate_bank_a:lane_1",
-                facility_kind=FacilityKind.GATE.value,
-                mode=FacilityStage.ENTRY_GATE.value,
-                passenger_ids=(1,),
-                start_time=1.2,
-                end_time=2.1,
-                start_position=(17.588, 15.5029),
-                end_position=(17.588, 15.66765),
-            ),
-        ]
-
-        forward = {1: {"points": deepcopy(source_points)}}
-        reverse = {1: {"points": deepcopy(source_points)}}
-        _insert_vertical_service_waypoints(forward, events, scenario)
-        _insert_gate_service_waypoints(forward, events, scenario)
-        _finalize_presentation_service_waypoints(forward)
-        _insert_gate_service_waypoints(reverse, events, scenario)
-        _insert_vertical_service_waypoints(reverse, events, scenario)
-        _finalize_presentation_service_waypoints(reverse)
-
-        self.assertEqual(source_points, forward[1]["points"])
-        self.assertEqual(source_points, reverse[1]["points"])
-        self.assertEqual(forward[1]["presentation_points"], reverse[1]["presentation_points"])
-        self.assertNotIn("_presentation_layers", forward[1])
-        self.assertNotIn("_presentation_layers", reverse[1])
+        self.assertTrue(all("presentation_points" not in agent for agent in payload["agents"]))
+        self.assertEqual(1, len(payload["elevator_events"]))
+        self.assertEqual([1, 2], payload["elevator_events"][0]["track_ids"])
+        self.assertTrue(
+            all(
+                not point[9]["visual_only"]
+                for agent in payload["agents"]
+                for point in agent["points"]
+            )
+        )
 
     def test_stationary_visual_track_keeps_last_motion_heading(self) -> None:
         scenario = scenario_for("visual_demo_station", minutes=1)
@@ -817,6 +705,43 @@ class VisualExportPayloadTests(unittest.TestCase):
 
         self.assertNotEqual(0.0, by_time[5.0][3])
         self.assertEqual(by_time[5.0][3], by_time[10.0][3])
+
+    def test_visual_track_heading_uses_the_outgoing_edge_without_one_frame_lag(self) -> None:
+        scenario = scenario_for("visual_demo_station", minutes=1)
+        frames = []
+        for time_s, x, y in (
+            (0.0, 10.0, 10.0),
+            (5.0, 10.0, 20.0),
+            (10.0, 20.0, 20.0),
+        ):
+            frames.append(
+                {
+                    "time_seconds": time_s,
+                    "passengers": [
+                        {
+                            "id": 1,
+                            "x": x,
+                            "y": y,
+                            "state": AgentState.WALKING_TO_PLATFORM.value,
+                            "intent": AgentIntent.ENTER_AND_BOARD.value,
+                            "goal": {"target": [30.0, 20.0]},
+                        }
+                    ],
+                    "trains": [],
+                    "metrics": {"station_persons": 1, "spawned_persons": 1},
+                }
+            )
+
+        payload = mesa_frames_to_visual_tracks(
+            frames=frames,
+            scenario=scenario,
+            facilities=[],
+        )
+        by_time = {point[0]: point for point in payload["agents"][0]["points"]}
+
+        self.assertAlmostEqual(pi / 2.0, by_time[0.0][3], places=3)
+        self.assertAlmostEqual(0.0, by_time[5.0][3], places=3)
+        self.assertAlmostEqual(0.0, by_time[10.0][3], places=3)
 
 
 class StationGraphTests(unittest.TestCase):
@@ -1201,7 +1126,7 @@ class StationGraphTests(unittest.TestCase):
 
         self.assertEqual("error", draft["summary"]["status"])
         self.assertIn("graph.enter_path_missing", issue_codes)
-        self.assertGreater(draft["summary"]["fallback_edges"], 0)
+        self.assertEqual(0, draft["summary"]["fallback_edges"])
 
     def test_graph_marks_legacy_endpoint_inference_and_walkable_fallback(self) -> None:
         document = create_design("single_level_terminal")
@@ -1214,7 +1139,10 @@ class StationGraphTests(unittest.TestCase):
                 if not connection.id.startswith("conn_access_")
             ),
         )
-        graph = StationGraph.from_design(legacy_document)
+        graph = StationGraph.from_design(
+            legacy_document,
+            include_walkable_access_edges=True,
+        )
         diagnostic_codes = {diagnostic.code for diagnostic in graph.compile_diagnostics}
         fallback_edges = [
             edge for edge in graph.edges if edge.origin == "walkable_access_fallback"
@@ -1409,10 +1337,10 @@ class PassengerFlowTests(unittest.TestCase):
             seed=3,
             movement_backend=InstantMovementBackend(),
         )
-        zero_inset_model = MetroStationModel(
+        reduced_inset_model = MetroStationModel(
             replace(
                 scenario_for("visual_demo_station"),
-                gate_lane_edge_inset_max=0.0,
+                gate_lane_edge_inset_max=0.1,
             ),
             seed=3,
             movement_backend=InstantMovementBackend(),
@@ -1422,13 +1350,13 @@ class PassengerFlowTests(unittest.TestCase):
             for gate in default_model.gates
             if "lane_" in gate.facility_id
         ]
-        zero_inset_positions = [
+        reduced_inset_positions = [
             gate.spec.position
-            for gate in zero_inset_model.gates
+            for gate in reduced_inset_model.gates
             if "lane_" in gate.facility_id
         ]
 
-        self.assertEqual(len(default_positions), len(zero_inset_positions))
+        self.assertEqual(len(default_positions), len(reduced_inset_positions))
         self.assertGreater(len(default_positions), 1)
         axis = 0 if (
             max(x for x, _ in default_positions) - min(x for x, _ in default_positions)
@@ -1436,11 +1364,11 @@ class PassengerFlowTests(unittest.TestCase):
             max(y for _, y in default_positions) - min(y for _, y in default_positions)
         ) else 1
         self.assertLess(
-            min(position[axis] for position in zero_inset_positions),
+            min(position[axis] for position in reduced_inset_positions),
             min(position[axis] for position in default_positions),
         )
         self.assertGreater(
-            max(position[axis] for position in zero_inset_positions),
+            max(position[axis] for position in reduced_inset_positions),
             max(position[axis] for position in default_positions),
         )
         self.assertTrue(
@@ -1449,6 +1377,15 @@ class PassengerFlowTests(unittest.TestCase):
         self.assertTrue(
             all(gate.spec.fallback_queue_capacity == 8 for gate in default_model.gates)
         )
+        with self.assertRaisesRegex(ValueError, "portals.clearance_too_small"):
+            MetroStationModel(
+                replace(
+                    scenario_for("visual_demo_station"),
+                    gate_lane_edge_inset_max=0.0,
+                ),
+                seed=3,
+                movement_backend=InstantMovementBackend(),
+            )
 
     def test_gate_queue_crossing_guard_is_layout_spec_driven(self) -> None:
         design_model = MetroStationModel(
@@ -1640,7 +1577,10 @@ class PassengerFlowTests(unittest.TestCase):
 
     def test_model_reports_missing_required_entry_gates(self) -> None:
         scenario = scenario_for("single_level_terminal")
-        compiled_without_facilities = SimpleNamespace(facilities=())
+        compiled_without_facilities = SimpleNamespace(
+            facilities=(),
+            facility_portal_bindings=(),
+        )
 
         with patch(
             "sandbox.metro_station_sandbox.runtime.mesa_model.DesignCompiler.compile",
@@ -1859,19 +1799,27 @@ class PassengerFlowTests(unittest.TestCase):
         facility = model.facilities_by_id[commitment.facility_id]
         self.assertEqual(commitment.facility_id, passenger.current_goal.facility_id)
         self.assertEqual(FacilityStage.ENTRY_GATE.value, passenger.current_goal.stage)
-        self.assertEqual(
-            0,
-            passenger.facility_approach_slots_by_stage[FacilityStage.ENTRY_GATE.value],
-        )
-        self.assertFalse(any(passenger in gate.queue for gate in model.gates))
-        route_end = passenger.route[-1] if passenger.route else passenger.target
-        self.assertLess(
-            hypot(
-                route_end[0] - facility.spec.queue_anchor[0],
-                route_end[1] - facility.spec.queue_anchor[1],
-            ),
-            0.6,
-        )
+        if passenger in facility.queue:
+            # A compiled decision region may coincide with the first safe
+            # queue portal, so capture and admission can be immediate.
+            self.assertEqual(AgentState.QUEUEING_GATE.value, passenger.state)
+        else:
+            reserved_index = passenger.facility_approach_slots_by_stage[
+                FacilityStage.ENTRY_GATE.value
+            ]
+            self.assertIn(reserved_index, facility.portal_binding.approach_slot_indices)
+            route_end = passenger.route[-1] if passenger.route else passenger.target
+            reserved_slot = model._facility_approach_slot_position(
+                facility,
+                reserved_index,
+            )
+            self.assertLess(
+                hypot(
+                    route_end[0] - reserved_slot[0],
+                    route_end[1] - reserved_slot[1],
+                ),
+                0.6,
+            )
 
         for _ in range(10):
             if passenger.state != AgentState.ENTERING_STATION.value:
@@ -1913,7 +1861,11 @@ class PassengerFlowTests(unittest.TestCase):
             movement_backend=InstantMovementBackend(),
         )
         model.spawn_schedule.clear()
-        gate = model.gates[0]
+        gate = next(
+            item
+            for item in model.gates
+            if len(item.portal_binding.approach_slot_indices) >= 2
+        )
         passenger = PassengerAgent(
             model,
             group_size=1,
@@ -1921,14 +1873,13 @@ class PassengerFlowTests(unittest.TestCase):
             intent=AgentIntent.ENTER_AND_BOARD,
         )
         passenger.pos = (10.0, 10.0)
-        for _ in range(2):
-            earlier = PassengerAgent(
-                model,
-                group_size=1,
-                created_step=0,
-                intent=AgentIntent.ENTER_AND_BOARD,
-            )
-            model._reserve_facility_approach_slot(earlier, gate)
+        earlier = PassengerAgent(
+            model,
+            group_size=1,
+            created_step=0,
+            intent=AgentIntent.ENTER_AND_BOARD,
+        )
+        model._reserve_facility_approach_slot(earlier, gate)
         reserved_index = model._reserve_facility_approach_slot(passenger, gate)
 
         empty_route = model.route_to_facility_queue(passenger, gate)
@@ -1940,7 +1891,8 @@ class PassengerFlowTests(unittest.TestCase):
                 empty_route[-1][0] - gate.spec.queue_layout.slot(0)[0],
                 empty_route[-1][1] - gate.spec.queue_layout.slot(0)[1],
             ),
-            1.0,
+            model.scenario.jupedsim_agent_radius_units
+            * model.scenario.jupedsim_clearance_multiplier,
         )
 
         queued = [
@@ -1985,6 +1937,13 @@ class PassengerFlowTests(unittest.TestCase):
             intent=AgentIntent.ENTER_AND_BOARD,
         )
         passenger.pos = (20.0, 20.0)
+        earlier = PassengerAgent(
+            model,
+            group_size=1,
+            created_step=0,
+            intent=AgentIntent.ENTER_AND_BOARD,
+        )
+        model._reserve_facility_approach_slot(earlier, elevator)
         model._reserve_facility_approach_slot(passenger, elevator)
 
         empty_route = model.route_to_facility_queue(passenger, elevator)
@@ -1994,7 +1953,8 @@ class PassengerFlowTests(unittest.TestCase):
                 empty_route[-1][0] - elevator._service_entry_position(0)[0],
                 empty_route[-1][1] - elevator._service_entry_position(0)[1],
             ),
-            1.0,
+            model.scenario.jupedsim_agent_radius_units
+            * model.scenario.jupedsim_clearance_multiplier,
         )
 
         queued = [
@@ -2083,9 +2043,18 @@ class PassengerFlowTests(unittest.TestCase):
         gate = next(gate for gate in model.gates if gate.facility_id.endswith("lane_5"))
         passenger.state = AgentState.ENTERING_STATION.value
         passenger.current_level_id = gate.spec.entry_level_id
-        passenger.pos = (22.529, 14.095)
+        queue_target = model._safe_facility_queue_approach_target(passenger, gate)
+        service_entry = gate.portal_entry_position
+        dx = service_entry[0] - queue_target[0]
+        dy = service_entry[1] - queue_target[1]
+        length = hypot(dx, dy)
+        unit = (dx / length, dy / length)
+        passenger.pos = (
+            queue_target[0] - unit[0] * 0.5,
+            queue_target[1] - unit[1] * 0.5,
+        )
         passenger.set_target(
-            gate.spec.queue_layout.slot(0),
+            queue_target,
             goal_kind="queue_approach",
             goal_label=f"{gate.spec.label} queue approach",
             facility_id=gate.facility_id,
@@ -2093,7 +2062,10 @@ class PassengerFlowTests(unittest.TestCase):
         )
         crossed_result = MovementResult(
             int(passenger.unique_id),
-            (24.171, 14.635),
+            (
+                service_entry[0] + unit[0] * 0.2,
+                service_entry[1] + unit[1] * 0.2,
+            ),
             reached=False,
         )
 
@@ -2163,12 +2135,16 @@ class PassengerFlowTests(unittest.TestCase):
                 per_row=1,
                 col_step=(0.0, 0.0),
                 row_step=(-0.7, -0.7),
+                slots=((8.0, 8.0),),
             ),
             queue_crossing_guard=QueueCrossingGuard(
                 enabled=True,
                 tolerance_units=0.05,
                 lane_half_width_units=0.6,
             ),
+        )
+        model._active_facility_portal_bindings[gate.facility_id] = (
+            compile_micro_facility_portal_binding(gate.spec)
         )
         passenger = PassengerAgent(
             model,
@@ -2643,8 +2619,18 @@ class PassengerFlowTests(unittest.TestCase):
         self.assertEqual(0, gate.served_persons)
         self.assertEqual(4, len(gate.active_passes))
         total_steps = max(active.total_steps for active in gate.active_passes)
-        for _ in range(total_steps):
+        for _ in range(total_steps * 8):
             gate.step()
+            active_ids = {
+                int(active.passenger.unique_id) for active in gate.active_passes
+            }
+            model.passengers[:] = [
+                item
+                for item in model.passengers
+                if item not in passengers or int(item.unique_id) in active_ids
+            ]
+            if not gate.active_passes:
+                break
 
         self.assertEqual(4, gate.served_persons)
         self.assertTrue(
@@ -2668,10 +2654,9 @@ class PassengerFlowTests(unittest.TestCase):
                 event.end_position[0] - event.start_position[0],
                 event.end_position[1] - event.start_position[1],
             )
-            self.assertAlmostEqual(
-                traversal_distance / gate._walking_speed_m_s(),
+            self.assertGreaterEqual(
                 event.end_time - event.start_time,
-                places=9,
+                traversal_distance / gate._walking_speed_m_s(),
             )
         self.assertEqual(
             {
@@ -2792,10 +2777,22 @@ class PassengerFlowTests(unittest.TestCase):
         self.assertEqual(AgentState.BOARDING_TRAIN.value, passenger.state)
         self.assertIn(passenger, model.passengers)
         self.assertEqual(0, model.boarded_persons)
+        self.assertEqual(0, train.current_load_persons)
+        self.assertEqual(1, train.reserved_boarding_persons)
+        self.assertEqual(0, door.served_persons)
+        self.assertEqual(1, len(model.facility_service_events))
+        for _ in range(20):
+            if not door.active_boardings:
+                break
+            model.step_index += 1
+            door.step(train)
+
+        self.assertEqual([], door.active_boardings)
+        self.assertEqual(0, model.boarded_persons)
         self.assertEqual(1, train.current_load_persons)
+        self.assertEqual(0, train.reserved_boarding_persons)
         self.assertEqual(1, door.served_persons)
         self.assertEqual(door.spec.position, passenger.pos)
-        self.assertEqual(1, len(model.facility_service_events))
         event = model.facility_service_events[0]
         self.assertEqual(FacilityKind.TRAIN_DOOR.value, event.facility_kind)
         self.assertEqual(door.facility_id, event.facility_id)
@@ -2831,6 +2828,147 @@ class PassengerFlowTests(unittest.TestCase):
         )
         self.assertIsNone(passenger.last_replan_reason)
         self.assertEqual(AgentState.PASSING_GATE.value, passenger.state)
+
+    def test_movement_stall_before_decision_region_recomputes_physical_route(self) -> None:
+        model = MetroStationModel(
+            scenario_for("visual_demo_station"),
+            seed=20,
+            movement_backend=InstantMovementBackend(),
+        )
+        model.spawn_schedule.clear()
+        passenger = PassengerAgent(
+            model,
+            group_size=1,
+            created_step=0,
+            intent=AgentIntent.ENTER_AND_BOARD,
+        )
+        model.passengers.append(passenger)
+        rerouted_target = (passenger.pos[0] + 2.0, passenger.pos[1])
+        router = model.goal_coordinator.executor.region_router
+
+        with patch.object(router, "route", return_value=(rerouted_target,)) as route:
+            changed = model.goal_coordinator.replan(
+                passenger,
+                reason="movement_stalled",
+            )
+
+        self.assertTrue(changed)
+        route.assert_called_once()
+        self.assertEqual(rerouted_target, passenger.target)
+        self.assertEqual("goal_region", passenger.current_goal.kind)
+        self.assertEqual("movement_stalled", passenger.last_replan_reason)
+
+    def test_movement_stall_on_use_stage_releases_provisional_slot_and_reroutes(
+        self,
+    ) -> None:
+        model = MetroStationModel(
+            scenario_for("visual_demo_station"),
+            seed=201,
+            movement_backend=InstantMovementBackend(),
+        )
+        model.spawn_schedule.clear()
+        passenger = PassengerAgent(
+            model,
+            group_size=1,
+            created_step=0,
+            intent=AgentIntent.ENTER_AND_BOARD,
+        )
+        model.passengers.append(passenger)
+        node = next(
+            item
+            for item in passenger.goal_runtime.graph.nodes
+            if item.kind == "use_facility_stage"
+            and item.facility_stage == FacilityStage.ENTRY_GATE.value
+        )
+        passenger.goal_runtime.state = replace(
+            passenger.goal_runtime.state,
+            current_node_id=node.node_id,
+            interaction_state="approach_decision_region",
+            current_stage=node.facility_stage,
+            commitment=None,
+            queued_facility_id=None,
+        )
+        gate = model.gates[0]
+        model._reserve_facility_approach_slot(passenger, gate)
+        rerouted_target = (passenger.pos[0] + 1.0, passenger.pos[1])
+        router = model.goal_coordinator.executor.region_router
+
+        with patch.object(router, "route", return_value=(rerouted_target,)) as route:
+            changed = model.goal_coordinator.replan(
+                passenger,
+                reason="movement_stalled",
+            )
+
+        self.assertTrue(changed)
+        route.assert_called_once()
+        self.assertEqual({}, passenger.facility_approach_slots_by_stage)
+        self.assertIsNone(
+            gate.queue.approach_slot_reservation(int(passenger.unique_id))
+        )
+        self.assertEqual(rerouted_target, passenger.target)
+
+    def test_movement_stall_preserves_owned_decision_holding_target(self) -> None:
+        model = MetroStationModel(
+            scenario_for("visual_demo_station"),
+            seed=202,
+            movement_backend=InstantMovementBackend(),
+        )
+        model.spawn_schedule.clear()
+        passenger = PassengerAgent(
+            model,
+            group_size=1,
+            created_step=0,
+            intent=AgentIntent.ENTER_AND_BOARD,
+        )
+        model.passengers.append(passenger)
+        node = next(
+            item
+            for item in passenger.goal_runtime.graph.nodes
+            if item.kind == "use_facility_stage"
+            and item.facility_stage == FacilityStage.ENTRY_GATE.value
+        )
+        passenger.goal_runtime.state = replace(
+            passenger.goal_runtime.state,
+            current_node_id=node.node_id,
+            interaction_state="approach_decision_region",
+            current_stage=node.facility_stage,
+            commitment=None,
+            queued_facility_id=None,
+        )
+        router = model.goal_coordinator.executor.region_router
+        active = model.goal_coordinator._active_decision_route(
+            passenger,
+            node,
+            passenger.goal_runtime.state,
+        )
+        self.assertIsNotNone(active)
+        region_id, _stage = active
+        base_region = router._base_region(region_id)
+        holding_target = (passenger.pos[0] + 2.0, passenger.pos[1])
+        passenger.decision_holding_target_by_region[base_region] = holding_target
+
+        with (
+            patch.object(router, "route", return_value=(holding_target,)) as route,
+            patch.object(router, "clear_decision_context") as clear_context,
+            patch.object(
+                model,
+                "_clear_all_facility_targeting_reservations",
+            ) as clear_facility,
+        ):
+            changed = model.goal_coordinator.replan(
+                passenger,
+                reason="movement_stalled",
+            )
+
+        self.assertTrue(changed)
+        route.assert_called_once()
+        clear_context.assert_not_called()
+        clear_facility.assert_not_called()
+        self.assertEqual(
+            holding_target,
+            passenger.decision_holding_target_by_region[base_region],
+        )
+        self.assertEqual(holding_target, passenger.target)
 
     def test_generated_passengers_clear_without_runtime_replans(self) -> None:
         scenario = replace(
@@ -2972,18 +3110,21 @@ class IntegrationSurfaceTests(unittest.TestCase):
             exit_count_hour=12,
             transfer_count_hour=12,
         )
-        model = MetroStationModel(scenario, seed=4)
+        scheduler = DemandScheduler.from_scenario(scenario, Random(4))
 
         entry_groups = sum(
-            due.get(AgentIntent.ENTER_AND_BOARD.value, 0) for due in model.spawn_schedule.values()
+            due.get(AgentIntent.ENTER_AND_BOARD.value, 0)
+            for due in scheduler.spawn_schedule.values()
         )
         exit_groups = sum(
-            due.get(AgentIntent.EXIT_STATION.value, 0) for due in model.spawn_schedule.values()
+            due.get(AgentIntent.EXIT_STATION.value, 0)
+            for due in scheduler.spawn_schedule.values()
         )
         transfer_groups = sum(
-            due.get(AgentIntent.TRANSFER.value, 0) for due in model.spawn_schedule.values()
+            due.get(AgentIntent.TRANSFER.value, 0)
+            for due in scheduler.spawn_schedule.values()
         )
-        alighting_groups = sum(model.alighting_schedule.values())
+        alighting_groups = sum(scheduler.alighting_schedule.values())
         first_arrival_step = round(
             scenario.initial_train_offset_seconds / scenario.tick_seconds
         )
@@ -2992,7 +3133,38 @@ class IntegrationSurfaceTests(unittest.TestCase):
         self.assertEqual(0, exit_groups)
         self.assertEqual(1, transfer_groups)
         self.assertEqual(1, alighting_groups)
-        self.assertGreaterEqual(min(model.alighting_schedule), first_arrival_step)
+        self.assertGreaterEqual(min(scheduler.alighting_schedule), first_arrival_step)
+
+    def test_alighting_spawn_cell_avoids_platform_passengers_and_same_batch(self) -> None:
+        model = MetroStationModel(scenario_for("single_level_terminal"), seed=42)
+        door = model.boarding_doors[0]
+        level_id = door.spec.exit_level_id or door.spec.entry_level_id
+        self.assertIsNotNone(level_id)
+        assert level_id is not None
+        first = model._alighting_spawn_position(door, 0, reserved_positions=[])
+        self.assertIsNotNone(first)
+        assert first is not None
+        blocker = model._spawn_passenger(
+            AgentIntent.EXIT_STATION,
+            initial_position=first,
+            initial_level_id=level_id,
+        )
+
+        second = model._alighting_spawn_position(door, 0, reserved_positions=[])
+        self.assertIsNotNone(second)
+        assert second is not None
+        third = model._alighting_spawn_position(
+            door,
+            1,
+            reserved_positions=[(second, level_id)],
+        )
+        self.assertIsNotNone(third)
+        assert third is not None
+        clearance = model.scenario.jupedsim_agent_radius_units * 2.0
+
+        self.assertGreaterEqual(hypot(second[0] - blocker.pos[0], second[1] - blocker.pos[1]), clearance)
+        self.assertGreaterEqual(hypot(third[0] - blocker.pos[0], third[1] - blocker.pos[1]), clearance)
+        self.assertGreaterEqual(hypot(third[0] - second[0], third[1] - second[1]), clearance)
 
     def test_clearance_tail_does_not_expand_spawn_schedule(self) -> None:
         scenario = replace(
@@ -3272,6 +3444,9 @@ class IntegrationSurfaceTests(unittest.TestCase):
                     traversal_width_m=1.2,
                 )
                 escalator = EscalatorProcessAgent(model, spec=spec)
+                model._active_facility_portal_bindings[spec.facility_id] = (
+                    compile_micro_facility_portal_binding(spec)
+                )
                 passenger = PassengerAgent(
                     model,
                     group_size=1,
@@ -3366,7 +3541,10 @@ class IntegrationSurfaceTests(unittest.TestCase):
         self.assertEqual(0, elevator.departed_cabins)
         self.assertEqual("boarding", elevator.cabin_state)
 
-        elevator.step()
+        for _ in range(32):
+            if elevator.departed_cabins >= 1:
+                break
+            elevator.step()
 
         self.assertEqual(1, len(elevator.queue))
         self.assertEqual(0, elevator.served_persons)
@@ -3375,7 +3553,9 @@ class IntegrationSurfaceTests(unittest.TestCase):
         self.assertTrue(all(passenger.passive_facility_service for passenger in passengers[:2]))
         self.assertEqual(1, len(model.facility_service_events))
 
-        for _ in range(elevator.cycle_steps):
+        for _ in range(64):
+            if elevator.served_persons >= 2 and elevator.cabin_load_persons == 1:
+                break
             elevator.step()
 
         self.assertEqual(0, len(elevator.queue))
@@ -3384,13 +3564,18 @@ class IntegrationSurfaceTests(unittest.TestCase):
         self.assertEqual(1, elevator.departed_cabins)
         self.assertEqual("boarding", elevator.cabin_state)
 
-        elevator.step()
+        for _ in range(32):
+            if elevator.departed_cabins >= 2:
+                break
+            elevator.step()
 
         self.assertEqual(2, elevator.served_persons)
         self.assertEqual(2, elevator.departed_cabins)
         self.assertEqual("moving", elevator.cabin_state)
 
-        for _ in range(elevator.cycle_steps):
+        for _ in range(64):
+            if elevator.served_persons >= 3 and elevator.cabin_state == "idle":
+                break
             elevator.step()
 
         self.assertEqual(3, elevator.served_persons)
@@ -3449,10 +3634,16 @@ class IntegrationSurfaceTests(unittest.TestCase):
             else {"returning", "idle"}
         )
         self.assertIn(state_by_time[event.arrive_time], expected_arrival_states)
-        self.assertFalse(passive_by_time[event.end_time])
-        self.assertEqual(event.end_time, model.current_time_seconds)
+        first_commit_at_or_after_end = min(
+            time_seconds
+            for time_seconds in passive_by_time
+            if time_seconds >= event.end_time
+        )
+        self.assertFalse(passive_by_time[first_commit_at_or_after_end])
+        self.assertLessEqual(event.end_time, model.current_time_seconds)
+        self.assertLess(model.current_time_seconds - event.end_time, scenario.tick_seconds)
 
-    def test_elevator_waits_for_trailing_ready_passengers_before_departing(self) -> None:
+    def test_elevator_hard_deadline_dispatches_ready_fifo_prefix(self) -> None:
         scenario = replace(
             scenario_for("two_level_island_platform"),
             elevator_cabin_capacity_persons=4,
@@ -3491,16 +3682,13 @@ class IntegrationSurfaceTests(unittest.TestCase):
         elevator.boarding_wait_remaining_steps = 0
         elevator.step()
 
-        self.assertEqual("waiting", elevator.cabin_state)
-        self.assertEqual([], elevator.cabin_passengers)
-        self.assertEqual(4, len(elevator.queue))
+        self.assertEqual("boarding", elevator.cabin_state)
+        self.assertEqual(3, elevator.cabin_load_persons)
+        self.assertEqual(passengers[:3], elevator.cabin_passengers)
+        self.assertEqual([passengers[-1]], elevator.queue)
 
         passengers[-1].pos = elevator._service_entry_position(3)
-        elevator.step()
-
-        self.assertEqual("boarding", elevator.cabin_state)
-        self.assertEqual(4, elevator.cabin_load_persons)
-        self.assertEqual([], elevator.queue)
+        self.assertEqual([passengers[-1]], elevator.queue)
 
     def test_elevator_waits_for_minimum_dispatch_load_before_departing(self) -> None:
         scenario = replace(
@@ -3544,7 +3732,7 @@ class IntegrationSurfaceTests(unittest.TestCase):
         self.assertEqual(3, elevator.cabin_load_persons)
         self.assertEqual([], elevator.queue)
 
-    def test_elevator_waits_for_nearby_upstream_dispatch_demand(self) -> None:
+    def test_elevator_hard_dispatch_deadline_is_not_extended_by_nearby_demand(self) -> None:
         scenario = replace(
             scenario_for("two_level_island_platform"),
             elevator_cabin_capacity_persons=4,
@@ -3584,16 +3772,8 @@ class IntegrationSurfaceTests(unittest.TestCase):
         elevator.boarding_wait_remaining_steps = 0
         elevator.step()
 
-        self.assertEqual("waiting", elevator.cabin_state)
-        self.assertEqual([], elevator.cabin_passengers)
-        self.assertEqual(2, len(elevator.queue))
-
-        elevator.join_queue(passengers[2], authority="goal_graph")
-        passengers[2].pos = elevator._service_entry_position(2)
-        elevator.step()
-
         self.assertEqual("boarding", elevator.cabin_state)
-        self.assertEqual(3, elevator.cabin_load_persons)
+        self.assertEqual(2, elevator.cabin_load_persons)
         self.assertEqual([], elevator.queue)
 
     def test_elevator_return_trip_blocks_next_boarding_cycle(self) -> None:
@@ -3625,6 +3805,10 @@ class IntegrationSurfaceTests(unittest.TestCase):
         elevator.step()
         elevator.step()
         for _ in range(elevator.travel_steps):
+            elevator.step()
+        for _ in range(elevator.unload_steps + 1):
+            if elevator.cabin_state != "unloading":
+                break
             elevator.step()
 
         self.assertEqual("returning", elevator.cabin_state)
@@ -4129,6 +4313,10 @@ class ExtractedUtilityTests(unittest.TestCase):
             audit_enabled=True,
             audit_print_events=False,
             queue_replan_wait_seconds=5.0,
+            elevator_max_dispatch_wait_seconds=0.0,
+            elevator_boarding_seconds=0.1,
+            elevator_cycle_seconds=0.1,
+            elevator_unload_seconds=0.1,
         )
         model = MetroStationModel(scenario, seed=13)
         model.spawn_schedule.clear()
@@ -4138,6 +4326,23 @@ class ExtractedUtilityTests(unittest.TestCase):
             if isinstance(facility, ElevatorProcessAgent)
             and facility.spec.direction == "down"
         )
+        elevator.spec = replace(
+            elevator.spec,
+            vertical_config=VerticalFacilityConfig(
+                elevator=ElevatorConfig(
+                    batch_capacity=1,
+                    min_dispatch_persons=1,
+                    boarding_seconds=0.1,
+                    travel_seconds=0.1,
+                    unload_seconds=0.1,
+                    return_seconds=0.1,
+                )
+            ),
+        )
+        # The minimum-jerk cabin profile may make boarding materially longer
+        # than the authored lower bound.  Ten seconds is beyond every authored
+        # phase but still inside this physically feasible effective cycle.
+        elevator._effective_boarding_duration_seconds = 15.0
         passenger = PassengerAgent(
             model,
             group_size=1,
@@ -4152,6 +4357,7 @@ class ExtractedUtilityTests(unittest.TestCase):
         model.step_index = 2
         model.progress_monitor.observe(model, [passenger])
 
+        self.assertGreater(elevator.effective_cycle_seconds, 10.0)
         self.assertEqual(old_facility_id, passenger.assigned_facility_id)
         self.assertIn(passenger, elevator.queue)
         self.assertNotIn("passenger_replanned_facility", model.audit.summary())
@@ -4412,7 +4618,11 @@ class VisualDemoGeometryTests(unittest.TestCase):
         ):
             with self.subTest(queue=queue["id"]):
                 self.assertAlmostEqual(gate_point[0], queue["exit"][0], delta=0.001)
-                self.assertAlmostEqual(queue["exit"][0], queue["slots"][0][0], delta=0.001)
+                self.assertAlmostEqual(
+                    queue["exit"][0],
+                    queue["slots"][0][0],
+                    delta=0.001,
+                )
                 self.assertLess(queue["slots"][0][1], queue["exit"][1])
                 self.assertEqual(1, len({round(slot[0], 4) for slot in queue["slots"][:4]}))
         for queue in exit_queues:

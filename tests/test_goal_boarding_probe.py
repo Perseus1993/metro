@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import tempfile
 import unittest
+from math import hypot
 from pathlib import Path
 
 from sandbox.metro_station_sandbox.facilities.process import FacilityKind
@@ -60,9 +61,59 @@ class GoalBoardingProbeTests(unittest.TestCase):
 
         self.assertEqual(FacilityKind.TRAIN_DOOR.value, event.facility_kind)
         self.assertEqual((probe.scene.subject.unique_id,), event.passenger_ids)
-        self.assertEqual(event.end_position, probe.scene.subject.pos)
+        door = probe.scene.doors_by_id[event.facility_id]
+        self.assertLessEqual(
+            hypot(
+                door.portal_entry_position[0] - event.end_position[0],
+                door.portal_entry_position[1] - event.end_position[1],
+            ),
+            door._service_ready_radius(),
+        )
+        self.assertEqual(probe.scene.subject.pos, event.end_position)
+        self.assertLessEqual(
+            hypot(
+                event.end_position[0] - probe.scene.subject.pos[0],
+                event.end_position[1] - probe.scene.subject.pos[1],
+            ),
+            probe.scene.scenario.jupedsim_target_radius_units,
+        )
         self.assertEqual(1, result.movement["boarding_service_events"])
         self.assertEqual(1, probe.scene.train.current_load_persons)
+
+    def test_train_door_boarding_emits_continuous_five_hz_truth(self) -> None:
+        probe = GoalBoardingPhysicalProbe("natural_boarding", seed=42)
+        probe.run()
+        event = probe.scene.facility_service_events[0]
+        points = [
+            point
+            for point in probe.scene.facility_motion_trace_recorder.as_dict()["points"]
+            if point["phase"] == "train_door_boarding"
+            and point["passenger_id"] == probe.scene.subject.unique_id
+        ]
+
+        self.assertGreaterEqual(len(points), 2)
+        self.assertAlmostEqual(event.start_time, points[0]["time_seconds"], places=6)
+        self.assertAlmostEqual(event.end_time, points[-1]["time_seconds"], places=6)
+        self.assertTrue(
+            all(
+                right["time_seconds"] - left["time_seconds"] <= 0.200001
+                for left, right in zip(points, points[1:])
+            )
+        )
+        self.assertTrue(
+            any(
+                hypot(right["x"] - left["x"], right["y"] - left["y"])
+                > 1e-6
+                for left, right in zip(points, points[1:])
+            )
+        )
+        self.assertEqual(AgentState.DEPARTED.value, probe.scene.subject.state)
+        self.assertFalse(
+            any(
+                door.has_active_service(probe.scene.subject)
+                for door in probe.scene.doors
+            )
+        )
 
     def test_door_crowd_reroutes_to_second_door(self) -> None:
         scenario = self.scenarios["door_front_crowded"]

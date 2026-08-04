@@ -6,6 +6,7 @@ import unittest
 from pathlib import Path
 
 from sandbox.metro_station_sandbox.movement.jps_adapter import JuPedSimAdapter
+from metro_station_testkit.goal_gate_physical_probe import GoalGatePhysicalProbe
 from scripts.run_goal_physical_probe import build_report, main, render_markdown
 
 
@@ -34,6 +35,27 @@ class GoalPhysicalProbeTests(unittest.TestCase):
         scenario = self.scenarios["natural_flow"]
         self.assertEqual("complete", scenario["final_state"]["current_node_id"])
         self.assertGreater(scenario["final_position"][0], 24.0)
+
+    def test_gate_event_uses_exact_native_trace_boundaries(self) -> None:
+        probe = GoalGatePhysicalProbe("natural_flow", seed=42)
+        probe.run()
+        event = probe.scene.facility_service_events[0]
+        points = [
+            point
+            for point in probe.scene.movement_backend.movement_trace()["points"]
+            if point["passenger_id"] == probe.scene.subject.unique_id
+            and point["phase"] == "same_floor_facility"
+        ]
+
+        self.assertTrue(points)
+        self.assertAlmostEqual(event.start_time, points[0]["time_seconds"], places=6)
+        self.assertAlmostEqual(event.end_time, points[-1]["time_seconds"], places=6)
+        self.assertTrue(
+            all(
+                right["time_seconds"] - left["time_seconds"] <= 0.200001
+                for left, right in zip(points, points[1:])
+            )
+        )
 
     def test_people_blockage_is_observed_and_rerouted(self) -> None:
         scenario = self.scenarios["gate_blocked_by_people"]

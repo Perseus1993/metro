@@ -34,7 +34,7 @@ def _point(time_s: float, *, visual_only: bool = False) -> list[object]:
 
 
 def _payload() -> dict[str, object]:
-    return {
+    payload = {
         "simulation_trace": {
             "metadata": {
                 "replay_fidelity": {
@@ -42,8 +42,9 @@ def _payload() -> dict[str, object]:
                     "walking_position_authority": "simulation_trace.movement_trace",
                     "visual_tracks_authoritative": False,
                     "visual_track_source_points_field": "points",
-                    "visual_track_presentation_points_field": "presentation_points",
+                    "presentation_position_source": "canonical_composite_points",
                     "facility_overlays_modify_source_points": False,
+                    "facility_overlays_control_passenger_bodies": False,
                     "renderer_track_field": "points",
                     "visual_track_coordinate_transform": {
                         "id": "station_meters_to_canvas_pixels.v1",
@@ -66,22 +67,25 @@ def _payload() -> dict[str, object]:
                 for time_s in (0.0, 1.0)
             ],
         },
-        "replay_package": {"metadata": {"visual_tracks_policy": "presentation_only"}},
+        "replay_package": {
+            "metadata": {"visual_tracks_policy": "authoritative_trace_projection"}
+        },
         "agents": [
             {
                 "id": 1,
                 "points": [_point(0.0), _point(1.0)],
-                "presentation_points": [_point(0.0), _point(0.5, visual_only=True), _point(1.0)],
             }
         ],
     }
+    payload["visualization_bundle"] = {"visual_tracks": payload["agents"]}
+    return payload
 
 
-def test_isolated_presentation_layer_passes() -> None:
+def test_canonical_renderer_track_passes_without_second_position_stream() -> None:
     report = analyze_presentation_fidelity(_payload())
 
     assert report["passed"]
-    assert report["source"]["visual_only_presentation_point_count"] == 1
+    assert report["source"]["visual_only_presentation_point_count"] == 0
     assert report["source"]["visual_points_used_as_truth"] == 0
 
 
@@ -118,13 +122,66 @@ def test_source_coordinate_mutation_fails_even_when_id_and_time_match() -> None:
     )
 
 
-def test_presentation_only_coordinate_mutation_does_not_change_truth_verdict() -> None:
+def test_exact_duplicate_movement_sample_at_episode_boundary_is_one_ledger_point() -> None:
     payload = _payload()
-    payload["agents"][0]["presentation_points"][1][1] = 0.75
+    payload["simulation_trace"]["snapshots"][1]["passengers"][0]["state"] = (
+        "walking_to_platform"
+    )
+    movement_point = {
+        "passenger_id": 1,
+        "time_seconds": 1.0,
+        "x": 1.0,
+        "y": 0.0,
+    }
+    payload["simulation_trace"]["movement_trace"] = {
+        "points": [
+            {**movement_point, "episode_id": "1:1", "sample_index": 20},
+            {**movement_point, "episode_id": "1:2", "sample_index": 0},
+        ]
+    }
+    payload["agents"][0]["points"][1][9]["authority"] = (
+        "simulation_trace.movement_trace"
+    )
 
     report = analyze_presentation_fidelity(payload)
 
     assert report["passed"]
+
+
+def test_different_movement_positions_at_same_episode_boundary_fail_ledger() -> None:
+    payload = _payload()
+    payload["simulation_trace"]["snapshots"][1]["passengers"][0]["state"] = (
+        "walking_to_platform"
+    )
+    payload["simulation_trace"]["movement_trace"] = {
+        "points": [
+            {"passenger_id": 1, "time_seconds": 1.0, "x": 1.0, "y": 0.0},
+            {"passenger_id": 1, "time_seconds": 1.0, "x": 0.75, "y": 0.0},
+        ]
+    }
+    payload["agents"][0]["points"][1][9]["authority"] = (
+        "simulation_trace.movement_trace"
+    )
+
+    report = analyze_presentation_fidelity(payload)
+
+    assert (
+        report["checks"]["source_point_ledger_matches_authoritative_trace"]["status"]
+        == "fail"
+    )
+
+
+def test_position_bearing_presentation_track_is_forbidden() -> None:
+    payload = _payload()
+    payload["agents"][0]["presentation_points"] = [
+        _point(0.0),
+        _point(0.5, visual_only=True),
+        _point(1.0),
+    ]
+
+    report = analyze_presentation_fidelity(payload)
+
+    assert report["checks"]["no_position_bearing_presentation_track"]["status"] == "fail"
 
 
 def test_contract_cannot_claim_visual_authority() -> None:

@@ -21,6 +21,7 @@ class PassengerDepartureMixin:
         if passenger.state == AgentState.DEPARTED.value:
             return
         self._clear_all_facility_targeting_reservations(passenger)
+        self._clear_all_decision_holding_reservations(passenger)
         self.movement_backend.remove_passenger(passenger)
         self._remove_from_station_holding_areas(passenger)
         passenger.state = AgentState.DEPARTED.value
@@ -73,8 +74,7 @@ class PassengerDepartureMixin:
         passenger.remove()
 
     def _remove_from_station_holding_areas(self, passenger: PassengerAgent) -> None:
-        for platform in self.platforms:
-            platform.waiting = [waiting for waiting in platform.waiting if waiting is not passenger]
+        self.leave_platform_waiting(passenger)
         for facility in self.facilities:
             if isinstance(facility, FacilityProcessAgent):
                 facility.queue.discard(passenger)
