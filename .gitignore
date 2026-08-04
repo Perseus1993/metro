@@ -31,6 +31,7 @@ cache/
 /.codex_tmp/
 /.codex-remote-attachments/
 /.codex-skill-check-*/
+/.codex-skill-check-*
 /tmp/
 /artifacts/
 
@@ -96,6 +97,12 @@ cache/
 
 # 外部实验数据由清单记录，不随代码基线提交。
 /experiments/torch_movement_p1/data/
+
+# 本地受限 Unity 源包；实验清单已记录其来源与内容哈希。
+/data/unity_file/
+
+# 论文全文按 theory/sources/library.csv 的 URL 与 SHA-256 重建。
+/theory/papers/*.pdf
 
 # 原始数据（太大，不入仓）
 data/afc/
