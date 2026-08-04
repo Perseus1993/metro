@@ -24,7 +24,7 @@ from scripts.etl.paths import (  # noqa: E402
     STAGING_OD_NETWORK_HOURLY,
     STAGING_OD_NONZERO_60MIN,
 )
-from src.station_catalog import canonical_station_name  # noqa: E402
+from metro_data_warehouse.station_catalog import canonical_station_name  # noqa: E402
 
 
 DATE_RE = re.compile(r"(20\d{2})[-年]?(\d{1,2})[-月]?(\d{1,2})")

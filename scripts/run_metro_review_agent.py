@@ -454,7 +454,7 @@ def _is_core_metro_source(rel_path: str) -> bool:
     if not rel_path.startswith("sandbox/metro_station_sandbox/"):
         return False
     excluded = (
-        "sandbox/metro_station_sandbox/visual_demo/",
+        "apps/station_visualizer/src/metro_station_visualizer/",
         "sandbox/metro_station_sandbox/app.py",
         "sandbox/metro_station_sandbox/record_video.py",
         "sandbox/metro_station_sandbox/render_html.py",

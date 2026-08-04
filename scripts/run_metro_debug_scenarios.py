@@ -87,6 +87,7 @@ def run_single_flow(run_dir: Path) -> dict[str, Any]:
         train_dwell_seconds=150,
         initial_train_offset_seconds=55,
         station_design=create_design("two_level_island_platform"),
+        goal_graph_mode="active",
         audit_enabled=True,
         audit_print_events=False,
         progress_monitor_enabled=True,
@@ -172,7 +173,7 @@ def run_group_visual_demo(run_dir: Path) -> dict[str, Any]:
     stdout_path = run_dir / "group_visual_stdout.log"
     stderr_path = run_dir / "group_visual_stderr.log"
     result = subprocess.run(
-        [sys.executable, "-m", "sandbox.metro_station_sandbox.visual_demo.generate_jps_tracks"],
+        [sys.executable, "-m", "metro_station_visualizer.generate_jps_tracks"],
         cwd=ROOT,
         text=True,
         capture_output=True,

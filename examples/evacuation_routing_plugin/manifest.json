@@ -1,0 +1,32 @@
+{
+  "api_version": "evacuation-routing/v1",
+  "capabilities": [
+    "closures",
+    "deterministic_seed",
+    "diagnostics",
+    "group_facts"
+  ],
+  "entry_point": [
+    "python",
+    "plugin.py"
+  ],
+  "kind": "evacuation_routing",
+  "metadata": {
+    "description": "Standalone Dijkstra example for the metro-station routing SDK",
+    "label": "Example evacuation router"
+  },
+  "parameter_schema": {
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "additionalProperties": false,
+    "properties": {
+      "cost_multiplier": {
+        "exclusiveMinimum": 0,
+        "type": "number"
+      }
+    },
+    "type": "object"
+  },
+  "plugin_id": "example.dijkstra",
+  "plugin_version": "1.0.0",
+  "schema_version": "algorithm-plugin/v1"
+}

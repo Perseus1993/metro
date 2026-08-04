@@ -7,10 +7,12 @@ import sys
 import time
 from dataclasses import dataclass
 from datetime import UTC, datetime
+from math import hypot
 from pathlib import Path
 from typing import Any, Sequence
 
 from shapely.geometry import Point as ShapelyPoint
+from shapely.ops import nearest_points
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -27,6 +29,7 @@ from sandbox.metro_station_sandbox.station.geometry import (  # noqa: E402
     grid_safe_points,
     level_walkable_geometry,
     project_to_safe_point,
+    safe_core,
     sample_safe_point,
 )
 from sandbox.metro_station_sandbox.runtime.mesa_model import MetroStationModel  # noqa: E402
@@ -43,10 +46,16 @@ FIELDNAMES = (
     "intent",
     "expected_outcome",
     "jupedsim_operational_model",
+    "simulation_clock_mode",
+    "goal_graph_mode",
     "origin",
+    "boundary_relation",
     "level_id",
+    "raw_start_x",
+    "raw_start_y",
     "start_x",
     "start_y",
+    "normalization_distance",
     "final_state",
     "final_x",
     "final_y",
@@ -54,7 +63,6 @@ FIELDNAMES = (
     "seconds_run",
     "boarded_persons",
     "station_persons",
-    "chosen_facilities",
     "failure_reason",
 )
 
@@ -67,6 +75,9 @@ class BoundaryCase:
     point: tuple[float, float]
     intent: str
     expected_outcome: str
+    boundary_relation: str = "safe"
+    raw_point: tuple[float, float] | None = None
+    normalization_distance: float = 0.0
 
 
 @dataclass(frozen=True)
@@ -85,11 +96,13 @@ def build_parser() -> argparse.ArgumentParser:
     )
     parser.add_argument("--seed", type=int, default=20260525)
     parser.add_argument("--minutes", type=int, default=12)
-    parser.add_argument("--tick-seconds", type=int, default=5)
+    parser.add_argument("--tick-seconds", type=int, default=1)
     parser.add_argument("--samples-per-walkable", type=int, default=2)
     parser.add_argument("--platform-slots", type=int, default=48)
     parser.add_argument("--queue-slots", type=int, default=6)
     parser.add_argument("--boundary-samples", type=int, default=8)
+    parser.add_argument("--epsilon-boundary-samples", type=int, default=4)
+    parser.add_argument("--boundary-epsilon", type=float, default=0.05)
     parser.add_argument("--grid-spacing", type=float, default=8.0)
     parser.add_argument("--max-cases", type=int, default=60, help="0 means all cases.")
     parser.add_argument("--include-transfer", action="store_true", default=True)
@@ -114,6 +127,17 @@ def build_parser() -> argparse.ArgumentParser:
         choices=("collision_free_speed", "social_force"),
         default="collision_free_speed",
     )
+    parser.add_argument(
+        "--clock-mode",
+        choices=("legacy_scaled", "physical"),
+        default="legacy_scaled",
+    )
+    parser.add_argument(
+        "--goal-graph-mode",
+        choices=("active",),
+        default="active",
+    )
+    parser.add_argument("--goal-graph-config", type=Path, default=None)
     parser.add_argument("--initial-train-offset-seconds", type=int, default=20)
     parser.add_argument("--train-headway-seconds", type=int, default=90)
     parser.add_argument("--train-dwell-seconds", type=int, default=40)
@@ -150,6 +174,11 @@ def make_scenario(args: argparse.Namespace) -> StationSandboxScenario:
         station_design=create_design(args.design_template),
         movement_backend_name=args.movement_backend,
         jupedsim_operational_model=args.jupedsim_model,
+        simulation_clock_mode=args.clock_mode,
+        goal_graph_mode=args.goal_graph_mode,
+        goal_graph_catalog_path=(
+            None if args.goal_graph_config is None else str(args.goal_graph_config)
+        ),
         audit_enabled=True,
         audit_print_events=False,
         initial_train_offset_seconds=max(1, int(args.initial_train_offset_seconds)),
@@ -245,12 +274,22 @@ def collect_boundary_cases(
             raw_points.append((f"level_grid:{level.id}:{index}", level.id, point))
         raw_points.extend(_boundary_points(level.id, level_domain, args.boundary_samples))
 
-    return _cases_from_raw_points(
+    cases = _cases_from_raw_points(
         model,
         raw_points,
         include_transfer=bool(args.include_transfer),
-        max_cases=max(0, int(args.max_cases)),
+        max_cases=0,
     )
+    cases.extend(
+        _boundary_epsilon_cases(
+            model,
+            count=max(0, int(args.epsilon_boundary_samples)),
+            epsilon=max(0.001, float(args.boundary_epsilon)),
+            include_transfer=bool(args.include_transfer),
+            start_index=len(cases) + 1,
+        )
+    )
+    return _limit_cases(cases, max(0, int(args.max_cases)))
 
 
 def _boundary_points(
@@ -269,6 +308,76 @@ def _boundary_points(
         point = boundary.interpolate(boundary.length * fraction)
         points.append((f"boundary:{level_id}:{index}", level_id, (float(point.x), float(point.y))))
     return points
+
+
+def _boundary_epsilon_cases(
+    model: MetroStationModel,
+    *,
+    count: int,
+    epsilon: float,
+    include_transfer: bool,
+    start_index: int,
+) -> list[BoundaryCase]:
+    if count <= 0:
+        return []
+    graph = model.layout_graph.station_graph
+    document = graph.source_document if graph is not None else None
+    if document is None:
+        return []
+
+    walkable = document_walkable_geometry(document)
+    cases: list[BoundaryCase] = []
+    next_index = start_index
+    clearance = model.scenario.jupedsim_agent_radius_units
+    for level in document.levels:
+        domain = level_walkable_geometry(document, level.id, walkable)
+        if domain.is_empty or domain.boundary.is_empty or domain.boundary.length <= 0:
+            continue
+        core = safe_core(domain, max(clearance, epsilon))
+        expanded_boundary = domain.buffer(epsilon).boundary
+        for sample_index in range(count):
+            fraction = (sample_index + 0.5) / count
+            boundary_point = domain.boundary.interpolate(domain.boundary.length * fraction)
+            _, inside_point = nearest_points(boundary_point, core)
+            _, outside_point = nearest_points(boundary_point, expanded_boundary)
+            relation_points = (
+                ("inside_epsilon", (float(inside_point.x), float(inside_point.y))),
+                ("on_boundary", (float(boundary_point.x), float(boundary_point.y))),
+                ("outside_epsilon", (float(outside_point.x), float(outside_point.y))),
+            )
+            for relation, raw_point in relation_points:
+                if relation == "outside_epsilon" and domain.covers(ShapelyPoint(raw_point)):
+                    continue
+                normalized = project_to_safe_point(
+                    domain,
+                    raw_point,
+                    clearance=clearance,
+                    require_inside=False,
+                )
+                for intent, expected in _intents_for_level(
+                    level.id,
+                    include_transfer=include_transfer,
+                ):
+                    cases.append(
+                        BoundaryCase(
+                            case_id=f"case_{next_index:04d}",
+                            origin=(
+                                f"epsilon_boundary:{relation}:{level.id}:{sample_index}"
+                            ),
+                            level_id=level.id,
+                            point=normalized,
+                            intent=intent,
+                            expected_outcome=expected,
+                            boundary_relation=relation,
+                            raw_point=raw_point,
+                            normalization_distance=hypot(
+                                normalized[0] - raw_point[0],
+                                normalized[1] - raw_point[1],
+                            ),
+                        )
+                    )
+                    next_index += 1
+    return cases
 
 
 def _cases_from_raw_points(
@@ -325,7 +434,7 @@ def _limit_cases(cases: list[BoundaryCase], max_cases: int) -> list[BoundaryCase
     buckets: dict[tuple[str, str, str], list[BoundaryCase]] = {}
     for case in cases:
         origin_kind = case.origin.split(":", 1)[0]
-        key = (case.intent, case.level_id, origin_kind)
+        key = (case.intent, case.level_id, origin_kind, case.boundary_relation)
         buckets.setdefault(key, []).append(case)
 
     selected: list[BoundaryCase] = []
@@ -398,10 +507,16 @@ def run_case(case: BoundaryCase, args: argparse.Namespace, *, seed: int) -> dict
         "intent": case.intent,
         "expected_outcome": case.expected_outcome,
         "jupedsim_operational_model": args.jupedsim_model,
+        "simulation_clock_mode": args.clock_mode,
+        "goal_graph_mode": args.goal_graph_mode,
         "origin": case.origin,
+        "boundary_relation": case.boundary_relation,
         "level_id": case.level_id,
+        "raw_start_x": round((case.raw_point or case.point)[0], 3),
+        "raw_start_y": round((case.raw_point or case.point)[1], 3),
         "start_x": round(case.point[0], 3),
         "start_y": round(case.point[1], 3),
+        "normalization_distance": round(case.normalization_distance, 6),
         "final_state": passenger.state,
         "final_x": round(passenger.pos[0], 3),
         "final_y": round(passenger.pos[1], 3),
@@ -410,7 +525,6 @@ def run_case(case: BoundaryCase, args: argparse.Namespace, *, seed: int) -> dict
         "elapsed_seconds": round(elapsed, 4),
         "boarded_persons": model.boarded_persons,
         "station_persons": int(metrics.get("station_persons", len(model.passengers)) or 0),
-        "chosen_facilities": dict(passenger.plan.chosen_facilities),
         "trace": trace,
         "audit_counts": model.audit.summary(),
         "failure_reason": failure_reason,
@@ -418,25 +532,13 @@ def run_case(case: BoundaryCase, args: argparse.Namespace, *, seed: int) -> dict
 
 
 def _place_passenger(model: MetroStationModel, case: BoundaryCase) -> PassengerAgent:
-    passenger = PassengerAgent(
-        model,
-        group_size=1,
-        created_step=model.step_index,
+    passenger = model._spawn_passenger(
         intent=case.intent,
+        initial_position=case.point,
+        initial_level_id=case.level_id,
     )
-    passenger.pos = case.point
-    passenger.current_level_id = case.level_id
     passenger.assigned_line_id = "default"
     passenger.assigned_direction = "down"
-    passenger.state = passenger.plan.initial_state
-    passenger.set_route(
-        model.route_for_key(passenger.plan.initial_route_key, passenger),
-        goal_kind="walk",
-        goal_label=passenger.plan.initial_goal_label,
-    )
-    model.passengers.append(passenger)
-    model.spawned_persons += passenger.group_size
-    model.spawned_persons_by_intent[case.intent] += passenger.group_size
     return passenger
 
 

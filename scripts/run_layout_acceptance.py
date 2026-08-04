@@ -22,9 +22,13 @@ from metro_station_acceptance.layout_acceptance_report import (  # noqa: E402
 )
 from metro_station_acceptance.generated_acceptance_profile import (  # noqa: E402
     generated_acceptance_tier_profile,
+    trajectory_geometry_corpus,
 )
 from metro_station_acceptance.generated_layout_evidence import (  # noqa: E402
     render_generated_simulation_markdown,
+)
+from metro_station_acceptance.generated_geometry_acceptance import (  # noqa: E402
+    run_generated_geometry_acceptance,
 )
 from metro_station_acceptance.generated_scale_acceptance import (  # noqa: E402
     run_generated_scale_shard,
@@ -38,7 +42,10 @@ from metro_station_acceptance.generated_scale_evidence import (  # noqa: E402
 from metro_station_acceptance.generated_simulation_acceptance import (  # noqa: E402
     run_generated_simulation_acceptance,
 )
-from metro_station_testkit.layout_corpus import generate_scenario_corpus  # noqa: E402
+from metro_station_testkit.layout_corpus import (  # noqa: E402
+    generate_geometry_scenario_matrix,
+    generate_scenario_corpus,
+)
 
 
 DEFAULT_JSON = ROOT / "output" / "layout_acceptance" / "report.json"
@@ -52,7 +59,7 @@ def build_parser() -> argparse.ArgumentParser:
     )
     parser.add_argument(
         "--tier",
-        choices=("smoke", "nightly", "release"),
+        choices=("geometry", "trajectory", "smoke", "nightly", "release"),
         default="smoke",
     )
     parser.add_argument("--layouts", nargs="+", choices=LAYOUT_IDS, default=list(LAYOUT_IDS))
@@ -96,6 +103,12 @@ def build_parser() -> argparse.ArgumentParser:
 def main(argv: Sequence[str] | None = None) -> int:
     parser = build_parser()
     args = parser.parse_args(argv)
+    if args.tier == "geometry":
+        _validate_geometry_args(parser, args)
+        return _run_geometry_tier(args)
+    if args.tier == "trajectory":
+        _validate_trajectory_args(parser, args)
+        return _run_trajectory_tier(args)
     generated_count, simulation_samples = _generated_counts(args)
     if generated_count < 0 or simulation_samples < 0:
         parser.error("generated counts cannot be negative")
@@ -213,6 +226,167 @@ def _generated_counts(args: argparse.Namespace) -> tuple[int, int]:
         count = profile.corpus_size if count is None else count
         samples = profile.simulation_sample_size if samples is None else samples
     return (0 if count is None else count, 0 if samples is None else samples)
+
+
+def _validate_geometry_args(
+    parser: argparse.ArgumentParser,
+    args: argparse.Namespace,
+) -> None:
+    """Reject scale/simulation controls that the compiler-only tier cannot honor."""
+
+    unsupported: list[str] = []
+    if tuple(args.layouts) != tuple(LAYOUT_IDS):
+        unsupported.append("--layouts")
+    if args.seeds is not None:
+        unsupported.append("--seeds")
+    if args.generated_profile:
+        unsupported.append("--generated-profile")
+    if args.generated_count is not None:
+        unsupported.append("--generated-count")
+    if args.generated_seed != 20260716:
+        unsupported.append("--generated-seed")
+    if args.generated_simulation_samples is not None:
+        unsupported.append("--generated-simulation-samples")
+    if args.skip_generated_operations:
+        unsupported.append("--skip-generated-operations")
+    if args.generated_only:
+        unsupported.append("--generated-only")
+    if args.shard_index != 0:
+        unsupported.append("--shard-index")
+    if args.shard_count != 1:
+        unsupported.append("--shard-count")
+    if args.resume_from is not None:
+        unsupported.append("--resume-from")
+    if args.max_generated_cases is not None:
+        unsupported.append("--max-generated-cases")
+    if args.generated_evidence_dir != DEFAULT_GENERATED_EVIDENCE:
+        unsupported.append("--generated-evidence-dir")
+    if unsupported:
+        parser.error(
+            "--tier geometry does not support: " + ", ".join(unsupported)
+        )
+
+
+def _run_geometry_tier(args: argparse.Namespace) -> int:
+    payload = run_generated_geometry_acceptance()
+    output_json = _sharded_output_path(args.output_json, args)
+    output_markdown = _sharded_output_path(args.output_markdown, args)
+    output_json.parent.mkdir(parents=True, exist_ok=True)
+    output_markdown.parent.mkdir(parents=True, exist_ok=True)
+    output_json.write_text(
+        json.dumps(payload, ensure_ascii=False, indent=2) + "\n",
+        encoding="utf-8",
+    )
+    checks = payload["checks"]
+    output_markdown.write_text(
+        "# Geometry acceptance\n\n"
+        f"- Status: `{payload['status']}`\n"
+        f"- Recipes: `{payload['recipe_count']}`\n"
+        f"- Wall seconds: `{payload['metrics']['wall_seconds']}`\n"
+        + "".join(f"- {name}: `{value}`\n" for name, value in checks.items()),
+        encoding="utf-8",
+    )
+    print(
+        json.dumps(
+            {
+                "status": payload["status"],
+                "tier": "geometry",
+                "recipes": payload["recipe_count"],
+                "failed_recipes": len(payload["failed_recipes"]),
+                "wall_seconds": payload["metrics"]["wall_seconds"],
+                "output_json": str(output_json),
+                "output_markdown": str(output_markdown),
+            },
+            ensure_ascii=False,
+        )
+    )
+    return 0 if payload["status"] == "ok" else 1
+
+
+def _run_trajectory_tier(args: argparse.Namespace) -> int:
+    profile = generated_acceptance_tier_profile("trajectory")
+    corpus = trajectory_geometry_corpus(generate_geometry_scenario_matrix())
+    if len(corpus.recipes) != profile.corpus_size:
+        raise RuntimeError(
+            "trajectory profile must sample the frozen 240-recipe geometry matrix"
+        )
+    report = run_generated_simulation_acceptance(
+        corpus,
+        tier="trajectory",
+        sample_size=profile.simulation_sample_size,
+        seeds=profile.seeds,
+        include_operations=True,
+        shard_index=args.shard_index,
+        shard_count=args.shard_count,
+        shard_by_seed=True,
+    )
+    payload = report.as_dict()
+    payload["profile"] = {
+        "recipe_count": profile.simulation_sample_size,
+        "seeds": profile.seeds,
+        "expected_normal_runs": profile.simulation_sample_size * len(profile.seeds),
+        "expected_operational_runs": profile.simulation_sample_size * len(profile.seeds),
+    }
+    output_json = _sharded_output_path(args.output_json, args)
+    output_markdown = _sharded_output_path(args.output_markdown, args)
+    output_json.parent.mkdir(parents=True, exist_ok=True)
+    output_markdown.parent.mkdir(parents=True, exist_ok=True)
+    output_json.write_text(
+        json.dumps(payload, ensure_ascii=False, indent=2) + "\n",
+        encoding="utf-8",
+    )
+    output_markdown.write_text(
+        render_generated_simulation_markdown(report),
+        encoding="utf-8",
+    )
+    print(
+        json.dumps(
+            {
+                "status": report.status,
+                "tier": "trajectory",
+                "recipes": len(report.global_sampled_recipe_ids),
+                "seeds": report.seeds,
+                "output_json": str(output_json),
+                "output_markdown": str(output_markdown),
+            },
+            ensure_ascii=False,
+        )
+    )
+    return 0 if report.status == "ok" else 1
+
+
+def _validate_trajectory_args(
+    parser: argparse.ArgumentParser,
+    args: argparse.Namespace,
+) -> None:
+    """Keep the scientific trajectory profile fixed at 16 recipes by 3 seeds."""
+
+    unsupported: list[str] = []
+    if tuple(args.layouts) != tuple(LAYOUT_IDS):
+        unsupported.append("--layouts")
+    if args.seeds is not None:
+        unsupported.append("--seeds")
+    if args.generated_profile:
+        unsupported.append("--generated-profile")
+    if args.generated_count is not None:
+        unsupported.append("--generated-count")
+    if args.generated_simulation_samples is not None:
+        unsupported.append("--generated-simulation-samples")
+    if args.skip_generated_operations:
+        unsupported.append("--skip-generated-operations")
+    if args.generated_only:
+        unsupported.append("--generated-only")
+    if args.resume_from is not None:
+        unsupported.append("--resume-from")
+    if args.max_generated_cases is not None:
+        unsupported.append("--max-generated-cases")
+    if args.generated_evidence_dir != DEFAULT_GENERATED_EVIDENCE:
+        unsupported.append("--generated-evidence-dir")
+    if unsupported:
+        parser.error(
+            "--tier trajectory has a fixed 16-recipe/3-seed profile and does not "
+            "support: " + ", ".join(unsupported)
+        )
 
 
 def _generated_shard_evidence_dir(args: argparse.Namespace) -> Path:

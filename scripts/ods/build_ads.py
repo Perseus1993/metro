@@ -27,7 +27,7 @@ import pandas as pd
 # Ensure project root is on path
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent.parent))
 
-from scripts.ods.ods_reader import ODS, ODSPaths  # noqa: E402
+from metro_data_warehouse.ods.reader import ODS, ODSPaths  # noqa: E402
 
 _TZ_CST = timezone(timedelta(hours=8))
 

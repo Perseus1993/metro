@@ -6,7 +6,7 @@ import json
 import sys
 import time
 import warnings
-from collections import Counter
+from collections import Counter, deque
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
@@ -151,7 +151,7 @@ def build_parser() -> argparse.ArgumentParser:
         help="Comma-separated seeds. Overrides --seed.",
     )
     parser.add_argument("--minutes", type=positive_int, default=10)
-    parser.add_argument("--tick-seconds", type=positive_int, default=5)
+    parser.add_argument("--tick-seconds", type=positive_int, default=1)
     parser.add_argument(
         "--drain-seconds",
         type=nonnegative_int,
@@ -207,6 +207,7 @@ def make_scenario(args: argparse.Namespace) -> StationSandboxScenario:
         source_label="vertical_transport_probe",
         sample_hours=1,
         station_design=create_design(args.design_template),
+        goal_graph_mode="active",
         audit_enabled=False,
         audit_print_events=False,
     )
@@ -299,11 +300,18 @@ def add_arrival(
         group_size=model.scenario.group_size,
         created_step=created_step,
         intent=passenger_intent_for_facility(facility),
+        initial_position=facility.spec.position,
+        initial_level_id=facility.spec.entry_level_id,
     )
-    passenger.pos = facility.spec.queue_anchor
-    passenger.current_level_id = facility.spec.entry_level_id
+    # The probe must enter through the same compiled ownership contract as a
+    # simulated passenger. Placing every synthetic arrival at ``queue_anchor``
+    # manufactured an invalid co-located state before Queue.join could enforce
+    # capacity or body clearance.
+    model._clear_all_facility_targeting_reservations(passenger)
+    model._reserve_facility_approach_slot(passenger, facility)
+    passenger.pos = model._safe_facility_queue_approach_target(passenger, facility)
     model.passengers.append(passenger)
-    facility.join_queue(passenger)
+    facility.join_queue(passenger, authority="goal_graph")
     return passenger
 
 
@@ -393,14 +401,28 @@ def run_case(args: argparse.Namespace, case: ProbeCase) -> dict[str, Any]:
     served_step_by_id: dict[int, int] = {}
     queue_persons_max = 0
     arrived_persons = 0
+    pending_arrival_steps: deque[int] = deque()
     started = time.perf_counter()
 
     for step in range(horizon_steps):
         model.step_index = step
-        for _ in range(schedule.get(step, 0)):
-            passenger = add_arrival(model, facility, created_step=step)
-            arrival_step_by_id[int(passenger.unique_id)] = step
-            arrived_persons += passenger.group_size
+        scheduled_groups = schedule.get(step, 0)
+        pending_arrival_steps.extend(step for _ in range(scheduled_groups))
+        arrived_persons += scheduled_groups * model.scenario.group_size
+        while pending_arrival_steps:
+            created_step = pending_arrival_steps[0]
+            try:
+                passenger = add_arrival(
+                    model,
+                    facility,
+                    created_step=created_step,
+                )
+            except RuntimeError as exc:
+                if "no reservable compiled queue slot" not in str(exc):
+                    raise
+                break
+            arrival_step_by_id[int(passenger.unique_id)] = created_step
+            pending_arrival_steps.popleft()
 
         facility.step()
         queue_persons_max = max(queue_persons_max, int(facility.queue_persons))

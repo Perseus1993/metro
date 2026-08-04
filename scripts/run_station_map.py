@@ -29,7 +29,7 @@ import pandas as pd
 
 # Ensure project root is on path (for scripts.ods imports)
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
-from scripts.ods.ods_reader import ODS  # noqa: E402
+from metro_data_warehouse.ods.reader import ODS  # noqa: E402
 
 
 DEFAULT_CENTER = (34.341, 108.940)

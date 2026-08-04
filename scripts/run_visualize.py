@@ -11,7 +11,7 @@ from pathlib import Path
 # 确保项目根目录在 sys.path
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-from src.amap_network import (
+from metro_data_warehouse.amap_network import (
     build_amap_line_geometries,
     build_amap_station_and_line_catalog,
     get_amap_key,

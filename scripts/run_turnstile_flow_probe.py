@@ -1,0 +1,1894 @@
+from __future__ import annotations
+
+import argparse
+import csv
+import json
+import sys
+import time
+import warnings
+from collections import Counter
+from dataclasses import dataclass
+from datetime import UTC, datetime
+from html import escape
+from math import hypot
+from pathlib import Path
+from statistics import mean
+from types import SimpleNamespace
+from typing import Any, Sequence
+
+import mesa
+from shapely.geometry import Polygon
+
+
+ROOT = Path(__file__).resolve().parents[1]
+if str(ROOT) not in sys.path:
+    sys.path.insert(0, str(ROOT))
+
+from sandbox.metro_station_sandbox.facilities.process import (  # noqa: E402
+    FacilityKind,
+    FacilitySpec,
+    QueueLayout,
+)
+from sandbox.metro_station_sandbox.facilities.runtime import GateProcessAgent  # noqa: E402
+from sandbox.metro_station_sandbox.facilities.service_events import (  # noqa: E402
+    FacilityServiceEvent,
+)
+from sandbox.metro_station_sandbox.movement.backend import (  # noqa: E402
+    BatchedJuPedSimMovementBackend,
+    MovementBackend,
+    MovementResult,
+)
+from sandbox.metro_station_sandbox.movement.jps_adapter import JuPedSimAdapter  # noqa: E402
+from sandbox.metro_station_sandbox.planning.plan import AgentState, FacilityStage  # noqa: E402
+
+
+DEFAULT_OUTPUT_DIR = ROOT / "output" / "turnstile_flow_probe"
+DEFAULT_OUTPUT_STEM = "turnstile_flow_probe"
+DEFAULT_DEMANDS = (120, 600, 1200)
+DEFAULT_GATE_SERVICES = (30, 55, 80)
+LEVEL_ID = "probe_concourse"
+
+FIELDNAMES = (
+    "run_id",
+    "status",
+    "clearance",
+    "demand_hour",
+    "gate_service_persons_per_min",
+    "seed",
+    "minutes",
+    "tick_seconds",
+    "drain_seconds",
+    "group_size",
+    "arrival_profile",
+    "gate_service_mode",
+    "tap_jitter_seconds",
+    "tap_failure_probability",
+    "tap_retry_seconds",
+    "movement_backend",
+    "jupedsim_operational_model",
+    "jupedsim_status",
+    "jupedsim_steps",
+    "jupedsim_batches",
+    "tap_failures",
+    "source_persons",
+    "served_persons",
+    "sink_persons",
+    "unserved_persons",
+    "completion_rate",
+    "approach_persons_max",
+    "queue_persons_max",
+    "service_persons_max",
+    "queue_persons_final",
+    "mean_queue_wait_seconds",
+    "p95_queue_wait_seconds",
+    "mean_system_seconds",
+    "p95_system_seconds",
+    "first_sink_seconds",
+    "last_sink_seconds",
+    "elapsed_seconds",
+    "error_type",
+    "error",
+)
+
+
+@dataclass(frozen=True)
+class TurnstileProbeScenario:
+    tick_seconds: int
+    group_size: int
+    walk_units_per_tick: float
+    gate_service_mode: str = "deterministic"
+    tap_jitter_seconds: float = 0.0
+    tap_failure_probability: float = 0.0
+    tap_retry_seconds: float = 1.2
+    movement_backend_name: str = "jupedsim"
+    jupedsim_operational_model: str = "collision_free_speed"
+    jupedsim_strict: bool = True
+    jupedsim_iterations_per_tick: int = 150
+    jupedsim_target_radius_units: float = 0.45
+    personal_space_units: float = 0.8
+    jupedsim_agent_radius_units: float = 0.18
+    jupedsim_clearance_multiplier: float = 2.2
+    jupedsim_neighbor_radius_units: float = 2.4
+    jupedsim_neighbor_sample_limit: int = 12
+
+
+@dataclass(frozen=True)
+class ProbeCase:
+    demand_hour: int
+    gate_service_persons_per_min: int
+    seed: int
+
+    @property
+    def run_id(self) -> str:
+        return (
+            f"turnstile_demand_{self.demand_hour}_"
+            f"service_{self.gate_service_persons_per_min}_seed_{self.seed}"
+        )
+
+
+@dataclass(frozen=True)
+class OutputPaths:
+    csv_path: Path
+    json_path: Path
+    markdown_path: Path
+    animation_html_path: Path | None = None
+
+
+@dataclass(frozen=True)
+class ProbeRunResult:
+    row: dict[str, Any]
+    animation: dict[str, Any] | None
+
+
+@dataclass(frozen=True)
+class ActiveGateService:
+    passenger: "TurnstileProbePassenger"
+    start_time_seconds: float
+    board_end_time_seconds: float
+    end_time_seconds: float
+    had_tap_failure: bool
+
+
+class TurnstileProbeGoalCoordinator:
+    """Probe-side adapter for the production gate completion contract."""
+
+    def __init__(self, model: "TurnstileProbeModel") -> None:
+        self.model = model
+        self.polled_passenger_ids: list[int] = []
+
+    def poll(self, passenger: "TurnstileProbePassenger") -> None:
+        if passenger.state != AgentState.DEPARTED.value:
+            raise RuntimeError("turnstile completion poll requires a departed passenger")
+        self.polled_passenger_ids.append(int(passenger.unique_id))
+
+
+class LinearProbeMovementBackend(MovementBackend):
+    """Minimal source-to-queue walking backend for the isolated turnstile scene."""
+
+    def move(self, passenger: "TurnstileProbePassenger") -> MovementResult:
+        x, y = passenger.pos
+        tx, ty = passenger.target
+        distance = hypot(tx - x, ty - y)
+        step = float(passenger.model.scenario.walk_units_per_tick)
+        radius = float(passenger.model.scenario.jupedsim_target_radius_units)
+        if distance <= 0.001 or distance <= max(step, radius):
+            return MovementResult(passenger.unique_id, passenger.target, reached=True)
+
+        ratio = step / distance
+        return MovementResult(
+            passenger.unique_id,
+            (x + (tx - x) * ratio, y + (ty - y) * ratio),
+            reached=False,
+        )
+
+    def place_passenger(
+        self,
+        passenger: "TurnstileProbePassenger",
+        position: tuple[float, float],
+        *,
+        target: tuple[float, float] | None = None,
+        level_id: str | None = None,
+    ) -> tuple[float, float]:
+        return passenger.model.clamp_position(position)
+
+    def remove_passenger(self, passenger: "TurnstileProbePassenger") -> None:
+        return None
+
+
+class TurnstileProbePassenger:
+    """Small passenger object that implements only the facility contract."""
+
+    def __init__(
+        self,
+        model: "TurnstileProbeModel",
+        *,
+        unique_id: int,
+        created_step: int,
+        position: tuple[float, float],
+    ) -> None:
+        self.model = model
+        self.unique_id = unique_id
+        self.group_size = int(model.scenario.group_size)
+        self.created_step = int(created_step)
+        self.queue_join_step: int | None = None
+        self.service_step: int | None = None
+        self.departed_step: int | None = None
+        self.intent = "turnstile_source_to_sink"
+        self.state = AgentState.ENTERING_STATION.value
+        self.pos = model.clamp_position(position)
+        self.target = self.pos
+        self.route: list[tuple[float, float]] = []
+        self.current_level_id: str | None = LEVEL_ID
+        self.assigned_facility_id: str | None = None
+        self.passive_facility_service = False
+        self.suppress_movement_step: int | None = None
+        self.goal: dict[str, Any] = {
+            "kind": "source",
+            "label": "source",
+            "target": self.pos,
+            "facility_id": None,
+            "stage": None,
+        }
+
+    def set_target(
+        self,
+        target: tuple[float, float],
+        *,
+        goal_kind: str = "walk",
+        goal_label: str = "target",
+        facility_id: str | None = None,
+        stage: str | FacilityStage | None = None,
+    ) -> None:
+        self.route = []
+        self.target = self.model.clamp_position(target)
+        self.goal = {
+            "kind": goal_kind,
+            "label": goal_label,
+            "target": self.target,
+            "facility_id": facility_id,
+            "stage": stage.value if isinstance(stage, FacilityStage) else stage,
+        }
+
+    def set_route(
+        self,
+        points: Sequence[tuple[float, float]],
+        *,
+        goal_kind: str = "walk",
+        goal_label: str = "route",
+        facility_id: str | None = None,
+        stage: str | FacilityStage | None = None,
+    ) -> None:
+        route = list(points)
+        if not route:
+            return
+        self.target = self.model.clamp_position(route[0])
+        self.route = [self.model.clamp_position(point) for point in route[1:]]
+        self.goal = {
+            "kind": goal_kind,
+            "label": goal_label,
+            "target": self.target,
+            "facility_id": facility_id,
+            "stage": stage.value if isinstance(stage, FacilityStage) else stage,
+        }
+
+    def apply_movement_result(self, result: MovementResult) -> bool:
+        self.pos = self.model.clamp_position(result.position)
+        if not result.reached:
+            return False
+        return self._finish_current_target()
+
+    def move_directly_toward_target(
+        self,
+        max_distance: float | None = None,
+        *,
+        occupied_positions: Sequence[tuple[float, float]] = (),
+        min_clearance: float | None = None,
+    ) -> bool:
+        x, y = self.pos
+        tx, ty = self.target
+        distance = hypot(tx - x, ty - y)
+        if distance <= 0.001:
+            return self._finish_current_target()
+
+        step = (
+            float(max_distance)
+            if max_distance is not None
+            else float(self.model.scenario.walk_units_per_tick)
+        )
+        if step <= 0.0 or distance <= max(step, self.model.scenario.jupedsim_target_radius_units):
+            candidate = self.target
+        else:
+            ratio = step / distance
+            candidate = (x + (tx - x) * ratio, y + (ty - y) * ratio)
+
+        cleared = self._clear_position(
+            self.model.clamp_position(candidate),
+            tuple(occupied_positions),
+            min_clearance=min_clearance,
+        )
+        self.pos = cleared
+        if hypot(cleared[0] - self.target[0], cleared[1] - self.target[1]) <= 0.001:
+            return self._finish_current_target()
+        return False
+
+    def enter_facility_queue(self, spec: FacilitySpec) -> None:
+        self.model.movement_backend.remove_passenger(self)
+        self.passive_facility_service = False
+        self.state = spec.queue_state
+        self.assigned_facility_id = spec.facility_id
+        self.current_level_id = spec.entry_level_id or self.current_level_id
+        if self.queue_join_step is None:
+            self.queue_join_step = self.model.step_index
+        self.set_target(
+            spec.queue_anchor,
+            goal_kind="queued",
+            goal_label=f"{spec.label} queue",
+            facility_id=spec.facility_id,
+            stage=spec.stage,
+        )
+
+    def begin_facility_service(self, spec: FacilitySpec) -> None:
+        self.model.movement_backend.remove_passenger(self)
+        self.passive_facility_service = False
+        self.state = spec.service_state
+        self.assigned_facility_id = spec.facility_id
+        self.current_level_id = spec.exit_level_id or self.current_level_id
+        if self.service_step is None:
+            self.service_step = self.model.step_index
+        self.set_route(
+            spec.release_route,
+            goal_kind="being_served",
+            goal_label=spec.label,
+            facility_id=spec.facility_id,
+            stage=spec.stage,
+        )
+
+    def suppress_movement_for_current_step(self) -> None:
+        self.suppress_movement_step = int(self.model.step_index)
+
+    def movement_suppressed_this_step(self) -> bool:
+        return self.suppress_movement_step == int(self.model.step_index)
+
+    def advance_after_movement(self, reached: bool) -> None:
+        if reached and self.state == AgentState.PASSING_GATE.value:
+            self.model.complete_departure(self)
+
+    def remove(self) -> None:
+        return None
+
+    def _finish_current_target(self) -> bool:
+        self.pos = self.target
+        if not self.route:
+            return True
+        self.target = self.route.pop(0)
+        self.goal["target"] = self.target
+        return False
+
+    def _clear_position(
+        self,
+        candidate: tuple[float, float],
+        occupied_positions: tuple[tuple[float, float], ...],
+        *,
+        min_clearance: float | None,
+    ) -> tuple[float, float]:
+        clearance = (
+            max(
+                0.05,
+                self.model.scenario.jupedsim_agent_radius_units
+                * self.model.scenario.jupedsim_clearance_multiplier,
+            )
+            if min_clearance is None
+            else max(0.0, float(min_clearance))
+        )
+        if _has_clearance(candidate, occupied_positions, clearance):
+            return candidate
+
+        x, y = self.pos
+        for fraction in (0.75, 0.5, 0.25, 0.0):
+            adjusted = self.model.clamp_position(
+                (x + (candidate[0] - x) * fraction, y + (candidate[1] - y) * fraction)
+            )
+            if _has_clearance(adjusted, occupied_positions, clearance):
+                return adjusted
+        return self.pos
+
+
+class StochasticGateProcessAgent(GateProcessAgent):
+    """Single-server turnstile with explicit tap duration and occasional retry delay."""
+
+    def __init__(self, model: mesa.Model, *, spec: FacilitySpec) -> None:
+        super().__init__(model, spec=spec)
+        self.active_service: ActiveGateService | None = None
+        self.tap_failures = 0
+
+    @property
+    def active_service_persons(self) -> int:
+        if self.active_service is None:
+            return 0
+        return self.active_service.passenger.group_size
+
+    def _mechanical_service_release_position(self) -> tuple[float, float]:
+        return self.spec.exit_position
+
+    def step(self, train: Any | None = None) -> None:
+        self._sync_state(train)
+        self._service_release_positions_this_tick = []
+        self._complete_active_service_if_ready()
+        self._layout_queue()
+        self._serve_queue(train)
+
+    def _serve_queue(self, train: Any | None = None) -> None:
+        self.service_credit = 0.0
+        if not self.is_open or self.active_service is not None or not self.queue:
+            return
+
+        passenger = self.queue[0]
+        if not self._can_start_service(passenger, train):
+            return
+
+        passenger = self.queue.pop(0)
+        try:
+            self._start_service(passenger, train)
+        except RuntimeError:
+            passenger.enter_facility_queue(self.spec)
+            self.queue.insert(0, passenger)
+
+    def _start_service(
+        self,
+        passenger: TurnstileProbePassenger,
+        train: Any | None,
+        *,
+        release_index: int = 0,
+        release_count: int = 1,
+    ) -> None:
+        del train, release_index, release_count
+        passenger.begin_facility_service(self.spec)
+        passenger.passive_facility_service = True
+        service_entry_position = self._mechanical_service_entry_position()
+        passenger.set_target(
+            service_entry_position,
+            goal_kind="being_served",
+            goal_label=f"{self.spec.label} tap",
+            facility_id=self.spec.facility_id,
+            stage=self.spec.stage,
+        )
+        passenger.pos = service_entry_position
+
+        duration_seconds, had_tap_failure = self._sample_service_duration_seconds(
+            passenger.group_size
+        )
+        start_time = float(self.model.current_time_seconds)
+        end_time = start_time + duration_seconds
+        board_end_time = start_time + duration_seconds * 0.55
+        self.active_service = ActiveGateService(
+            passenger=passenger,
+            start_time_seconds=start_time,
+            board_end_time_seconds=board_end_time,
+            end_time_seconds=end_time,
+            had_tap_failure=had_tap_failure,
+        )
+
+    def _sample_service_duration_seconds(self, group_size: int) -> tuple[float, bool]:
+        scenario = self.model.scenario
+        base_seconds = 60.0 * max(1, int(group_size)) / max(
+            0.001,
+            float(self.effective_service_persons_per_min),
+        )
+        jitter = max(0.0, float(scenario.tap_jitter_seconds))
+        duration = base_seconds
+        if jitter > 0.0:
+            duration += self.model.random.uniform(-jitter, jitter)
+        duration = max(0.2, duration)
+
+        had_tap_failure = self.model.random.random() < float(
+            scenario.tap_failure_probability
+        )
+        if had_tap_failure:
+            duration += max(0.0, float(scenario.tap_retry_seconds))
+            self.tap_failures += 1
+        return duration, had_tap_failure
+
+    def _complete_active_service_if_ready(self) -> None:
+        active = self.active_service
+        if active is None:
+            return
+        if float(self.model.current_time_seconds) + 1e-9 < active.end_time_seconds:
+            return
+
+        passenger = active.passenger
+        release_position = self._release_position(passenger, 0)
+        passenger.passive_facility_service = False
+        passenger.set_target(
+            release_position,
+            goal_kind="served",
+            goal_label=self.spec.label,
+            facility_id=self.spec.facility_id,
+            stage=self.spec.stage,
+        )
+        passenger.pos = release_position
+        passenger.suppress_movement_for_current_step()
+        self.served_persons += passenger.group_size
+        self.model.record_facility_service_event(
+            FacilityServiceEvent(
+                event_id=self.model.next_facility_service_event_id(),
+                facility_id=self.facility_id,
+                facility_kind=FacilityKind.GATE.value,
+                mode=self.spec.stage,
+                passenger_ids=(int(passenger.unique_id),),
+                start_time=active.start_time_seconds,
+                board_end_time=active.board_end_time_seconds,
+                arrive_time=active.end_time_seconds,
+                end_time=active.end_time_seconds,
+                start_position=self._mechanical_service_entry_position(),
+                end_position=release_position,
+                direction=self.spec.direction,
+                from_level=self.spec.entry_level_id,
+                to_level=self.spec.exit_level_id,
+            )
+        )
+        self.active_service = None
+        passenger.advance_after_movement(True)
+
+
+class TurnstileProbeModel(mesa.Model):
+    """Source -> turnstile queue/service -> sink micro-scene."""
+
+    width = 34.0
+    height = 8.0
+    source_position = (2.0, 4.0)
+
+    def __init__(
+        self,
+        *,
+        scenario: TurnstileProbeScenario,
+        service_persons_per_min: int,
+        seed: int,
+    ):
+        with warnings.catch_warnings():
+            warnings.filterwarnings(
+                "ignore",
+                message=r"The use of the `seed` keyword argument is deprecated.*",
+                category=FutureWarning,
+            )
+            super().__init__(seed=seed)
+        self._scenario = scenario
+        self.step_index = 0
+        self.passengers: list[TurnstileProbePassenger] = []
+        self.all_passengers: list[TurnstileProbePassenger] = []
+        self.sink_passengers: list[TurnstileProbePassenger] = []
+        self.frames: list[dict[str, Any]] = []
+        self.facility_service_events: list[FacilityServiceEvent] = []
+        self.facility_completion_observations: list[dict[str, object]] = []
+        self._facility_service_event_id = 0
+        self._next_passenger_id = 1
+        self.goal_coordinator = TurnstileProbeGoalCoordinator(self)
+        self.layout_graph = SimpleNamespace(
+            geometry=SimpleNamespace(width=self.width, height=self.height)
+        )
+        self.jupedsim = JuPedSimAdapter()
+        self.movement_backend = self._build_movement_backend()
+        self._walkable_area = Polygon(
+            [
+                (0.0, 0.0),
+                (self.width, 0.0),
+                (self.width, self.height),
+                (0.0, self.height),
+            ]
+        )
+        gate_class = (
+            StochasticGateProcessAgent
+            if self.scenario.gate_service_mode == "stochastic"
+            else GateProcessAgent
+        )
+        self.gate = gate_class(
+            self,
+            spec=turnstile_spec(service_persons_per_min=service_persons_per_min),
+        )
+
+    @property
+    def scenario(self) -> TurnstileProbeScenario:
+        return self._scenario
+
+    @scenario.setter
+    def scenario(self, value: TurnstileProbeScenario) -> None:
+        self._scenario = value
+
+    @property
+    def current_time_seconds(self) -> float:
+        return self.step_index * self.scenario.tick_seconds
+
+    @property
+    def sink_persons(self) -> int:
+        return sum(passenger.group_size for passenger in self.sink_passengers)
+
+    def next_facility_service_event_id(self) -> int:
+        self._facility_service_event_id += 1
+        return self._facility_service_event_id
+
+    def record_facility_service_event(self, event: FacilityServiceEvent) -> None:
+        self.facility_service_events.append(event)
+
+    def record_pending_facility_service_event(self, event: FacilityServiceEvent) -> None:
+        self.record_facility_service_event(event)
+
+    def observe_facility_service_completed(
+        self,
+        facility_id: str,
+        passenger_ids: tuple[int, ...],
+        completion_time_seconds: float,
+    ) -> None:
+        if facility_id != self.gate.facility_id:
+            raise ValueError(f"unknown probe facility completion: {facility_id!r}")
+        known_ids = {int(passenger.unique_id) for passenger in self.all_passengers}
+        unknown = sorted(set(map(int, passenger_ids)) - known_ids)
+        if unknown:
+            raise ValueError(f"unknown probe passenger completion ids: {unknown}")
+        self.facility_completion_observations.append(
+            {
+                "facility_id": facility_id,
+                "passenger_ids": tuple(map(int, passenger_ids)),
+                "completion_time_seconds": float(completion_time_seconds),
+            }
+        )
+
+    def clamp_position(self, position: tuple[float, float]) -> tuple[float, float]:
+        return (
+            max(0.0, min(self.width, float(position[0]))),
+            max(0.0, min(self.height, float(position[1]))),
+        )
+
+    def jupedsim_walkable_area(self, level_id: str | None = None):
+        return self._walkable_area
+
+    def spawn_source_passenger(self, *, local_index: int) -> TurnstileProbePassenger:
+        x, y = self.source_position
+        side_offset = (local_index % 7 - 3) * 0.22
+        row_offset = (local_index // 7) * 0.28
+        passenger = TurnstileProbePassenger(
+            self,
+            unique_id=self._next_passenger_id,
+            created_step=self.step_index,
+            position=(x - row_offset, y + side_offset),
+        )
+        self._next_passenger_id += 1
+        self.passengers.append(passenger)
+        self.all_passengers.append(passenger)
+        return passenger
+
+    def complete_departure(self, passenger: TurnstileProbePassenger) -> None:
+        if passenger.state == AgentState.DEPARTED.value:
+            return
+        self.movement_backend.remove_passenger(passenger)
+        passenger.state = AgentState.DEPARTED.value
+        passenger.departed_step = self.step_index
+        self.sink_passengers.append(passenger)
+        try:
+            self.passengers.remove(passenger)
+        except ValueError:
+            return
+
+    def run_step(self, *, arrivals: int) -> None:
+        for local_index in range(max(0, int(arrivals))):
+            self.spawn_source_passenger(local_index=local_index)
+
+        self._target_approaching_passengers()
+        for passenger, movement_result in self.movement_backend.step_all(list(self.passengers)):
+            reached = passenger.apply_movement_result(movement_result)
+            if reached and passenger.state == AgentState.ENTERING_STATION.value:
+                self.gate.join_queue(passenger, authority="goal_graph")
+
+        self.gate.step()
+        self.frames.append(self.snapshot())
+
+    def _build_movement_backend(self) -> MovementBackend:
+        requested = self.scenario.movement_backend_name
+        if requested == "linear":
+            return LinearProbeMovementBackend()
+        if requested in {"jupedsim", "batched_jupedsim"}:
+            if not self.jupedsim.status.available:
+                raise RuntimeError(self.jupedsim.status.message)
+            return BatchedJuPedSimMovementBackend(
+                self.jupedsim,
+                strict=self.scenario.jupedsim_strict,
+            )
+        raise ValueError(
+            f"Unsupported movement backend {requested!r}. Use 'jupedsim' or 'linear'."
+        )
+
+    def snapshot(self) -> dict[str, Any]:
+        state_counts = Counter(passenger.state for passenger in self.passengers)
+        state_counts[AgentState.DEPARTED.value] = len(self.sink_passengers)
+        return {
+            "step": self.step_index,
+            "time_seconds": self.current_time_seconds,
+            "passengers": [
+                passenger_snapshot(passenger) for passenger in self.all_passengers
+            ],
+            "approach_persons": state_counts[AgentState.ENTERING_STATION.value],
+            "queue_persons": self.gate.queue_persons,
+            "service_persons": int(getattr(self.gate, "active_service_persons", 0) or 0),
+            "served_persons": self.gate.served_persons,
+            "sink_persons": self.sink_persons,
+            "state_counts": dict(state_counts),
+            "movement": {
+                "backend": type(self.movement_backend).__name__,
+                "jupedsim_steps": int(getattr(self.movement_backend, "jps_step_count", 0) or 0),
+                "jupedsim_batches": int(getattr(self.movement_backend, "jps_batch_count", 0) or 0),
+            },
+        }
+
+    def _target_approaching_passengers(self) -> None:
+        approaching = [
+            passenger
+            for passenger in self.passengers
+            if passenger.state == AgentState.ENTERING_STATION.value
+        ]
+        for passenger in approaching:
+            passenger.set_target(
+                self._pre_gate_target_for(passenger),
+                goal_kind="walk",
+                goal_label="turnstile pre-gate merge",
+                facility_id=self.gate.facility_id,
+                stage=self.gate.spec.stage,
+            )
+
+    def _pre_gate_target_for(self, passenger: TurnstileProbePassenger) -> tuple[float, float]:
+        targets = turnstile_pre_gate_targets()
+        return targets[(int(passenger.unique_id) - 1) % len(targets)]
+
+
+def turnstile_pre_gate_targets() -> tuple[tuple[float, float], ...]:
+    return (
+        (23.15, 3.05),
+        (23.35, 3.5),
+        (23.55, 4.0),
+        (23.35, 4.5),
+        (23.15, 4.95),
+    )
+
+
+def turnstile_queue_slots() -> tuple[tuple[float, float], ...]:
+    slots = [(25.15, 4.0)]
+    for row in range(12):
+        x = 24.45 - row * 0.72
+        slots.append((x, 3.72))
+        slots.append((x, 4.28))
+    return tuple(slots)
+
+
+def turnstile_spec(*, service_persons_per_min: int) -> FacilitySpec:
+    queue_slots = turnstile_queue_slots()
+    return FacilitySpec(
+        facility_id="entry_gate:turnstile_probe:lane_1",
+        stage=FacilityStage.ENTRY_GATE.value,
+        label="Turnstile probe lane",
+        kind=FacilityKind.GATE.value,
+        direction="entry",
+        position=(26.0, 4.0),
+        queue_layout=QueueLayout(
+            anchor=queue_slots[0],
+            per_row=2,
+            col_step=(0.0, 0.56),
+            row_step=(-0.72, 0.0),
+            slots=queue_slots,
+        ),
+        exit_position=(28.5, 4.0),
+        service_persons_per_min=int(service_persons_per_min),
+        queue_state=AgentState.QUEUEING_GATE.value,
+        service_state=AgentState.PASSING_GATE.value,
+        release_route=(),
+        entry_level_id=LEVEL_ID,
+        exit_level_id=LEVEL_ID,
+    )
+
+
+def passenger_snapshot(passenger: TurnstileProbePassenger) -> dict[str, Any]:
+    return {
+        "id": int(passenger.unique_id),
+        "x": round(float(passenger.pos[0]), 3),
+        "y": round(float(passenger.pos[1]), 3),
+        "state": str(passenger.state),
+        "target": [
+            round(float(passenger.target[0]), 3),
+            round(float(passenger.target[1]), 3),
+        ],
+    }
+
+
+def positive_int(value: str) -> int:
+    parsed = int(value)
+    if parsed <= 0:
+        raise argparse.ArgumentTypeError("value must be > 0")
+    return parsed
+
+
+def nonnegative_int(value: str) -> int:
+    parsed = int(value)
+    if parsed < 0:
+        raise argparse.ArgumentTypeError("value must be >= 0")
+    return parsed
+
+
+def positive_float(value: str) -> float:
+    parsed = float(value)
+    if parsed <= 0.0:
+        raise argparse.ArgumentTypeError("value must be > 0")
+    return parsed
+
+
+def nonnegative_float(value: str) -> float:
+    parsed = float(value)
+    if parsed < 0.0:
+        raise argparse.ArgumentTypeError("value must be >= 0")
+    return parsed
+
+
+def probability_float(value: str) -> float:
+    parsed = nonnegative_float(value)
+    if parsed > 1.0:
+        raise argparse.ArgumentTypeError("value must be <= 1")
+    return parsed
+
+
+def parse_int_list(value: str) -> tuple[int, ...]:
+    parsed: list[int] = []
+    for raw_part in value.split(","):
+        part = raw_part.strip()
+        if not part:
+            continue
+        item = int(part)
+        if item < 0:
+            raise argparse.ArgumentTypeError("values must be >= 0")
+        parsed.append(item)
+    if not parsed:
+        raise argparse.ArgumentTypeError("provide at least one integer")
+    return tuple(parsed)
+
+
+def build_parser() -> argparse.ArgumentParser:
+    parser = argparse.ArgumentParser(
+        description=(
+            "Run an isolated source -> turnstile -> sink probe. The scene keeps "
+            "vertical transfer, platform, train, and renderer behavior out of the loop."
+        )
+    )
+    parser.add_argument("--demands", type=parse_int_list, default=DEFAULT_DEMANDS)
+    parser.add_argument("--gate-services", type=parse_int_list, default=DEFAULT_GATE_SERVICES)
+    parser.add_argument("--seed", type=int, default=42)
+    parser.add_argument(
+        "--seeds",
+        type=parse_int_list,
+        default=None,
+        help="Comma-separated seeds. Overrides --seed.",
+    )
+    parser.add_argument("--minutes", type=positive_int, default=1)
+    parser.add_argument("--tick-seconds", type=positive_int, default=1)
+    parser.add_argument("--drain-seconds", type=nonnegative_int, default=60)
+    parser.add_argument("--group-size", type=positive_int, default=1)
+    parser.add_argument("--walk-units-per-tick", type=positive_float, default=1.4)
+    parser.add_argument(
+        "--gate-service-mode",
+        choices=("deterministic", "stochastic"),
+        default="deterministic",
+    )
+    parser.add_argument("--tap-jitter-seconds", type=nonnegative_float, default=0.0)
+    parser.add_argument("--tap-failure-probability", type=probability_float, default=0.0)
+    parser.add_argument("--tap-retry-seconds", type=nonnegative_float, default=1.2)
+    parser.add_argument(
+        "--movement-backend",
+        choices=("jupedsim", "batched_jupedsim", "linear"),
+        default="jupedsim",
+    )
+    parser.add_argument(
+        "--jupedsim-model",
+        choices=("collision_free_speed", "social_force"),
+        default="collision_free_speed",
+    )
+    parser.add_argument("--jupedsim-iterations-per-tick", type=positive_int, default=150)
+    parser.add_argument(
+        "--arrival-profile",
+        choices=("burst", "uniform"),
+        default="burst",
+        help="burst puts the full minute-equivalent group at source at t=0.",
+    )
+    parser.add_argument("--out-dir", type=Path, default=DEFAULT_OUTPUT_DIR)
+    parser.add_argument("--output-stem", default=DEFAULT_OUTPUT_STEM)
+    parser.add_argument("--csv-out", type=Path, default=None)
+    parser.add_argument("--json-out", type=Path, default=None)
+    parser.add_argument("--md-out", type=Path, default=None)
+    parser.add_argument("--html-out", type=Path, default=None)
+    parser.add_argument("--quiet", action="store_true")
+    return parser
+
+
+def arrival_schedule(
+    *,
+    demand_hour: int,
+    minutes: int,
+    tick_seconds: int,
+    group_size: int,
+    profile: str,
+) -> Counter[int]:
+    horizon_steps = max(1, int(minutes * 60 / tick_seconds))
+    total_persons = round(max(0, demand_hour) * minutes / 60.0)
+    total_groups = round(total_persons / max(1, group_size))
+    schedule: Counter[int] = Counter()
+    if total_groups <= 0:
+        return schedule
+
+    if profile == "burst":
+        schedule[0] = total_groups
+        return schedule
+
+    for index in range(total_groups):
+        step = min(horizon_steps - 1, int(index * horizon_steps / total_groups))
+        schedule[step] += 1
+    return schedule
+
+
+def build_cases(
+    *,
+    demands: Sequence[int],
+    gate_services: Sequence[int],
+    seeds: Sequence[int],
+) -> list[ProbeCase]:
+    return [
+        ProbeCase(
+            demand_hour=demand,
+            gate_service_persons_per_min=service,
+            seed=seed,
+        )
+        for demand in demands
+        for service in gate_services
+        for seed in seeds
+    ]
+
+
+def make_model(args: argparse.Namespace, case: ProbeCase) -> TurnstileProbeModel:
+    scenario = TurnstileProbeScenario(
+        tick_seconds=args.tick_seconds,
+        group_size=args.group_size,
+        walk_units_per_tick=args.walk_units_per_tick,
+        gate_service_mode=args.gate_service_mode,
+        tap_jitter_seconds=args.tap_jitter_seconds,
+        tap_failure_probability=args.tap_failure_probability,
+        tap_retry_seconds=args.tap_retry_seconds,
+        movement_backend_name=args.movement_backend,
+        jupedsim_operational_model=args.jupedsim_model,
+        jupedsim_iterations_per_tick=args.jupedsim_iterations_per_tick,
+    )
+    return TurnstileProbeModel(
+        scenario=scenario,
+        service_persons_per_min=case.gate_service_persons_per_min,
+        seed=case.seed,
+    )
+
+
+def run_case(args: argparse.Namespace, case: ProbeCase) -> dict[str, Any]:
+    return run_case_with_animation(args, case).row
+
+
+def run_case_with_animation(args: argparse.Namespace, case: ProbeCase) -> ProbeRunResult:
+    model = make_model(args, case)
+    schedule = arrival_schedule(
+        demand_hour=case.demand_hour,
+        minutes=args.minutes,
+        tick_seconds=args.tick_seconds,
+        group_size=args.group_size,
+        profile=args.arrival_profile,
+    )
+    arrival_horizon_steps = max(1, int(args.minutes * 60 / args.tick_seconds))
+    drain_steps = max(0, round(int(args.drain_seconds) / args.tick_seconds))
+    horizon_steps = arrival_horizon_steps + drain_steps
+    started = time.perf_counter()
+
+    for step in range(horizon_steps):
+        model.step_index = step
+        model.run_step(arrivals=schedule.get(step, 0))
+
+    row = summarize_run(
+        args=args,
+        case=case,
+        model=model,
+        elapsed_seconds=time.perf_counter() - started,
+    )
+    return ProbeRunResult(
+        row=row,
+        animation=animation_payload_for_run(args=args, case=case, model=model, row=row),
+    )
+
+
+def summarize_run(
+    *,
+    args: argparse.Namespace,
+    case: ProbeCase,
+    model: TurnstileProbeModel,
+    elapsed_seconds: float,
+) -> dict[str, Any]:
+    source_persons = sum(passenger.group_size for passenger in model.all_passengers)
+    sink_persons = int(model.sink_persons)
+    unserved_persons = max(0, source_persons - sink_persons)
+    queue_wait_seconds = [
+        (passenger.service_step - passenger.queue_join_step) * args.tick_seconds
+        for passenger in model.all_passengers
+        if passenger.queue_join_step is not None and passenger.service_step is not None
+    ]
+    system_seconds = [
+        (passenger.departed_step - passenger.created_step) * args.tick_seconds
+        for passenger in model.all_passengers
+        if passenger.departed_step is not None
+    ]
+    sink_seconds = [
+        passenger.departed_step * args.tick_seconds
+        for passenger in model.all_passengers
+        if passenger.departed_step is not None
+    ]
+
+    return {
+        "run_id": case.run_id,
+        "status": "ok",
+        "clearance": "cleared" if unserved_persons == 0 else "backlog",
+        "demand_hour": case.demand_hour,
+        "gate_service_persons_per_min": case.gate_service_persons_per_min,
+        "seed": case.seed,
+        "minutes": args.minutes,
+        "tick_seconds": args.tick_seconds,
+        "drain_seconds": args.drain_seconds,
+        "group_size": args.group_size,
+        "arrival_profile": args.arrival_profile,
+        "gate_service_mode": args.gate_service_mode,
+        "tap_jitter_seconds": args.tap_jitter_seconds,
+        "tap_failure_probability": args.tap_failure_probability,
+        "tap_retry_seconds": args.tap_retry_seconds,
+        "movement_backend": type(model.movement_backend).__name__,
+        "jupedsim_operational_model": model.scenario.jupedsim_operational_model,
+        "jupedsim_status": model.jupedsim.status.message,
+        "jupedsim_steps": int(getattr(model.movement_backend, "jps_step_count", 0) or 0),
+        "jupedsim_batches": int(getattr(model.movement_backend, "jps_batch_count", 0) or 0),
+        "tap_failures": int(getattr(model.gate, "tap_failures", 0) or 0),
+        "source_persons": source_persons,
+        "served_persons": int(model.gate.served_persons),
+        "sink_persons": sink_persons,
+        "unserved_persons": unserved_persons,
+        "completion_rate": round(sink_persons / source_persons, 4) if source_persons else None,
+        "approach_persons_max": max_frame_value(model.frames, "approach_persons"),
+        "queue_persons_max": max_frame_value(model.frames, "queue_persons"),
+        "service_persons_max": max_frame_value(model.frames, "service_persons"),
+        "queue_persons_final": int(model.gate.queue_persons),
+        "mean_queue_wait_seconds": round(mean(queue_wait_seconds), 2)
+        if queue_wait_seconds
+        else 0.0,
+        "p95_queue_wait_seconds": round(percentile(queue_wait_seconds, 0.95), 2),
+        "mean_system_seconds": round(mean(system_seconds), 2) if system_seconds else 0.0,
+        "p95_system_seconds": round(percentile(system_seconds, 0.95), 2),
+        "first_sink_seconds": min(sink_seconds) if sink_seconds else None,
+        "last_sink_seconds": max(sink_seconds) if sink_seconds else None,
+        "elapsed_seconds": round(elapsed_seconds, 4),
+        "error_type": None,
+        "error": None,
+    }
+
+
+def max_frame_value(frames: Sequence[dict[str, Any]], key: str) -> int:
+    return max((int(frame.get(key, 0) or 0) for frame in frames), default=0)
+
+
+def percentile(values: Sequence[float], pct: float) -> float:
+    if not values:
+        return 0.0
+    ordered = sorted(values)
+    index = min(len(ordered) - 1, max(0, round((len(ordered) - 1) * pct)))
+    return ordered[index]
+
+
+def error_row(args: argparse.Namespace, case: ProbeCase, exc: Exception) -> dict[str, Any]:
+    row = {field: None for field in FIELDNAMES}
+    row.update(
+        {
+            "run_id": case.run_id,
+            "status": "error",
+            "demand_hour": case.demand_hour,
+            "gate_service_persons_per_min": case.gate_service_persons_per_min,
+            "seed": case.seed,
+            "minutes": args.minutes,
+            "tick_seconds": args.tick_seconds,
+            "drain_seconds": args.drain_seconds,
+            "group_size": args.group_size,
+            "arrival_profile": args.arrival_profile,
+            "gate_service_mode": args.gate_service_mode,
+            "tap_jitter_seconds": args.tap_jitter_seconds,
+            "tap_failure_probability": args.tap_failure_probability,
+            "tap_retry_seconds": args.tap_retry_seconds,
+            "movement_backend": args.movement_backend,
+            "jupedsim_operational_model": args.jupedsim_model,
+            "error_type": type(exc).__name__,
+            "error": str(exc),
+        }
+    )
+    return row
+
+
+def animation_payload_for_run(
+    *,
+    args: argparse.Namespace,
+    case: ProbeCase,
+    model: TurnstileProbeModel,
+    row: dict[str, Any],
+) -> dict[str, Any]:
+    return {
+        "run_id": case.run_id,
+        "label": (
+            f"demand {case.demand_hour}/h, "
+            f"gate {case.gate_service_persons_per_min}/min, "
+            f"{args.gate_service_mode}"
+        ),
+        "scenario": {
+            "minutes": args.minutes,
+            "tick_seconds": args.tick_seconds,
+            "drain_seconds": args.drain_seconds,
+            "arrival_profile": args.arrival_profile,
+            "gate_service_mode": args.gate_service_mode,
+            "tap_jitter_seconds": args.tap_jitter_seconds,
+            "tap_failure_probability": args.tap_failure_probability,
+            "tap_retry_seconds": args.tap_retry_seconds,
+            "movement_backend": row.get("movement_backend"),
+            "jupedsim_operational_model": row.get("jupedsim_operational_model"),
+            "jupedsim_status": row.get("jupedsim_status"),
+            "world_width": model.width,
+            "world_height": model.height,
+            "source_position": list(model.source_position),
+            "gate_position": list(model.gate.spec.position),
+            "pre_gate_targets": [list(point) for point in turnstile_pre_gate_targets()],
+            "queue_anchor": list(model.gate.spec.queue_anchor),
+            "queue_row_step": list(model.gate.spec.queue_layout.row_step),
+            "queue_slots": [list(point) for point in turnstile_queue_slots()],
+            "exit_position": list(model.gate.spec.exit_position),
+        },
+        "summary": {
+            key: row.get(key)
+            for key in (
+                "clearance",
+                "source_persons",
+                "sink_persons",
+                "unserved_persons",
+                "completion_rate",
+                "approach_persons_max",
+                "queue_persons_max",
+                "service_persons_max",
+                "p95_system_seconds",
+                "gate_service_mode",
+                "tap_failures",
+                "movement_backend",
+                "jupedsim_steps",
+                "jupedsim_batches",
+            )
+        },
+        "frames": model.frames,
+    }
+
+
+def run_cases(args: argparse.Namespace, cases: Sequence[ProbeCase]) -> list[dict[str, Any]]:
+    rows: list[dict[str, Any]] = []
+    for index, case in enumerate(cases, start=1):
+        if not args.quiet:
+            print(f"[TURNSTILE] {index}/{len(cases)} {case.run_id}")
+        try:
+            rows.append(run_case(args, case))
+        except Exception as exc:  # noqa: BLE001
+            rows.append(error_row(args, case, exc))
+    return rows
+
+
+def run_case_results(
+    args: argparse.Namespace,
+    cases: Sequence[ProbeCase],
+) -> list[ProbeRunResult]:
+    results: list[ProbeRunResult] = []
+    for index, case in enumerate(cases, start=1):
+        if not args.quiet:
+            print(f"[TURNSTILE] {index}/{len(cases)} {case.run_id}")
+        try:
+            results.append(run_case_with_animation(args, case))
+        except Exception as exc:  # noqa: BLE001
+            results.append(ProbeRunResult(row=error_row(args, case, exc), animation=None))
+    return results
+
+
+def resolve_output_paths(args: argparse.Namespace) -> OutputPaths:
+    out_dir = args.out_dir
+    stem = args.output_stem
+    return OutputPaths(
+        csv_path=args.csv_out or out_dir / f"{stem}.csv",
+        json_path=args.json_out or out_dir / f"{stem}.json",
+        markdown_path=args.md_out or out_dir / f"{stem}.md",
+        animation_html_path=args.html_out or out_dir / f"{stem}_animation.html",
+    )
+
+
+def compact_json(value: Any) -> str:
+    return json.dumps(value, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
+
+
+def csv_value(value: Any) -> Any:
+    if isinstance(value, (dict, list, tuple)):
+        return compact_json(value)
+    return value
+
+
+def write_csv(path: Path, rows: Sequence[dict[str, Any]]) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with path.open("w", encoding="utf-8", newline="") as handle:
+        writer = csv.DictWriter(handle, fieldnames=FIELDNAMES)
+        writer.writeheader()
+        for row in rows:
+            writer.writerow({field: csv_value(row.get(field)) for field in FIELDNAMES})
+
+
+def aggregate_summary(rows: Sequence[dict[str, Any]]) -> dict[str, Any]:
+    ok_rows = [row for row in rows if row.get("status") == "ok"]
+    backlog_rows = [row for row in ok_rows if row.get("clearance") != "cleared"]
+    return {
+        "runs": len(rows),
+        "ok": len(ok_rows),
+        "errors": len(rows) - len(ok_rows),
+        "backlog": len(backlog_rows),
+        "worst_unserved_persons": max(
+            (int(row.get("unserved_persons") or 0) for row in ok_rows),
+            default=0,
+        ),
+        "worst_queue_persons_max": max(
+            (int(row.get("queue_persons_max") or 0) for row in ok_rows),
+            default=0,
+        ),
+        "worst_service_persons_max": max(
+            (int(row.get("service_persons_max") or 0) for row in ok_rows),
+            default=0,
+        ),
+        "tap_failures": sum(
+            int(row.get("tap_failures") or 0) for row in ok_rows
+        ),
+        "worst_approach_persons_max": max(
+            (int(row.get("approach_persons_max") or 0) for row in ok_rows),
+            default=0,
+        ),
+    }
+
+
+def metadata_for(args: argparse.Namespace, cases: Sequence[ProbeCase]) -> dict[str, Any]:
+    return {
+        "generated_at": datetime.now(UTC).isoformat(timespec="seconds"),
+        "script": "scripts.run_turnstile_flow_probe",
+        "case_count": len(cases),
+        "minutes": args.minutes,
+        "tick_seconds": args.tick_seconds,
+        "drain_seconds": args.drain_seconds,
+        "group_size": args.group_size,
+        "arrival_profile": args.arrival_profile,
+        "gate_service_mode": args.gate_service_mode,
+        "tap_jitter_seconds": args.tap_jitter_seconds,
+        "tap_failure_probability": args.tap_failure_probability,
+        "tap_retry_seconds": args.tap_retry_seconds,
+        "movement_backend": args.movement_backend,
+        "jupedsim_operational_model": args.jupedsim_model,
+        "jupedsim_iterations_per_tick": args.jupedsim_iterations_per_tick,
+        "demands": list(args.demands),
+        "gate_services": list(args.gate_services),
+    }
+
+
+def write_json_summary(
+    path: Path,
+    *,
+    args: argparse.Namespace,
+    cases: Sequence[ProbeCase],
+    rows: Sequence[dict[str, Any]],
+) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    payload = {
+        "metadata": metadata_for(args, cases),
+        "summary": aggregate_summary(rows),
+        "runs": list(rows),
+    }
+    path.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
+
+
+def markdown_cell(value: Any) -> str:
+    if value is None:
+        return ""
+    return str(value).replace("|", "\\|").replace("\n", " ")
+
+
+def markdown_table(rows: Sequence[dict[str, Any]]) -> str:
+    columns = (
+        ("status", "status"),
+        ("clearance", "clearance"),
+        ("demand/h", "demand_hour"),
+        ("service/min", "gate_service_persons_per_min"),
+        ("service_mode", "gate_service_mode"),
+        ("backend", "movement_backend"),
+        ("source", "source_persons"),
+        ("sink", "sink_persons"),
+        ("unserved", "unserved_persons"),
+        ("tap_fail", "tap_failures"),
+        ("rate", "completion_rate"),
+        ("max_approach", "approach_persons_max"),
+        ("max_q", "queue_persons_max"),
+        ("max_service", "service_persons_max"),
+        ("final_q", "queue_persons_final"),
+        ("mean_q_s", "mean_queue_wait_seconds"),
+        ("p95_sys_s", "p95_system_seconds"),
+    )
+    header = "| " + " | ".join(label for label, _key in columns) + " |"
+    divider = "| " + " | ".join("---" for _label, _key in columns) + " |"
+    body = [
+        "| " + " | ".join(markdown_cell(row.get(key)) for _label, key in columns) + " |"
+        for row in rows
+    ]
+    return "\n".join([header, divider, *body])
+
+
+def write_markdown_summary(
+    path: Path,
+    *,
+    args: argparse.Namespace,
+    cases: Sequence[ProbeCase],
+    rows: Sequence[dict[str, Any]],
+) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    meta = metadata_for(args, cases)
+    summary = aggregate_summary(rows)
+    content = "\n".join(
+        [
+            "# Turnstile Flow Probe Summary",
+            "",
+            f"- generated_at: {meta['generated_at']}",
+            f"- cases: {summary['runs']}",
+            f"- ok: {summary['ok']}",
+            f"- errors: {summary['errors']}",
+            f"- backlog: {summary['backlog']}",
+            f"- worst_unserved_persons: {summary['worst_unserved_persons']}",
+            f"- worst_queue_persons_max: {summary['worst_queue_persons_max']}",
+            f"- worst_service_persons_max: {summary['worst_service_persons_max']}",
+            f"- tap_failures: {summary['tap_failures']}",
+            f"- arrival_profile: {args.arrival_profile}",
+            f"- gate_service_mode: {args.gate_service_mode}",
+            f"- movement_backend: {args.movement_backend}",
+            f"- jupedsim_operational_model: {args.jupedsim_model}",
+            "- process_scope: source -> JuPedSim gate approach -> queue/service -> sink",
+            "- excluded_scope: vertical transfer, platform, trains, full-station renderer",
+            "",
+            markdown_table(rows),
+            "",
+        ]
+    )
+    path.write_text(content, encoding="utf-8")
+
+
+def write_outputs(
+    paths: OutputPaths,
+    *,
+    args: argparse.Namespace,
+    cases: Sequence[ProbeCase],
+    rows: Sequence[dict[str, Any]],
+    animations: Sequence[dict[str, Any]] | None = None,
+) -> None:
+    write_csv(paths.csv_path, rows)
+    write_json_summary(paths.json_path, args=args, cases=cases, rows=rows)
+    write_markdown_summary(paths.markdown_path, args=args, cases=cases, rows=rows)
+    if animations and paths.animation_html_path is not None:
+        write_animation_html(paths.animation_html_path, args=args, animations=animations)
+
+
+def write_animation_html(
+    path: Path,
+    *,
+    args: argparse.Namespace,
+    animations: Sequence[dict[str, Any]],
+) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    payload = {
+        "generated_at": datetime.now(UTC).isoformat(timespec="seconds"),
+        "title": "Turnstile Flow Probe",
+        "runs": list(animations),
+    }
+    encoded_payload = json.dumps(payload, ensure_ascii=False).replace("</", "<\\/")
+    path.write_text(animation_html_document(encoded_payload), encoding="utf-8")
+
+
+def animation_html_document(encoded_payload: str) -> str:
+    return f"""<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>{escape("Turnstile Flow Probe")}</title>
+<style>
+:root {{
+  color-scheme: light;
+  font-family: Arial, Helvetica, sans-serif;
+  background: #f4f5f7;
+  color: #1d252c;
+}}
+* {{ box-sizing: border-box; }}
+body {{
+  margin: 0;
+  min-height: 100vh;
+  display: grid;
+  grid-template-rows: auto 1fr;
+}}
+header {{
+  display: grid;
+  grid-template-columns: minmax(220px, 1fr) auto;
+  gap: 12px;
+  align-items: center;
+  padding: 12px 16px;
+  background: #ffffff;
+  border-bottom: 1px solid #d7dde4;
+}}
+h1 {{
+  margin: 0;
+  font-size: 18px;
+  font-weight: 700;
+}}
+.toolbar {{
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+}}
+button, select {{
+  height: 34px;
+  border: 1px solid #bdc7d0;
+  background: #ffffff;
+  color: #1d252c;
+  border-radius: 6px;
+  padding: 0 10px;
+  font: inherit;
+}}
+button {{
+  min-width: 36px;
+  cursor: pointer;
+}}
+select {{
+  max-width: min(52vw, 360px);
+}}
+main {{
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 260px;
+  min-height: 0;
+}}
+.stage {{
+  min-width: 0;
+  min-height: 0;
+  padding: 14px;
+}}
+canvas {{
+  display: block;
+  width: 100%;
+  height: calc(100vh - 92px);
+  min-height: 420px;
+  background: #eef2f4;
+  border: 1px solid #ccd5dd;
+  border-radius: 8px;
+}}
+.panel {{
+  border-left: 1px solid #d7dde4;
+  background: #ffffff;
+  padding: 14px;
+  display: grid;
+  gap: 12px;
+  align-content: start;
+}}
+.stat {{
+  display: grid;
+  grid-template-columns: 1fr auto;
+  gap: 10px;
+  padding: 8px 0;
+  border-bottom: 1px solid #edf0f3;
+  font-size: 13px;
+}}
+.stat strong {{
+  font-size: 18px;
+}}
+.timeline {{
+  grid-column: 1 / -1;
+  display: grid;
+  grid-template-columns: 1fr auto;
+  align-items: center;
+  gap: 10px;
+}}
+input[type="range"] {{
+  width: 100%;
+}}
+.legend {{
+  display: grid;
+  gap: 8px;
+  font-size: 12px;
+}}
+.legend-row {{
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}}
+.dot {{
+  width: 11px;
+  height: 11px;
+  border-radius: 50%;
+}}
+@media (max-width: 820px) {{
+  header, main {{
+    grid-template-columns: 1fr;
+  }}
+  .toolbar {{
+    justify-content: flex-start;
+  }}
+  .panel {{
+    border-left: 0;
+    border-top: 1px solid #d7dde4;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }}
+  canvas {{
+    height: 58vh;
+    min-height: 330px;
+  }}
+}}
+</style>
+</head>
+<body>
+<header>
+  <h1>Turnstile Flow Probe</h1>
+  <div class="toolbar">
+    <select id="runSelect" aria-label="Run"></select>
+    <button id="playButton" title="Play/Pause" aria-label="Play/Pause">⏸</button>
+    <button id="resetButton" title="Reset" aria-label="Reset">↺</button>
+    <select id="speedSelect" aria-label="Speed">
+      <option value="1" selected>1x</option>
+      <option value="2">2x</option>
+      <option value="4">4x</option>
+      <option value="8">8x</option>
+    </select>
+  </div>
+  <div class="timeline">
+    <input id="timeline" type="range" min="0" value="0" step="0.01">
+    <span id="clock">0s</span>
+  </div>
+</header>
+<main>
+  <section class="stage">
+    <canvas id="canvas"></canvas>
+  </section>
+  <aside class="panel">
+    <div class="stat"><span>backend</span><strong id="backendValue">-</strong></div>
+    <div class="stat"><span>jps steps</span><strong id="jpsValue">0</strong></div>
+    <div class="stat"><span>source</span><strong id="sourceValue">0</strong></div>
+    <div class="stat"><span>approach</span><strong id="approachValue">0</strong></div>
+    <div class="stat"><span>queue</span><strong id="queueValue">0</strong></div>
+    <div class="stat"><span>service</span><strong id="serviceValue">0</strong></div>
+    <div class="stat"><span>sink</span><strong id="sinkValue">0</strong></div>
+    <div class="stat"><span>tap failures</span><strong id="tapFailureValue">0</strong></div>
+    <div class="stat"><span>unserved</span><strong id="unservedValue">0</strong></div>
+    <div class="stat"><span>clearance</span><strong id="clearanceValue">-</strong></div>
+    <div class="legend">
+      <div class="legend-row"><span class="dot" style="background:#2f6f9f"></span> walking</div>
+      <div class="legend-row"><span class="dot" style="background:#bf8f00"></span> queue</div>
+      <div class="legend-row"><span class="dot" style="background:#7b61b4"></span> passing</div>
+      <div class="legend-row"><span class="dot" style="background:#2f8f5b"></span> sink</div>
+    </div>
+  </aside>
+</main>
+<script>
+const TURNSTILE_ANIMATION_DATA = {encoded_payload};
+window.TURNSTILE_ANIMATION_DATA = TURNSTILE_ANIMATION_DATA;
+const canvas = document.getElementById("canvas");
+const ctx = canvas.getContext("2d");
+const runSelect = document.getElementById("runSelect");
+const playButton = document.getElementById("playButton");
+const resetButton = document.getElementById("resetButton");
+const speedSelect = document.getElementById("speedSelect");
+const timeline = document.getElementById("timeline");
+const clock = document.getElementById("clock");
+let runIndex = 0;
+let frameValue = 0;
+let playing = true;
+let lastTime = performance.now();
+
+for (const [index, run] of TURNSTILE_ANIMATION_DATA.runs.entries()) {{
+  const option = document.createElement("option");
+  option.value = String(index);
+  option.textContent = run.label;
+  runSelect.append(option);
+}}
+
+function currentRun() {{
+  return TURNSTILE_ANIMATION_DATA.runs[runIndex];
+}}
+
+function currentFrames() {{
+  return currentRun().frames || [];
+}}
+
+function resizeCanvas() {{
+  const rect = canvas.getBoundingClientRect();
+  const ratio = window.devicePixelRatio || 1;
+  canvas.width = Math.max(1, Math.floor(rect.width * ratio));
+  canvas.height = Math.max(1, Math.floor(rect.height * ratio));
+  ctx.setTransform(ratio, 0, 0, ratio, 0, 0);
+}}
+
+function worldToScreen(point) {{
+  const run = currentRun();
+  const width = run.scenario.world_width;
+  const height = run.scenario.world_height;
+  const rect = canvas.getBoundingClientRect();
+  const pad = Math.max(24, Math.min(rect.width, rect.height) * 0.08);
+  const sx = (rect.width - pad * 2) / width;
+  const sy = (rect.height - pad * 2) / height;
+  const scale = Math.min(sx, sy);
+  const ox = (rect.width - width * scale) / 2;
+  const oy = (rect.height - height * scale) / 2;
+  return [ox + point[0] * scale, oy + point[1] * scale, scale];
+}}
+
+function frameAt(value) {{
+  const frames = currentFrames();
+  if (!frames.length) return null;
+  const leftIndex = Math.max(0, Math.min(frames.length - 1, Math.floor(value)));
+  const rightIndex = Math.max(0, Math.min(frames.length - 1, leftIndex + 1));
+  const t = Math.max(0, Math.min(1, value - leftIndex));
+  return {{ left: frames[leftIndex], right: frames[rightIndex], t }};
+}}
+
+function passengersAt(framePair) {{
+  if (!framePair) return [];
+  const leftById = new Map((framePair.left.passengers || []).map((p) => [p.id, p]));
+  const passengers = [];
+  for (const right of framePair.right.passengers || []) {{
+    const left = leftById.get(right.id) || right;
+    const t = framePair.t;
+    passengers.push({{
+      id: right.id,
+      x: left.x + (right.x - left.x) * t,
+      y: left.y + (right.y - left.y) * t,
+      state: right.state,
+    }});
+  }}
+  return passengers;
+}}
+
+function draw() {{
+  resizeCanvas();
+  const rect = canvas.getBoundingClientRect();
+  ctx.clearRect(0, 0, rect.width, rect.height);
+  drawScene();
+  const pair = frameAt(frameValue);
+  if (pair) {{
+    drawPassengers(passengersAt(pair));
+    updateStats(pair.left);
+    clock.textContent = `${{Math.round(pair.left.time_seconds || 0)}}s`;
+  }}
+}}
+
+function drawScene() {{
+  const run = currentRun();
+  const source = worldToScreen(run.scenario.source_position);
+  const gate = worldToScreen(run.scenario.gate_position);
+  const exit = worldToScreen(run.scenario.exit_position);
+  const anchor = worldToScreen(run.scenario.queue_anchor);
+  const preGateTargets = run.scenario.pre_gate_targets || [];
+  const rect = canvas.getBoundingClientRect();
+  ctx.fillStyle = "#e7edf1";
+  ctx.fillRect(0, 0, rect.width, rect.height);
+  drawZone(source, 52, "#d8ecf4", "#2f6f9f", "SOURCE");
+  drawZone(exit, 58, "#dff0e7", "#2f8f5b", "SINK");
+  drawPreGate(preGateTargets);
+  drawQueue(anchor, run.scenario.queue_row_step);
+  ctx.strokeStyle = "#9aa7b1";
+  ctx.lineWidth = 2;
+  ctx.beginPath();
+  ctx.moveTo(source[0] + 42, source[1]);
+  if (preGateTargets.length) {{
+    const merge = worldToScreen(preGateTargets[Math.floor(preGateTargets.length / 2)]);
+    ctx.lineTo(merge[0], merge[1]);
+    ctx.lineTo(anchor[0], anchor[1]);
+  }} else {{
+    ctx.lineTo(anchor[0], anchor[1]);
+  }}
+  ctx.moveTo(gate[0] + 20, gate[1]);
+  ctx.lineTo(exit[0] - 42, exit[1]);
+  ctx.stroke();
+  ctx.fillStyle = "#263238";
+  ctx.fillRect(gate[0] - 7, gate[1] - 42, 14, 84);
+  ctx.fillStyle = "#ffffff";
+  ctx.fillRect(gate[0] - 2, gate[1] - 34, 4, 68);
+  ctx.fillStyle = "#263238";
+  ctx.font = "12px Arial";
+  ctx.textAlign = "center";
+  ctx.fillText("GATE", gate[0], gate[1] - 52);
+}}
+
+function drawZone(point, radius, fill, stroke, label) {{
+  ctx.fillStyle = fill;
+  ctx.strokeStyle = stroke;
+  ctx.lineWidth = 2;
+  ctx.beginPath();
+  ctx.arc(point[0], point[1], radius, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.stroke();
+  ctx.fillStyle = stroke;
+  ctx.font = "12px Arial";
+  ctx.textAlign = "center";
+  ctx.fillText(label, point[0], point[1] + radius + 18);
+}}
+
+function drawPreGate(targets) {{
+  if (!targets.length) return;
+  ctx.fillStyle = "rgba(47, 111, 159, 0.08)";
+  ctx.strokeStyle = "rgba(47, 111, 159, 0.32)";
+  ctx.lineWidth = 1.5;
+  ctx.beginPath();
+  for (const target of targets) {{
+    const p = worldToScreen(target);
+    ctx.moveTo(p[0] + 15, p[1]);
+    ctx.arc(p[0], p[1], 15, 0, Math.PI * 2);
+  }}
+  ctx.fill();
+  ctx.stroke();
+}}
+
+function drawQueue(anchor, rowStep) {{
+  const base = currentRun().scenario.queue_anchor;
+  const slots = currentRun().scenario.queue_slots || [];
+  ctx.strokeStyle = "#bf8f00";
+  ctx.lineWidth = 1.4;
+  ctx.setLineDash([5, 5]);
+  ctx.beginPath();
+  const shownSlots = slots.length
+    ? slots.slice(0, 25)
+    : Array.from({{ length: 14 }}, (_v, index) => [
+    base[0] + rowStep[0] * index,
+    base[1] + rowStep[1] * index,
+  ]);
+  for (const slot of shownSlots) {{
+    const p = worldToScreen(slot);
+    ctx.moveTo(p[0], p[1] - 16);
+    ctx.lineTo(p[0], p[1] + 16);
+  }}
+  ctx.stroke();
+  ctx.setLineDash([]);
+}}
+
+function drawPassengers(passengers) {{
+  for (const p of passengers) {{
+    const screen = worldToScreen([p.x, p.y]);
+    const color = colorForState(p.state);
+    ctx.fillStyle = color;
+    ctx.strokeStyle = "#ffffff";
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    ctx.arc(screen[0], screen[1], 8, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.stroke();
+    ctx.fillStyle = "#ffffff";
+    ctx.font = "9px Arial";
+    ctx.textAlign = "center";
+    ctx.fillText(String(p.id), screen[0], screen[1] + 3);
+  }}
+}}
+
+function colorForState(state) {{
+  if (state === "departed") return "#2f8f5b";
+  if (state === "queueing_gate") return "#bf8f00";
+  if (state === "passing_gate") return "#7b61b4";
+  return "#2f6f9f";
+}}
+
+function updateStats(frame) {{
+  const run = currentRun();
+  document.getElementById("sourceValue").textContent = run.summary.source_persons ?? 0;
+  document.getElementById("backendValue").textContent = (
+    run.summary.movement_backend || run.scenario.movement_backend || "-"
+  ).replace("MovementBackend", "");
+  document.getElementById("jpsValue").textContent = run.summary.jupedsim_steps ?? 0;
+  document.getElementById("approachValue").textContent = frame.approach_persons ?? 0;
+  document.getElementById("queueValue").textContent = frame.queue_persons ?? 0;
+  document.getElementById("serviceValue").textContent = frame.service_persons ?? 0;
+  document.getElementById("sinkValue").textContent = frame.sink_persons ?? 0;
+  document.getElementById("tapFailureValue").textContent = run.summary.tap_failures ?? 0;
+  document.getElementById("unservedValue").textContent = run.summary.unserved_persons ?? 0;
+  document.getElementById("clearanceValue").textContent = run.summary.clearance ?? "-";
+}}
+
+function resetTimeline() {{
+  frameValue = 0;
+  timeline.max = String(Math.max(0, currentFrames().length - 1));
+  timeline.value = "0";
+  draw();
+}}
+
+function step(now) {{
+  const elapsed = (now - lastTime) / 1000;
+  lastTime = now;
+  if (playing && currentFrames().length > 1) {{
+    const speed = Number(speedSelect.value || 1);
+    frameValue += elapsed * speed;
+    if (frameValue >= currentFrames().length - 1) {{
+      frameValue = currentFrames().length - 1;
+      playing = false;
+      playButton.textContent = "▶";
+    }}
+    timeline.value = String(frameValue);
+    draw();
+  }}
+  requestAnimationFrame(step);
+}}
+
+runSelect.addEventListener("change", () => {{
+  runIndex = Number(runSelect.value || 0);
+  playing = true;
+  playButton.textContent = "⏸";
+  resetTimeline();
+}});
+playButton.addEventListener("click", () => {{
+  playing = !playing;
+  playButton.textContent = playing ? "⏸" : "▶";
+}});
+resetButton.addEventListener("click", () => {{
+  playing = true;
+  playButton.textContent = "⏸";
+  resetTimeline();
+}});
+timeline.addEventListener("input", () => {{
+  frameValue = Number(timeline.value || 0);
+  draw();
+}});
+window.addEventListener("resize", draw);
+resetTimeline();
+requestAnimationFrame(step);
+</script>
+</body>
+</html>
+"""
+
+
+def main(argv: Sequence[str] | None = None) -> int:
+    args = build_parser().parse_args(argv)
+    seeds = args.seeds or (args.seed,)
+    cases = build_cases(
+        demands=args.demands,
+        gate_services=args.gate_services,
+        seeds=seeds,
+    )
+    results = run_case_results(args, cases)
+    rows = [result.row for result in results]
+    animations = [result.animation for result in results if result.animation is not None]
+    paths = resolve_output_paths(args)
+    write_outputs(paths, args=args, cases=cases, rows=rows, animations=animations)
+
+    summary = aggregate_summary(rows)
+    print(f"[TURNSTILE] wrote_csv={paths.csv_path.resolve()}")
+    print(f"[TURNSTILE] wrote_json={paths.json_path.resolve()}")
+    print(f"[TURNSTILE] wrote_markdown={paths.markdown_path.resolve()}")
+    if paths.animation_html_path is not None:
+        print(f"[TURNSTILE] wrote_animation={paths.animation_html_path.resolve()}")
+    print(
+        "[TURNSTILE] "
+        f"runs={summary['runs']} ok={summary['ok']} errors={summary['errors']} "
+        f"backlog={summary['backlog']} worst_unserved={summary['worst_unserved_persons']}"
+    )
+    return 1 if summary["errors"] else 0
+
+
+def _has_clearance(
+    candidate: tuple[float, float],
+    occupied_positions: tuple[tuple[float, float], ...],
+    clearance: float,
+) -> bool:
+    return all(
+        hypot(candidate[0] - other[0], candidate[1] - other[1]) >= clearance
+        for other in occupied_positions
+    )
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

@@ -15,7 +15,7 @@ import pandas as pd
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent.parent))
 
-from src.station_catalog import line_label_to_ref  # noqa: E402
+from metro_data_warehouse.station_catalog import line_label_to_ref  # noqa: E402
 
 CHUNKSIZE = 500_000
 TABLE_NAME = "fact_section_flow_hourly"
