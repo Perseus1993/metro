@@ -7,6 +7,7 @@ __pycache__/
 .Python
 .pytest_cache/
 .ruff_cache/
+.import_linter_cache/
 .mypy_cache/
 .pyright/
 .coverage
@@ -25,6 +26,76 @@ env/
 
 # 缓存（可再生）
 cache/
+
+# Codex/acceptance scratch（可再生，不进入版本历史）
+/.codex_tmp/
+/.codex-remote-attachments/
+/.codex-skill-check-*/
+/tmp/
+/artifacts/
+
+# Unity 生成目录与本地录制
+**/[Ll]ibrary/
+**/[Tt]emp/
+**/[Oo]bj/
+**/[Bb]uild/
+**/[Bb]uilds/
+**/[Ll]ogs/
+**/[Uu]ser[Ss]ettings/
+**/[Mm]emoryCaptures/
+**/[Rr]ecordings/
+**/Assets/StreamingAssets/replay.json
+
+# 实验项目的大型外部/生成资产不直接进入 Git（见 experiments/ASSET_MANIFEST.json）
+# 保留代码、Unity 文本配置、许可证和 provenance；二进制由清单校验与重建。
+/experiments/**/*.tga
+/experiments/**/*.tga.meta
+/experiments/**/*.fbx
+/experiments/**/*.fbx.meta
+/experiments/**/*.png
+/experiments/**/*.png.meta
+/experiments/**/*.jpg
+/experiments/**/*.jpg.meta
+/experiments/**/*.jpeg
+/experiments/**/*.jpeg.meta
+/experiments/**/*.exr
+/experiments/**/*.exr.meta
+/experiments/**/*.glb
+/experiments/**/*.glb.meta
+/experiments/**/*.gltf
+/experiments/**/*.gltf.meta
+/experiments/**/*.bin
+/experiments/**/*.bin.meta
+/experiments/**/*.wav
+/experiments/**/*.wav.meta
+/experiments/**/*.mp3
+/experiments/**/*.mp3.meta
+/experiments/**/*.mp4
+/experiments/**/*.mp4.meta
+/experiments/**/*.zip
+/experiments/**/*.zip.meta
+/experiments/**/*.pdf
+/experiments/**/*.pdf.meta
+/experiments/**/*.unitypackage
+/experiments/**/*.unitypackage.meta
+
+# 完整第三方包、派生副本与可由仓库内 Builder 重建的输出。
+/experiments/station_fire_visual_lab/Assets/ThirdParty/MicrosoftRocketbox/Avatars/
+/experiments/station_fire_visual_lab/Assets/Resources/PassengerBases/Rocketbox/
+/experiments/station_fire_visual_lab/Assets/Resources/PassengerBases/RocketboxAnimations/
+/experiments/station_fire_visual_lab/Assets/Resources/PassengerBases/Generated/
+/experiments/station_fire_visual_lab/Assets/HazardVisualLab/ThirdParty/SubwayIncidentProps/Raw/
+/experiments/station_fire_visual_lab/Assets/HazardVisualLab/ThirdParty/SubwayIncidentProps/ElectricalSparks/
+/experiments/station_fire_visual_lab/Assets/HazardVisualLab/ThirdParty/SubwayIncidentProps/Materials/
+/experiments/station_fire_visual_lab/Assets/HazardVisualLab/ThirdParty/SubwayIncidentProps/Prefabs/
+/experiments/station_fire_visual_lab/Assets/Resources/MetroReplay/ThirdParty/
+/experiments/station_fire_visual_lab/Assets/Resources/MetroFire/
+/experiments/hazard_asset_lab/Assets/Solodream/
+/experiments/hazard_asset_lab/Assets/Vefects/
+/experiments/hazard_asset_lab/Assets/HazardAssetLab/ThirdParty/
+
+# 外部实验数据由清单记录，不随代码基线提交。
+/experiments/torch_movement_p1/data/
 
 # 原始数据（太大，不入仓）
 data/afc/
