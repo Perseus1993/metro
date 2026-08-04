@@ -1,0 +1,3257 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>站内客流仿真</title>
+  <style>
+    :root {
+      color-scheme: dark;
+      --ink: #eef7fb;
+      --muted: #98b1bf;
+      --panel: rgba(8, 22, 31, 0.86);
+      --panel-border: rgba(179, 211, 226, 0.24);
+      --blue: #3d8cff;
+      --green: #5dd45f;
+      --orange: #ff8a27;
+      --amber: #ffd166;
+      --rail: #cfd9df;
+    }
+
+    * {
+      box-sizing: border-box;
+    }
+
+    html,
+    body {
+      margin: 0;
+      min-height: 100%;
+      background: #07131b;
+      color: var(--ink);
+      font-family:
+        Inter,
+        "Segoe UI",
+        "Microsoft YaHei",
+        system-ui,
+        -apple-system,
+        sans-serif;
+      letter-spacing: 0;
+    }
+
+    body {
+      min-height: 100vh;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      padding: 14px;
+      overflow: hidden;
+    }
+
+    .shell {
+      width: min(100%, 1840px);
+      display: grid;
+      grid-template-columns: minmax(198px, 238px) minmax(680px, 1fr) minmax(174px, 220px);
+      gap: 12px;
+      align-items: stretch;
+      min-width: 0;
+    }
+
+    .shell > * {
+      min-width: 0;
+    }
+
+    .panel {
+      border: 1px solid var(--panel-border);
+      background: var(--panel);
+      border-radius: 8px;
+      box-shadow: 0 18px 48px rgba(0, 0, 0, 0.26);
+      backdrop-filter: blur(10px);
+    }
+
+    .left,
+    .right {
+      padding: 14px 13px;
+      min-height: 0;
+    }
+
+    .stage {
+      position: relative;
+      width: 100%;
+      max-width: 100%;
+      align-self: center;
+      border: 1px solid rgba(218, 232, 240, 0.28);
+      border-radius: 8px;
+      overflow: hidden;
+      aspect-ratio: 1672 / 941;
+      min-width: 0;
+      background: #101820;
+      box-shadow:
+        0 24px 70px rgba(0, 0, 0, 0.42),
+        inset 0 0 0 1px rgba(255, 255, 255, 0.04);
+    }
+
+    canvas {
+      width: 100%;
+      height: 100%;
+      max-width: 100%;
+      display: block;
+    }
+
+    .title {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 10px;
+      margin-bottom: 16px;
+    }
+
+    .title b {
+      display: block;
+      font-size: 14px;
+      line-height: 1.2;
+      white-space: nowrap;
+    }
+
+    .meta-list {
+      display: grid;
+      gap: 9px;
+      margin: 14px 0 0;
+      font-size: 12px;
+    }
+
+    .meta-row {
+      display: grid;
+      grid-template-columns: minmax(58px, 0.72fr) minmax(0, 1fr);
+      gap: 8px;
+      align-items: baseline;
+      color: var(--muted);
+      min-width: 0;
+    }
+
+    .meta-row strong {
+      color: var(--ink);
+      font-size: 13px;
+      line-height: 1.35;
+      min-width: 0;
+      overflow-wrap: anywhere;
+    }
+
+    .layer-help {
+      min-height: 34px;
+      margin-top: 8px;
+      color: var(--muted);
+      font-size: 12px;
+      line-height: 1.4;
+    }
+
+    .time {
+      font-size: clamp(22px, 2vw, 30px);
+      line-height: 1;
+      font-weight: 800;
+      font-variant-numeric: tabular-nums;
+      margin: 0 0 14px;
+    }
+
+    .buttons,
+    .speed-row {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      flex-wrap: wrap;
+    }
+
+    button,
+    select {
+      height: 34px;
+      border: 1px solid rgba(191, 215, 226, 0.34);
+      border-radius: 8px;
+      background: rgba(220, 235, 242, 0.12);
+      color: var(--ink);
+      font: inherit;
+      font-size: 13px;
+      font-weight: 700;
+    }
+
+    button {
+      min-width: 38px;
+      padding: 0 10px;
+      cursor: pointer;
+    }
+
+    .control-select {
+      width: 100%;
+      margin-top: 10px;
+      padding: 0 8px;
+    }
+
+    button.active {
+      border-color: rgba(61, 140, 255, 0.75);
+      background: rgba(61, 140, 255, 0.28);
+    }
+
+    .timeline-block {
+      display: grid;
+      gap: 8px;
+      margin-top: 10px;
+    }
+
+    .timeline-head {
+      display: grid;
+      grid-template-columns: auto minmax(0, 1fr) auto;
+      gap: 8px;
+      align-items: center;
+    }
+
+    .timeline-head strong {
+      color: var(--ink);
+      font-size: 12px;
+      font-variant-numeric: tabular-nums;
+      text-align: center;
+      white-space: nowrap;
+    }
+
+    .timeline-head button {
+      min-width: 46px;
+      padding: 0 9px;
+    }
+
+    .timeline {
+      --progress: 0%;
+      width: 100%;
+      height: 18px;
+      margin: 0;
+      appearance: none;
+      background: transparent;
+      cursor: pointer;
+    }
+
+    .timeline::-webkit-slider-runnable-track {
+      height: 6px;
+      border-radius: 999px;
+      background:
+        linear-gradient(90deg, var(--blue), var(--amber), var(--orange)) 0 / var(--progress) 100% no-repeat,
+        rgba(215, 229, 236, 0.17);
+    }
+
+    .timeline::-webkit-slider-thumb {
+      width: 16px;
+      height: 16px;
+      margin-top: -5px;
+      border: 2px solid rgba(255, 255, 255, 0.9);
+      border-radius: 50%;
+      appearance: none;
+      background: #0f2b3a;
+      box-shadow: 0 0 0 4px rgba(61, 140, 255, 0.22);
+    }
+
+    .process-strip {
+      display: grid;
+      grid-template-columns: repeat(5, minmax(0, 1fr));
+      gap: 5px;
+      min-width: 0;
+    }
+
+    .process-step {
+      min-width: 0;
+      height: auto;
+      padding: 6px 4px;
+      border-color: rgba(191, 215, 226, 0.18);
+      background: rgba(220, 235, 242, 0.07);
+      color: var(--muted);
+      font-size: 11px;
+      line-height: 1.15;
+      white-space: normal;
+    }
+
+    .process-step[data-state="done"] {
+      color: rgba(238, 247, 251, 0.82);
+      border-color: rgba(93, 212, 95, 0.32);
+      background: rgba(93, 212, 95, 0.11);
+    }
+
+    .process-step[data-state="active"] {
+      color: var(--ink);
+      border-color: rgba(255, 209, 102, 0.62);
+      background: rgba(255, 209, 102, 0.18);
+      box-shadow: inset 0 0 0 1px rgba(255, 209, 102, 0.12);
+    }
+
+    .playback-mode {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 6px;
+      min-width: 0;
+    }
+
+    .playback-mode button {
+      min-width: 0;
+      height: 30px;
+      padding: 0 8px;
+      font-size: 12px;
+      white-space: nowrap;
+    }
+
+    .divider {
+      height: 1px;
+      margin: 15px 0;
+      background: rgba(182, 211, 224, 0.18);
+    }
+
+    .metric {
+      display: grid;
+      grid-template-columns: 12px 1fr auto;
+      gap: 8px;
+      align-items: center;
+      min-width: 0;
+      margin: 12px 0;
+      font-size: 13px;
+      color: var(--muted);
+    }
+
+    .metric strong {
+      color: var(--ink);
+      font-size: 15px;
+      font-variant-numeric: tabular-nums;
+      text-align: right;
+      white-space: nowrap;
+    }
+
+    .dot {
+      width: 10px;
+      height: 10px;
+      border-radius: 50%;
+      background: var(--blue);
+      box-shadow: 0 0 16px currentColor;
+    }
+
+    .dot.green {
+      background: var(--green);
+      color: var(--green);
+    }
+
+    .dot.orange {
+      background: var(--orange);
+      color: var(--orange);
+    }
+
+    .dot.amber {
+      background: var(--amber);
+      color: var(--amber);
+    }
+
+    .rail-direction {
+      display: grid;
+      grid-template-columns: 1fr auto;
+      gap: 8px;
+      align-items: center;
+      margin: 11px 0;
+      font-size: 13px;
+      color: var(--muted);
+      width: 100%;
+      padding: 0 8px;
+      text-align: left;
+      background: transparent;
+      cursor: pointer;
+    }
+
+    .rail-direction strong {
+      color: var(--ink);
+      white-space: nowrap;
+    }
+
+    .rail-direction[aria-pressed="true"] {
+      border-color: rgba(93, 212, 154, 0.72);
+      background: rgba(93, 212, 154, 0.13);
+      color: var(--ink);
+    }
+
+    .phase-card {
+      display: grid;
+      gap: 4px;
+      margin: 0 0 12px;
+      padding: 10px 0 12px;
+      border-bottom: 1px solid rgba(182, 211, 224, 0.18);
+    }
+
+    .phase-card span,
+    .phase-card small {
+      color: var(--muted);
+      font-size: 12px;
+      line-height: 1.35;
+    }
+
+    .phase-card strong {
+      color: var(--ink);
+      font-size: 18px;
+      line-height: 1.25;
+    }
+
+    .clearance-card {
+      display: grid;
+      gap: 4px;
+      margin: 0 0 12px;
+      padding: 10px 0 12px;
+      border-bottom: 1px solid rgba(182, 211, 224, 0.18);
+    }
+
+    .clearance-card span,
+    .clearance-card small {
+      color: var(--muted);
+      font-size: 12px;
+      line-height: 1.35;
+    }
+
+    .clearance-card strong {
+      color: var(--ink);
+      font-size: 16px;
+      line-height: 1.25;
+    }
+
+    .clearance-card[data-state="cleared"] strong {
+      color: var(--green);
+    }
+
+    .clearance-card[data-state="blocked"] strong {
+      color: var(--orange);
+    }
+
+    .clearance-card[data-state="active"] strong {
+      color: var(--blue);
+    }
+
+    .mini-track {
+      position: absolute;
+      left: 16px;
+      right: 16px;
+      bottom: 13px;
+      height: 34px;
+      border: 1px solid rgba(178, 205, 219, 0.24);
+      border-radius: 8px;
+      background: rgba(8, 22, 31, 0.74);
+      display: grid;
+      grid-template-columns: 128px 1fr 128px;
+      align-items: center;
+      gap: 10px;
+      padding: 0 12px;
+      font-size: 13px;
+      color: var(--muted);
+    }
+
+    .bar {
+      position: relative;
+      height: 6px;
+      border-radius: 99px;
+      background: rgba(215, 229, 236, 0.17);
+      overflow: hidden;
+    }
+
+    .bar span {
+      position: absolute;
+      left: 0;
+      top: 0;
+      bottom: 0;
+      width: 0;
+      border-radius: inherit;
+      background: linear-gradient(90deg, var(--blue), var(--amber), var(--orange));
+    }
+
+    .asset-note {
+      position: absolute;
+      right: 16px;
+      top: 13px;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      border: 1px solid rgba(180, 209, 222, 0.24);
+      border-radius: 8px;
+      background: rgba(8, 22, 31, 0.74);
+      padding: 8px 10px;
+      color: var(--muted);
+      font-size: 12px;
+    }
+
+    .asset-swatch {
+      width: 30px;
+      height: 18px;
+      border-radius: 4px;
+      background:
+        linear-gradient(90deg, rgba(93, 212, 95, 0.8), rgba(255, 138, 39, 0.8)),
+        #172833;
+    }
+
+    .stage-status {
+      position: absolute;
+      left: 50%;
+      top: 50%;
+      width: min(520px, calc(100% - 36px));
+      transform: translate(-50%, -50%);
+      border: 1px solid rgba(255, 209, 102, 0.38);
+      border-radius: 8px;
+      background: rgba(7, 19, 27, 0.9);
+      box-shadow: 0 18px 42px rgba(0, 0, 0, 0.36);
+      padding: 16px 18px;
+      display: none;
+      gap: 8px;
+      z-index: 5;
+      color: var(--ink);
+    }
+
+    .stage-status[data-visible="true"] {
+      display: grid;
+    }
+
+    .stage-status strong {
+      font-size: 15px;
+      line-height: 1.35;
+    }
+
+    .stage-status span {
+      color: var(--muted);
+      font-size: 13px;
+      line-height: 1.45;
+    }
+
+    .stage-status code {
+      display: block;
+      padding: 8px 9px;
+      border-radius: 6px;
+      background: rgba(255, 255, 255, 0.08);
+      color: #dff2ff;
+      font-size: 12px;
+      overflow-wrap: anywhere;
+    }
+
+    @media (max-width: 980px) {
+      body {
+        overflow: auto;
+        align-items: flex-start;
+      }
+
+      .shell {
+        grid-template-columns: 1fr;
+      }
+
+      .stage {
+        order: 1;
+      }
+
+      .left,
+      .right {
+        order: 2;
+        display: grid;
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+        gap: 12px;
+      }
+
+      .divider {
+        display: none;
+      }
+
+      .asset-note {
+        top: 8px;
+        right: 8px;
+        padding: 6px 8px;
+        font-size: 11px;
+      }
+
+      .mini-track {
+        left: 8px;
+        right: 8px;
+        bottom: 8px;
+        height: auto;
+        grid-template-columns: 1fr;
+        gap: 4px;
+        padding: 6px 8px;
+        font-size: 11px;
+      }
+    }
+  </style>
+</head>
+<body>
+  <main class="shell">
+    <aside class="panel left">
+      <div class="title">
+        <b>站内客流仿真</b>
+      </div>
+      <p class="time" id="clock">--:--:--</p>
+      <div class="buttons">
+        <button id="play" type="button" aria-label="暂停">⏸</button>
+        <button class="speed active" data-speed="1" type="button">1x</button>
+        <button class="speed" data-speed="2" type="button">2x</button>
+        <button class="speed" data-speed="4" type="button">4x</button>
+        <button class="speed" data-speed="8" type="button">8x</button>
+      </div>
+      <div class="timeline-block">
+        <div class="timeline-head">
+          <button id="restart" type="button">从头</button>
+          <strong id="timelineText">0:00 / 0:00</strong>
+          <button id="traceToggle" type="button">轨迹</button>
+        </div>
+        <input class="timeline" id="timeline" type="range" min="0" max="0" step="0.1" value="0" aria-label="总流程时间轴" />
+        <div class="playback-mode" id="playbackMode" aria-label="播放范围">
+          <button class="active" data-mode="demo" type="button">主流程</button>
+          <button data-mode="clearance" type="button">清场</button>
+        </div>
+        <div class="process-strip" id="processStrip" aria-label="流程阶段"></div>
+      </div>
+      <select class="control-select" id="diagnosticLayer" aria-label="诊断层">
+        <option value="off">关闭诊断</option>
+        <option value="decision">决策区</option>
+        <option value="target">目标点</option>
+        <option value="queue">排队</option>
+        <option value="slow">慢行</option>
+        <option value="platform_wait">站台候车</option>
+        <option value="all">全部图层</option>
+      </select>
+      <div class="layer-help" id="diagnosticHelp"></div>
+      <div class="divider"></div>
+      <div class="meta-list" aria-label="场景摘要">
+        <div class="meta-row">
+          <span>站点</span>
+          <strong id="stationName">--</strong>
+        </div>
+        <div class="meta-row">
+          <span id="scenarioHourLabel">时段</span>
+          <strong id="scenarioHour">--</strong>
+        </div>
+        <div class="meta-row">
+          <span id="demandCountsLabel">小时客流</span>
+          <strong id="demandCounts">--</strong>
+        </div>
+        <div class="meta-row">
+          <span>样本</span>
+          <strong id="sourceLabel">--</strong>
+        </div>
+        <div class="meta-row">
+          <span>移动模型</span>
+          <strong id="backendLabel">--</strong>
+        </div>
+      </div>
+      <div class="divider"></div>
+      <div class="metric">
+        <span class="dot green"></span>
+        <span>下行扶梯</span>
+        <strong id="downRate">运行</strong>
+      </div>
+      <div class="metric">
+        <span class="dot orange"></span>
+        <span>上行扶梯</span>
+        <strong id="upRate">运行</strong>
+      </div>
+      <div class="metric">
+        <span class="dot amber"></span>
+        <span>直梯</span>
+        <strong id="liftStatus">B1</strong>
+      </div>
+    </aside>
+
+    <section class="stage panel">
+      <canvas id="scene" width="1672" height="941"></canvas>
+      <div class="asset-note">
+        <span class="asset-swatch"></span>
+        <span>几何底图</span>
+      </div>
+      <div class="stage-status" id="stageStatus" data-visible="true" role="status" aria-live="polite">
+        <strong id="stageStatusTitle">正在加载仿真轨迹</strong>
+        <span id="stageStatusBody">读取轨迹数据后开始播放。</span>
+        <code id="stageStatusCommand">python -m sandbox.metro_station_sandbox.app --serve</code>
+      </div>
+      <div class="mini-track" id="trainMiniTrack">
+        <span id="trainStatusLeft">往左方向</span>
+        <div class="bar"><span id="cycleBar"></span></div>
+        <span id="trainStatusRight">往右方向</span>
+      </div>
+    </section>
+
+    <aside class="panel right">
+      <div class="title">
+        <b>实时状态</b>
+      </div>
+      <div class="phase-card">
+        <span>当前流程</span>
+        <strong id="currentPhase">--</strong>
+        <small id="phaseWindow">--</small>
+      </div>
+      <div class="clearance-card" id="clearanceCard" data-state="unknown">
+        <span id="clearanceTitle">最终清场</span>
+        <strong id="clearanceStatus">--</strong>
+        <small id="clearanceDetail">--</small>
+      </div>
+      <div class="metric">
+        <span class="dot green"></span>
+        <span>扶梯压力</span>
+        <strong id="escalatorQueueCount">0</strong>
+      </div>
+      <div class="metric">
+        <span class="dot amber"></span>
+        <span>直梯压力</span>
+        <strong id="elevatorQueueCount">0</strong>
+      </div>
+      <div class="metric">
+        <span class="dot"></span>
+        <span>楼梯压力</span>
+        <strong id="stairsQueueCount">0</strong>
+      </div>
+      <div class="metric" id="trainMetricRight">
+        <span class="dot blue"></span>
+        <span>右向列车</span>
+        <strong id="trainA">进站</strong>
+      </div>
+      <div class="metric" id="trainMetricLeft">
+        <span class="dot orange"></span>
+        <span>左向列车</span>
+        <strong id="trainB">离站</strong>
+      </div>
+      <div class="metric" id="doorMetric">
+        <span class="dot green"></span>
+        <span>屏蔽门</span>
+        <strong id="doorStatus">关闭</strong>
+      </div>
+      <div class="metric">
+        <span class="dot amber"></span>
+        <span>当前在站</span>
+        <strong id="peopleCount">0</strong>
+      </div>
+      <div class="metric">
+        <span class="dot green"></span>
+        <span>进站闸机压力</span>
+        <strong id="gateQueueCount">0</strong>
+      </div>
+      <div class="metric">
+        <span class="dot blue"></span>
+        <span>目标导航</span>
+        <strong id="diagTargetCount">0</strong>
+      </div>
+      <div class="metric">
+        <span class="dot green"></span>
+        <span>排队人数</span>
+        <strong id="diagQueueCount">0</strong>
+      </div>
+      <div class="metric">
+        <span class="dot orange"></span>
+        <span>慢行</span>
+        <strong id="diagSlowCount">0</strong>
+      </div>
+      <div class="metric">
+        <span class="dot amber"></span>
+        <span id="platformWaitLabel">候车</span>
+        <strong id="diagPlatformWaitCount">0</strong>
+      </div>
+      <div class="divider"></div>
+      <div id="sceneLevels">
+        <div class="rail-direction">
+          <span>站厅层</span>
+          <strong>B1</strong>
+        </div>
+        <div class="rail-direction">
+          <span>站台层</span>
+          <strong>B2</strong>
+        </div>
+      </div>
+      <div class="rail-direction" id="trainCycleMetric">
+        <span>循环周期</span>
+        <strong id="cycleText">0.0 s</strong>
+      </div>
+    </aside>
+  </main>
+
+  <script>
+    const trackParams = new URLSearchParams(window.location.search);
+    const customTrackPath = trackParams.get("file");
+    const trackAssetName =
+      trackParams.get("tracks") === "social_force"
+        ? "passenger_tracks_social_force.js"
+        : "passenger_tracks_jps.js";
+    const trackAssetCacheKey = trackParams.get("cachecheck") || trackParams.get("v") || "";
+    const trackAsset = customTrackPath || trackAssetName;
+    const trackScriptSrc = customTrackPath || `assets/${trackAssetName}`;
+    const cacheableSrc = (src) => {
+      if (!trackAssetCacheKey) return src;
+      const separator = src.includes("?") ? "&" : "?";
+      return `${src}${separator}v=${encodeURIComponent(trackAssetCacheKey)}`;
+    };
+    window.__TRACK_ASSET = trackAsset;
+    window.__TRACK_LOAD_PROMISE = new Promise((resolve) => {
+      let settled = false;
+      const finish = (status) => {
+        if (settled) return;
+        settled = true;
+        resolve({ asset: trackAsset, ...status });
+      };
+      const script = document.createElement("script");
+      script.src = cacheableSrc(trackScriptSrc);
+      script.onload = () => finish({ ok: true });
+      script.onerror = () => finish({ ok: false, kind: "load_error" });
+      setTimeout(() => finish({ ok: false, kind: "timeout" }), 30000);
+      document.head.appendChild(script);
+    });
+    window.__SPRITE_LIBRARY_LOAD_PROMISE = new Promise((resolve) => {
+      const script = document.createElement("script");
+      script.src = trackAssetCacheKey
+        ? `assets/passenger_sprite_library.js?v=${encodeURIComponent(trackAssetCacheKey)}`
+        : "assets/passenger_sprite_library.js";
+      script.onload = () => resolve({ ok: true });
+      script.onerror = () => resolve({ ok: false });
+      document.head.appendChild(script);
+    });
+    window.__VIEW_MODEL_LOAD_PROMISE = new Promise((resolve) => {
+      const script = document.createElement("script");
+      script.src = cacheableSrc("assets/animation_view_model.js");
+      script.onload = () => resolve({ ok: true });
+      script.onerror = () => resolve({ ok: false, kind: "load_error", asset: "assets/animation_view_model.js" });
+      document.head.appendChild(script);
+    });
+    window.__SCENE_RENDER_MODEL_LOAD_PROMISE = new Promise((resolve) => {
+      const script = document.createElement("script");
+      script.src = cacheableSrc("assets/scene_render_model.js");
+      script.onload = () => resolve({ ok: true });
+      script.onerror = () => resolve({ ok: false, kind: "load_error", asset: "assets/scene_render_model.js" });
+      document.head.appendChild(script);
+    });
+  </script>
+  <script>
+    Promise.all([
+      window.__TRACK_LOAD_PROMISE,
+      window.__SPRITE_LIBRARY_LOAD_PROMISE,
+      window.__VIEW_MODEL_LOAD_PROMISE,
+      window.__SCENE_RENDER_MODEL_LOAD_PROMISE,
+    ]).then(([trackLoad, _spriteLoad, viewModelLoad, _sceneRenderModelLoad]) => {
+    const W = 1672;
+    const H = 941;
+    const LEGACY_TRAIN_CYCLE = 38;
+
+    const canvas = document.querySelector("#scene");
+    const ctx = canvas.getContext("2d");
+    const clockEl = document.querySelector("#clock");
+    const playBtn = document.querySelector("#play");
+    const restartBtn = document.querySelector("#restart");
+    const timelineEl = document.querySelector("#timeline");
+    const timelineTextEl = document.querySelector("#timelineText");
+    const traceToggleEl = document.querySelector("#traceToggle");
+    const processStripEl = document.querySelector("#processStrip");
+    const playbackModeButtons = [...document.querySelectorAll("#playbackMode button")];
+    const diagnosticLayerEl = document.querySelector("#diagnosticLayer");
+    const speedButtons = [...document.querySelectorAll(".speed")];
+    const trainAEl = document.querySelector("#trainA");
+    const trainBEl = document.querySelector("#trainB");
+    const doorStatusEl = document.querySelector("#doorStatus");
+    const liftStatusEl = document.querySelector("#liftStatus");
+    const peopleCountEl = document.querySelector("#peopleCount");
+    const cycleTextEl = document.querySelector("#cycleText");
+    const cycleBarEl = document.querySelector("#cycleBar");
+    const trainLeftEl = document.querySelector("#trainStatusLeft");
+    const trainRightEl = document.querySelector("#trainStatusRight");
+    const gateQueueCountEl = document.querySelector("#gateQueueCount");
+    const diagTargetCountEl = document.querySelector("#diagTargetCount");
+    const diagQueueCountEl = document.querySelector("#diagQueueCount");
+    const diagSlowCountEl = document.querySelector("#diagSlowCount");
+    const diagPlatformWaitCountEl = document.querySelector("#diagPlatformWaitCount");
+    const platformWaitLabelEl = document.querySelector("#platformWaitLabel");
+    const stageStatusEl = document.querySelector("#stageStatus");
+    const stageStatusTitleEl = document.querySelector("#stageStatusTitle");
+    const stageStatusBodyEl = document.querySelector("#stageStatusBody");
+    const stageStatusCommandEl = document.querySelector("#stageStatusCommand");
+    const stationNameEl = document.querySelector("#stationName");
+    const scenarioHourLabelEl = document.querySelector("#scenarioHourLabel");
+    const scenarioHourEl = document.querySelector("#scenarioHour");
+    const demandCountsLabelEl = document.querySelector("#demandCountsLabel");
+    const demandCountsEl = document.querySelector("#demandCounts");
+    const sourceLabelEl = document.querySelector("#sourceLabel");
+    const backendLabelEl = document.querySelector("#backendLabel");
+    const diagnosticHelpEl = document.querySelector("#diagnosticHelp");
+    const currentPhaseEl = document.querySelector("#currentPhase");
+    const phaseWindowEl = document.querySelector("#phaseWindow");
+    const clearanceCardEl = document.querySelector("#clearanceCard");
+    const clearanceTitleEl = document.querySelector("#clearanceTitle");
+    const clearanceStatusEl = document.querySelector("#clearanceStatus");
+    const clearanceDetailEl = document.querySelector("#clearanceDetail");
+    const trainMetricRightEl = document.querySelector("#trainMetricRight");
+    const trainMetricLeftEl = document.querySelector("#trainMetricLeft");
+    const doorMetricEl = document.querySelector("#doorMetric");
+    const trainMiniTrackEl = document.querySelector("#trainMiniTrack");
+    const trainCycleMetricEl = document.querySelector("#trainCycleMetric");
+    const escalatorQueueCountEl = document.querySelector("#escalatorQueueCount");
+    const elevatorQueueCountEl = document.querySelector("#elevatorQueueCount");
+    const stairsQueueCountEl = document.querySelector("#stairsQueueCount");
+    const sceneLevelsEl = document.querySelector("#sceneLevels");
+
+    const TRACK_DATA = window.JPS_TRACKS || null;
+    const VIEW_MODEL = window.MetroAnimationViewModel?.buildAnimationViewModel(TRACK_DATA) || null;
+    const SIM_TRACE = VIEW_MODEL?.simulationTrace || null;
+    const VISUAL_BUNDLE = VIEW_MODEL?.visualizationBundle || null;
+    const STATION_SCENE = VIEW_MODEL?.stationScene || null;
+    const ASSET_MANIFEST = VIEW_MODEL?.assetManifest || null;
+    const sceneModelBuildStarted = performance.now();
+    const SCENE_RENDER_MODEL = window.MetroSceneRenderModel?.buildSceneRenderModel(
+      STATION_SCENE,
+      ASSET_MANIFEST,
+      W,
+      H,
+    ) || null;
+    const SCENE_MODEL_BUILD_MS = performance.now() - sceneModelBuildStarted;
+    const DATA_STATE = validateTrackData(VIEW_MODEL, trackLoad, viewModelLoad);
+    const LAYOUT = VIEW_MODEL?.layout || {
+      walkable_regions: [],
+      connector_channels: [],
+      obstacles: [],
+      facility_boxes: [],
+      decision_regions: [],
+      control_points: { platform_doors: [] },
+    };
+    const SCENARIO = VIEW_MODEL?.scenario || {};
+    const IS_EVACUATION = SCENARIO.scenario_mode === "evacuation";
+    const EVACUATION = SCENARIO.evacuation || {};
+    const SHOW_TRAIN_SERVICE = !SCENE_RENDER_MODEL
+      && (!IS_EVACUATION || EVACUATION.stop_train_service === false);
+    const TRAIN_SERVICE = VIEW_MODEL?.trainService || {};
+    const CLEARANCE_AUDIT = VIEW_MODEL?.clearanceAudit || {};
+    const TERMINAL_EVENTS = Array.isArray(VIEW_MODEL?.terminalEvents) ? VIEW_MODEL.terminalEvents : [];
+    const EVACUATION_METRICS = VIEW_MODEL?.evacuationMetrics || {};
+    const TRACK_DURATION = positiveNumber(VIEW_MODEL?.duration, 0);
+    const CONFIGURED_DEMO_WINDOW_SECONDS = TRACK_DURATION
+      ? Math.min(TRACK_DURATION, positiveNumber(VIEW_MODEL?.demoWindowSeconds, TRACK_DURATION))
+      : 0;
+    const DEMO_WINDOW_SECONDS = IS_EVACUATION ? TRACK_DURATION : CONFIGURED_DEMO_WINDOW_SECONDS;
+    const CLEARANCE_DURATION = TRACK_DURATION || DEMO_WINDOW_SECONDS;
+    const AGENTS = Array.isArray(VIEW_MODEL?.agents) ? VIEW_MODEL.agents : [];
+    const QUEUE_LAYOUTS = Array.isArray(VIEW_MODEL?.queueLayouts) ? VIEW_MODEL.queueLayouts : [];
+    const QUEUE_SAMPLES = Array.isArray(VIEW_MODEL?.queueSamples) ? VIEW_MODEL.queueSamples : [];
+    const FACILITY_SAMPLES = Array.isArray(VIEW_MODEL?.facilitySamples) ? VIEW_MODEL.facilitySamples : [];
+    const ELEVATOR_RIDES = normalizeElevatorRides(VIEW_MODEL?.elevatorEvents);
+    const ELEVATOR_RIDES_BY_AGENT = elevatorRidesByAgent(ELEVATOR_RIDES);
+    const SCENE_ELEVATOR_ENTITIES = Array.isArray(SCENE_RENDER_MODEL?.elevatorEntities)
+      ? SCENE_RENDER_MODEL.elevatorEntities
+      : [];
+    const CONVEYOR_RIDES = normalizeConveyorRides(VIEW_MODEL?.conveyorEvents);
+    const CONVEYOR_RIDES_BY_AGENT = elevatorRidesByAgent(CONVEYOR_RIDES);
+    const DIAGNOSTIC_SAMPLES = Array.isArray(VIEW_MODEL?.diagnosticSamples) ? VIEW_MODEL.diagnosticSamples : [];
+    const TRAIN_SAMPLES = Array.isArray(VIEW_MODEL?.trainSamples) ? VIEW_MODEL.trainSamples : [];
+    const elevatorFacility = VIEW_MODEL?.facilities?.elevator || {};
+    const TRAIN_HEADWAY_SECONDS = positiveNumber(
+      TRAIN_SERVICE.headway_seconds,
+      LEGACY_TRAIN_CYCLE,
+    );
+    const PASSENGER_SPRITES = window.PassengerSpriteLibrary || null;
+    const ASSET_VERSION_SUFFIX = trackAssetCacheKey
+      ? `?v=${encodeURIComponent(trackAssetCacheKey)}`
+      : "";
+    if (PASSENGER_SPRITES) {
+      PASSENGER_SPRITES.load({
+        imageUrl: `assets/passenger_sprite_atlas.png${ASSET_VERSION_SUFFIX}`,
+        metaUrl: `assets/passenger_sprite_atlas.json${ASSET_VERSION_SUFFIX}`,
+      }).then(() => draw());
+    }
+    const TRAIN_DWELL_SECONDS = Math.min(
+      Math.max(4, TRAIN_HEADWAY_SECONDS - 4),
+      positiveNumber(TRAIN_SERVICE.dwell_seconds, 17),
+    );
+    const TRAIN_INITIAL_OFFSET_SECONDS = Math.max(
+      0,
+      Number(TRAIN_SERVICE.initial_offset_seconds ?? 0) || 0,
+    );
+    const DEFAULT_ELEVATOR_BOX = {
+      x: 0.616 * W,
+      y: 0.405 * H,
+      w: 0.069 * W,
+      h: 0.228 * H,
+    };
+    const ELEVATOR_BOX = elevatorFacility.box_px || DEFAULT_ELEVATOR_BOX;
+    const ELEVATOR_CABIN_PADDING = Number(elevatorFacility.cabin_padding_px ?? 7);
+    const ELEVATOR_CABIN_HEIGHT_SHARE = Number(elevatorFacility.cabin_height_share ?? 0.38);
+    const EVACUATION_ALARM_SHARE = Math.min(
+      0.25,
+      Math.max(0, Number(EVACUATION.alarm_delay_seconds) || 0) / Math.max(CLEARANCE_DURATION, 1),
+    );
+    const EVACUATION_ACTIVE_SHARE = 1 - EVACUATION_ALARM_SHARE;
+    const PROCESS_PHASES = IS_EVACUATION
+      ? [
+          ...(EVACUATION_ALARM_SHARE > 0
+            ? [{ id: "alarm", label: "报警响应", start: 0, end: EVACUATION_ALARM_SHARE }]
+            : []),
+          {
+            id: "evacuate_platform",
+            label: "站台疏散",
+            start: EVACUATION_ALARM_SHARE,
+            end: EVACUATION_ALARM_SHARE + EVACUATION_ACTIVE_SHARE * 0.25,
+          },
+          {
+            id: "evacuate_vertical",
+            label: "垂直换层",
+            start: EVACUATION_ALARM_SHARE + EVACUATION_ACTIVE_SHARE * 0.25,
+            end: EVACUATION_ALARM_SHARE + EVACUATION_ACTIVE_SHARE * 0.68,
+          },
+          {
+            id: "evacuate_exit",
+            label: "出口疏散",
+            start: EVACUATION_ALARM_SHARE + EVACUATION_ACTIVE_SHARE * 0.68,
+            end: 1,
+          },
+        ]
+      : [
+          { id: "entry", label: "\u5165\u53e3\u6c47\u5165", start: 0.0, end: 0.2 },
+          { id: "gate", label: "\u95f8\u673a\u670d\u52a1", start: 0.2, end: 0.4 },
+          { id: "transfer", label: "\u5782\u76f4\u5206\u6d41", start: 0.4, end: 0.62 },
+          { id: "platform", label: "\u7ad9\u53f0\u6392\u961f", start: 0.62, end: 0.82 },
+          {
+            id: "train",
+            label: SCENE_RENDER_MODEL ? "站内运行" : "\u5217\u8f66\u5230\u53d1",
+            start: 0.82,
+            end: 1.0,
+          },
+        ];
+    const TRAIL_AGENT_LIMIT = 84;
+    const TRAIL_AGENT_STEP = Math.max(1, Math.ceil(AGENTS.length / TRAIL_AGENT_LIMIT));
+    const TRAIL_AGENTS = AGENTS.filter((_, index) => index % TRAIL_AGENT_STEP === 0);
+    const AGENT_BY_ID = new Map(AGENTS.map((agent) => [Number(agent.id), agent]));
+
+    let running = DATA_STATE.ok;
+    let speed = 1;
+    let showJourneyTrails = false;
+    let scrubbingTimeline = false;
+    let activeSceneLevelId = null;
+    let firstSceneFrameMs = null;
+    let lastTick = performance.now();
+    let playbackMode = new URLSearchParams(window.location.search).get("mode") === "clearance"
+      ? "clearance"
+      : "demo";
+    let activePlaybackDuration = playbackMode === "clearance"
+      ? CLEARANCE_DURATION
+      : (DEMO_WINDOW_SECONDS || CLEARANCE_DURATION);
+    const initialSeconds = (() => {
+      const params = new URLSearchParams(window.location.search);
+      if (!params.has("t")) return 0;
+      const value = Number(params.get("t") || 0);
+      if (!Number.isFinite(value) || value < 0) return 0;
+      if (playbackMode === "clearance" && activePlaybackDuration) {
+        return Math.min(value, activePlaybackDuration);
+      }
+      return activePlaybackDuration ? value % activePlaybackDuration : value;
+    })();
+    let simSeconds = initialSeconds;
+
+    const ease = (t) => t * t * (3 - 2 * t);
+    const clamp = (v, min, max) => Math.max(min, Math.min(max, v));
+    const lerp = (a, b, t) => a + (b - a) * t;
+
+    applyInitialPageState();
+    renderSceneLevelSummary();
+
+    function renderSceneLevelSummary() {
+      const levels = Array.isArray(SCENE_RENDER_MODEL?.levels) ? SCENE_RENDER_MODEL.levels : [];
+      if (!sceneLevelsEl || !levels.length) return;
+      sceneLevelsEl.replaceChildren();
+      for (const level of levels) {
+        const row = document.createElement("button");
+        row.type = "button";
+        row.className = "rail-direction";
+        row.dataset.levelId = String(level?.level_id || "");
+        row.dataset.testid = "scene-level-filter";
+        row.setAttribute("aria-pressed", "false");
+        row.title = "点击仅显示该层；再次点击恢复全部楼层";
+        const label = document.createElement("span");
+        label.textContent = String(level?.label || level?.level_id || "楼层");
+        const id = document.createElement("strong");
+        id.textContent = String(level?.level_id || "--");
+        row.append(label, id);
+        row.addEventListener("click", () => {
+          const levelId = String(level?.level_id || "");
+          activeSceneLevelId = activeSceneLevelId === levelId ? null : levelId;
+          updateSceneLevelButtons();
+          draw();
+        });
+        sceneLevelsEl.appendChild(row);
+      }
+      updateSceneLevelButtons();
+    }
+
+    function updateSceneLevelButtons() {
+      if (!sceneLevelsEl) return;
+      for (const button of sceneLevelsEl.querySelectorAll("[data-level-id]")) {
+        button.setAttribute(
+          "aria-pressed",
+          String(button.dataset.levelId) === String(activeSceneLevelId),
+        );
+      }
+    }
+
+    function sceneEntityVisible(entity) {
+      if (!entity || !activeSceneLevelId) return Boolean(entity);
+      return (entity.levelIds || []).some(
+        (levelId) => String(levelId) === String(activeSceneLevelId),
+      );
+    }
+
+    function sceneRelationVisible(relation) {
+      return sceneEntityVisible(SCENE_RENDER_MODEL?.entityById?.[relation.sourceEntityId])
+        && sceneEntityVisible(SCENE_RENDER_MODEL?.entityById?.[relation.targetEntityId]);
+    }
+
+    function sceneDebugSnapshot() {
+      const entities = Array.isArray(SCENE_RENDER_MODEL?.entities)
+        ? SCENE_RENDER_MODEL.entities
+        : [];
+      const visibleEntities = entities.filter(sceneEntityVisible);
+      return {
+        activeLevelId: activeSceneLevelId,
+        levelIds: (SCENE_RENDER_MODEL?.levels || []).map((level) => String(level?.level_id || "")),
+        entityCount: entities.length,
+        entities: entities.map((entity) => ({
+          id: entity.id,
+          kind: entity.kind,
+          shape: entity.shape,
+          levelIds: entity.levelIds,
+          rotationDeg: entity.rotationDeg || 0,
+          placementRotationDeg: entity.placementRotationDeg || 0,
+          assetId: entity.assetId || null,
+          points: entity.points,
+        })),
+        visibleEntityIds: visibleEntities.map((entity) => entity.id),
+        visibleElevatorIds: visibleEntities
+          .filter((entity) => entity.kind === "elevator")
+          .map((entity) => entity.id),
+        runtimeBindingCount: SCENE_RENDER_MODEL?.runtimeBindings?.length || 0,
+        runtimeOwnerCount: Object.keys(SCENE_RENDER_MODEL?.runtimeToEntity || {}).length,
+        relationCount: SCENE_RENDER_MODEL?.relations?.length || 0,
+        diagnostics: SCENE_RENDER_MODEL?.diagnostics || [],
+        bounds: entities.map((entity) => ({ id: entity.id, ...entity.boundsPx })),
+        canvas: { width: W, height: H },
+        sceneModelBuildMs: SCENE_MODEL_BUILD_MS,
+        firstSceneFrameMs,
+        renderedAtSeconds: normalizePlaybackTime(simSeconds),
+        peopleCount: Number(peopleCountEl.textContent || 0),
+      };
+    }
+
+    window.__METRO_SCENE_DEBUG__ = {
+      snapshot: sceneDebugSnapshot,
+      setActiveLevel(levelId) {
+        const validIds = new Set(sceneDebugSnapshot().levelIds);
+        const nextLevelId = levelId === null ? null : String(levelId);
+        if (nextLevelId !== null && !validIds.has(nextLevelId)) return false;
+        activeSceneLevelId = nextLevelId;
+        updateSceneLevelButtons();
+        draw();
+        return true;
+      },
+    };
+
+    function setSpeed(nextSpeed) {
+      speed = Number(nextSpeed);
+      speedButtons.forEach((button) => {
+        button.classList.toggle("active", Number(button.dataset.speed) === speed);
+      });
+    }
+
+    function setRunning(nextRunning) {
+      running = DATA_STATE.ok && Boolean(nextRunning);
+      playBtn.textContent = running ? "⏸" : "▶";
+      playBtn.setAttribute("aria-label", running ? "暂停" : "播放");
+    }
+
+    function playbackDuration() {
+      return Math.max(0, Number(activePlaybackDuration) || 0);
+    }
+
+    function mainProcessDuration() {
+      const duration = playbackDuration();
+      if (playbackMode === "clearance" && DEMO_WINDOW_SECONDS) {
+        return Math.min(DEMO_WINDOW_SECONDS, duration);
+      }
+      return duration;
+    }
+
+    function setPlaybackMode(nextMode, options = {}) {
+      playbackMode = nextMode === "clearance" ? "clearance" : "demo";
+      activePlaybackDuration = playbackMode === "clearance"
+        ? CLEARANCE_DURATION
+        : (DEMO_WINDOW_SECONDS || CLEARANCE_DURATION);
+      simSeconds = normalizePlaybackTime(simSeconds);
+      initializePlaybackOverview();
+      if (options.pause) setRunning(false);
+      if (options.redraw !== false) draw();
+    }
+
+    function seekTo(seconds, options = {}) {
+      simSeconds = normalizePlaybackTime(seconds);
+      if (options.pause) setRunning(false);
+      updateTimelineUi(simSeconds);
+      draw();
+    }
+
+    window.demoSetSpeed = setSpeed;
+    window.demoSetPlaybackMode = setPlaybackMode;
+    window.demoJumpTo = (seconds) => {
+      seekTo(seconds);
+    };
+    window.demoSetObstacleVisible = (obstacleId, visible) => {
+      const obstacle = (LAYOUT.obstacles || []).find((item) => item.id === obstacleId);
+      if (!obstacle) return false;
+      obstacle.demoVisible = Boolean(visible);
+      draw();
+      return true;
+    };
+
+    playBtn.addEventListener("click", () => {
+      if (!DATA_STATE.ok) return;
+      setRunning(!running);
+    });
+
+    restartBtn.addEventListener("click", () => {
+      if (!DATA_STATE.ok) return;
+      simSeconds = 0;
+      setRunning(true);
+      updateTimelineUi(0);
+      draw();
+    });
+
+    speedButtons.forEach((button) => {
+      button.addEventListener("click", () => setSpeed(button.dataset.speed));
+    });
+
+    playbackModeButtons.forEach((button) => {
+      button.addEventListener("click", () => {
+        if (!DATA_STATE.ok) return;
+        setPlaybackMode(button.dataset.mode, { pause: true });
+      });
+    });
+
+    timelineEl.addEventListener("pointerdown", () => {
+      scrubbingTimeline = true;
+    });
+
+    timelineEl.addEventListener("pointerup", () => {
+      scrubbingTimeline = false;
+    });
+
+    timelineEl.addEventListener("input", () => {
+      seekTo(timelineEl.value, { pause: true });
+    });
+
+    timelineEl.addEventListener("change", () => {
+      scrubbingTimeline = false;
+      seekTo(timelineEl.value, { pause: true });
+    });
+
+    traceToggleEl.addEventListener("click", () => {
+      showJourneyTrails = !showJourneyTrails;
+      traceToggleEl.classList.toggle("active", showJourneyTrails);
+      draw();
+    });
+
+    diagnosticLayerEl.addEventListener("change", () => {
+      updateDiagnosticHelp();
+      draw();
+    });
+
+    function selectedDiagnosticLayer() {
+      return diagnosticLayerEl?.value || "off";
+    }
+
+    function positiveNumber(value, fallback) {
+      const number = Number(value);
+      return Number.isFinite(number) && number > 0 ? number : fallback;
+    }
+
+    function normalizeElevatorRides(events) {
+      if (!Array.isArray(events)) return [];
+      return events
+        .map((event, index) => {
+          const start = Number(event?.start);
+          const boardEnd = Number(event?.board_end);
+          const arrive = Number(event?.arrive);
+          const end = Number(event?.end);
+          const trackIds = Array.isArray(event?.track_ids)
+            ? event.track_ids.map((id) => Number(id)).filter(Number.isFinite)
+            : [];
+          if (![start, boardEnd, arrive, end].every(Number.isFinite) || end <= start) return null;
+          return {
+            id: Number(event?.id ?? index + 1),
+            facility: String(event?.facility || "down_elevator_queue"),
+            direction: String(event?.direction || "down"),
+            fromLevel: String(event?.from_level || "B1"),
+            toLevel: String(event?.to_level || "B2"),
+            start,
+            boardEnd: Math.max(start, boardEnd),
+            arrive: Math.max(boardEnd, arrive),
+            end,
+            count: Math.max(1, Number(event?.count || trackIds.length || 1)),
+            trackIds,
+          };
+        })
+        .filter(Boolean)
+        .sort((left, right) => left.start - right.start);
+    }
+
+    function normalizeConveyorRides(events) {
+      if (!Array.isArray(events)) return [];
+      return events
+        .map((event, index) => {
+          const start = Number(event?.start);
+          const end = Number(event?.end);
+          const trackIds = Array.isArray(event?.track_ids)
+            ? event.track_ids.map((id) => Number(id)).filter(Number.isFinite)
+            : [];
+          const line = conveyorLineFromEvent(event) || conveyorLineForFacility(event?.facility);
+          if (![start, end].every(Number.isFinite) || end <= start || !line) return null;
+          return {
+            id: Number(event?.id ?? index + 1),
+            facility: String(event?.facility || ""),
+            kind: String(event?.kind || "escalator"),
+            direction: String(event?.direction || "down"),
+            start,
+            end,
+            count: Math.max(1, Number(event?.count || trackIds.length || 1)),
+            trackIds,
+            line,
+          };
+        })
+        .filter(Boolean)
+        .sort((left, right) => left.start - right.start);
+    }
+
+    function conveyorLineFromEvent(event) {
+      const line = event?.line;
+      if (!Array.isArray(line) || line.length < 2) return null;
+      const parsed = line
+        .slice(0, 2)
+        .map((point) =>
+          Array.isArray(point) && point.length >= 2
+            ? [Number(point[0]), Number(point[1])]
+            : null
+        );
+      if (!parsed.every((point) => point && point.every(Number.isFinite))) return null;
+      return parsed.map(([x, y]) => [Math.max(0, Math.min(1, x)), Math.max(0, Math.min(1, y))]);
+    }
+
+    function conveyorLineForFacility(facility) {
+      const lines = {
+        down_escalator_1_queue: [[0.184, 0.428], [0.116, 0.716]],
+        down_escalator_2_queue: [[0.49, 0.428], [0.54, 0.716]],
+        up_escalator_1_queue: [[0.288, 0.716], [0.276, 0.428]],
+        up_escalator_2_queue: [[0.815, 0.716], [0.776, 0.428]],
+      };
+      return lines[String(facility || "")] || null;
+    }
+
+    function elevatorRidesByAgent(rides) {
+      const byAgent = new Map();
+      for (const ride of rides) {
+        for (const id of ride.trackIds) {
+          if (!byAgent.has(id)) byAgent.set(id, []);
+          byAgent.get(id).push(ride);
+        }
+      }
+      return byAgent;
+    }
+
+    function rideForAgent(byAgent, agentId, localTime) {
+      const rides = byAgent.get(Number(agentId));
+      if (!rides) return null;
+      return rides.find((ride) => localTime >= ride.start && localTime <= ride.end) || null;
+    }
+
+    function elevatorRideForAgent(agentId, localTime) {
+      return rideForAgent(ELEVATOR_RIDES_BY_AGENT, agentId, localTime);
+    }
+
+    function conveyorRideForAgent(agentId, localTime) {
+      return rideForAgent(CONVEYOR_RIDES_BY_AGENT, agentId, localTime);
+    }
+
+    function facilityRideForAgent(agentId, localTime) {
+      return elevatorRideForAgent(agentId, localTime) || conveyorRideForAgent(agentId, localTime);
+    }
+
+    function wrapTrackTime(seconds) {
+      const value = Number(seconds) || 0;
+      const duration = playbackDuration();
+      if (!duration) return Math.max(0, value);
+      return ((value % duration) + duration) % duration;
+    }
+
+    function normalizePlaybackTime(seconds) {
+      const value = Math.max(0, Number(seconds) || 0);
+      const duration = playbackDuration();
+      if (!duration) return value;
+      if (playbackMode === "clearance" && value >= duration) {
+        return duration;
+      }
+      if (value >= duration && value <= duration + 0.0001) {
+        return duration;
+      }
+      return wrapTrackTime(value);
+    }
+
+    function validateTrackData(data, loadStatus, viewModelStatus) {
+      const command = "python -m sandbox.metro_station_sandbox.app --serve";
+      if (!loadStatus?.ok) {
+        const reason = loadStatus?.kind === "timeout" ? "加载超时" : "资源加载失败";
+        const assetLabel = loadStatus?.asset || window.__TRACK_ASSET || "assets/passenger_tracks_jps.js";
+        return {
+          ok: false,
+          kind: "load_error",
+          title: "轨迹数据加载失败",
+          body: `${reason}：${assetLabel}`,
+          command,
+        };
+      }
+      if (!viewModelStatus?.ok) {
+        return {
+          ok: false,
+          kind: "view_model_load_error",
+          title: "动画视图适配器加载失败",
+          body: `资源加载失败：${viewModelStatus?.asset || "assets/animation_view_model.js"}`,
+          command,
+        };
+      }
+      if (!data) {
+        return {
+          ok: false,
+          kind: "missing_payload",
+          title: "轨迹数据为空",
+          body: "已加载脚本，但没有找到 window.JPS_TRACKS。",
+          command,
+        };
+      }
+      if (!positiveNumber(data.duration, 0)) {
+        return {
+          ok: false,
+          kind: "invalid_duration",
+          title: "轨迹时长无效",
+          body: "payload 缺少可播放的 duration。",
+          command,
+        };
+      }
+      if (!Array.isArray(data.agents) || data.agents.length === 0) {
+        return {
+          ok: false,
+          kind: "empty_agents",
+          title: "没有可播放乘客轨迹",
+          body: "场景数据已加载，但 agents 为空；请检查客流输入或重新生成轨迹。",
+          command,
+        };
+      }
+      return { ok: true, kind: "ready", title: "", body: "", command };
+    }
+
+    function applyInitialPageState() {
+      populateScenarioSummary();
+      updateClearanceSummary();
+      updateDiagnosticHelp();
+      initializePlaybackOverview();
+      setStageStatus(DATA_STATE);
+      applySceneDiagnostics();
+      if (!DATA_STATE.ok) {
+        playBtn.disabled = true;
+        restartBtn.disabled = true;
+        timelineEl.disabled = true;
+        traceToggleEl.disabled = true;
+        diagnosticLayerEl.disabled = true;
+        speedButtons.forEach((button) => {
+          button.disabled = true;
+        });
+        playbackModeButtons.forEach((button) => {
+          button.disabled = true;
+        });
+        playBtn.textContent = "▶";
+        playBtn.setAttribute("aria-label", "播放不可用");
+      }
+    }
+
+    function applySceneDiagnostics() {
+      const diagnostics = Array.isArray(SCENE_RENDER_MODEL?.diagnostics)
+        ? SCENE_RENDER_MODEL.diagnostics
+        : [];
+      if (!DATA_STATE.ok || !diagnostics.length) return;
+      const codes = [...new Set(diagnostics.map((item) => String(item?.code || "unknown")))];
+      stageStatusEl.dataset.visible = "true";
+      stageStatusTitleEl.textContent = `场景展示诊断（${diagnostics.length}）`;
+      stageStatusBodyEl.textContent = codes.join(" · ");
+      stageStatusCommandEl.textContent = "检查 StationScene 与 AssetManifest 绑定";
+    }
+
+    function initializePlaybackOverview() {
+      const duration = playbackDuration();
+      const mainDuration = mainProcessDuration();
+      timelineEl.max = String(duration);
+      timelineEl.value = String(Math.max(0, Math.min(simSeconds, duration)));
+      playbackModeButtons.forEach((button) => {
+        const isActive = button.dataset.mode === playbackMode;
+        button.classList.toggle("active", isActive);
+        button.setAttribute("aria-pressed", isActive ? "true" : "false");
+      });
+      processStripEl.replaceChildren();
+      PROCESS_PHASES.forEach((phase) => {
+        const step = document.createElement("button");
+        step.type = "button";
+        step.className = "process-step";
+        step.dataset.phase = phase.id;
+        step.textContent = phase.label;
+        step.addEventListener("click", () => {
+          if (!DATA_STATE.ok) return;
+          seekTo(phase.start * mainDuration, { pause: true });
+        });
+        processStripEl.appendChild(step);
+      });
+      updateTimelineUi(simSeconds);
+    }
+
+    function currentProcessPhase(localTime) {
+      if (!PROCESS_PHASES.length) return null;
+      const duration = playbackDuration();
+      const mainDuration = mainProcessDuration();
+      const evacuationClearanceTime = Number(
+        EVACUATION_METRICS.clearance_time_seconds ?? CLEARANCE_AUDIT.clearance_time_s,
+      );
+      if (
+        IS_EVACUATION
+        && Number.isFinite(evacuationClearanceTime)
+        && localTime >= evacuationClearanceTime
+      ) {
+        return {
+          id: "evacuation_complete",
+          label: "疏散完成",
+          windowStart: evacuationClearanceTime,
+          windowEnd: duration,
+        };
+      }
+      if (playbackMode === "clearance" && mainDuration && localTime > mainDuration) {
+        return {
+          id: "clearance",
+          label: "\u6e05\u573a\u5c3e\u6bb5",
+          windowStart: mainDuration,
+          windowEnd: duration,
+        };
+      }
+      const progress = mainDuration ? clamp(localTime / mainDuration, 0, 0.999999) : 0;
+      const phase = PROCESS_PHASES.find((candidate) => progress >= candidate.start && progress < candidate.end)
+        || PROCESS_PHASES[PROCESS_PHASES.length - 1];
+      return {
+        ...phase,
+        windowStart: phase.start * mainDuration,
+        windowEnd: phase.end * mainDuration,
+      };
+    }
+
+    function updateTimelineUi(localTime = simSeconds) {
+      const duration = playbackDuration();
+      const mainDuration = mainProcessDuration();
+      const bounded = duration ? clamp(Number(localTime) || 0, 0, duration) : 0;
+      const progress = duration ? clamp(bounded / duration, 0, 1) : 0;
+      if (!scrubbingTimeline) {
+        timelineEl.value = bounded.toFixed(1);
+      }
+      timelineEl.style.setProperty("--progress", `${(progress * 100).toFixed(2)}%`);
+      timelineTextEl.textContent = `${formatPlaybackTime(bounded)} / ${formatPlaybackTime(duration)}`;
+
+      const phase = currentProcessPhase(bounded);
+      currentPhaseEl.textContent = phase?.label || "--";
+      phaseWindowEl.textContent = phase && duration
+        ? `${formatPlaybackTime(phase.windowStart)} - ${formatPlaybackTime(phase.windowEnd)}`
+        : "--";
+
+      const phaseProgress = mainDuration ? clamp(bounded / mainDuration, 0, 1) : 0;
+      processStripEl.querySelectorAll(".process-step").forEach((step) => {
+        const phaseId = step.dataset.phase;
+        const item = PROCESS_PHASES.find((candidate) => candidate.id === phaseId);
+        if (!item) return;
+        const state = phaseProgress >= item.end ? "done" : phaseProgress >= item.start ? "active" : "pending";
+        step.dataset.state = state;
+      });
+      updateClearanceSummary(bounded);
+    }
+
+    function formatPlaybackTime(seconds) {
+      const value = Math.max(0, Math.round(Number(seconds) || 0));
+      const minutes = Math.floor(value / 60);
+      const rest = value % 60;
+      return `${minutes}:${String(rest).padStart(2, "0")}`;
+    }
+
+    function setStageStatus(status) {
+      stageStatusEl.dataset.visible = status.ok ? "false" : "true";
+      if (status.ok) return;
+      stageStatusTitleEl.textContent = status.title;
+      stageStatusBodyEl.textContent = status.body;
+      stageStatusCommandEl.textContent = status.command;
+    }
+
+    function populateScenarioSummary() {
+      const hour = Number.isInteger(Number(SCENARIO.hour)) ? Number(SCENARIO.hour) : null;
+      const entry = Number(SCENARIO.entry_count_hour);
+      const exit = Number(SCENARIO.exit_count_hour);
+      stationNameEl.textContent = SCENARIO.station_name || "未生成";
+      if (IS_EVACUATION) {
+        scenarioHourLabelEl.textContent = "报警延迟";
+        scenarioHourEl.textContent = `${formatNumber(EVACUATION.alarm_delay_seconds || 0)} 秒`;
+        demandCountsLabelEl.textContent = "初始疏散人口";
+        demandCountsEl.textContent = `${formatNumber(EVACUATION.initial_platform_persons)} 人（站台）`;
+        sourceLabelEl.textContent = "站内疏散实验 · 物理时钟";
+      } else {
+        scenarioHourLabelEl.textContent = "时段";
+        scenarioHourEl.textContent = hour === null ? "--" : `${String(hour).padStart(2, "0")}:00`;
+        demandCountsLabelEl.textContent = "小时客流";
+        demandCountsEl.textContent =
+          Number.isFinite(entry) && Number.isFinite(exit)
+            ? `进站 ${formatNumber(entry)} / 出站 ${formatNumber(exit)}`
+            : "--";
+        sourceLabelEl.textContent = sourceLabelText(SCENARIO.source_label, SCENARIO.sample_hours);
+      }
+      backendLabelEl.textContent = backendLabel(
+        SCENARIO.movement_backend || SCENARIO.movement_backend_name,
+        SCENARIO.jupedsim_operational_model,
+      );
+      [trainMetricRightEl, trainMetricLeftEl, doorMetricEl, trainMiniTrackEl, trainCycleMetricEl].forEach((element) => {
+        element.style.display = SHOW_TRAIN_SERVICE ? "" : "none";
+      });
+      platformWaitLabelEl.textContent = IS_EVACUATION ? "站台滞留" : "候车";
+      const platformWaitOption = diagnosticLayerEl.querySelector('option[value="platform_wait"]');
+      if (platformWaitOption) {
+        platformWaitOption.textContent = IS_EVACUATION ? "站台滞留" : "站台候车";
+      }
+    }
+
+    function evacuationProgressAt(localTime) {
+      const total = Number(CLEARANCE_AUDIT.total_agents ?? AGENTS.length);
+      const bounded = Math.max(0, Number(localTime) || 0);
+      const frameBoundary = Math.ceil(bounded - 1e-9);
+      const temporalEvents = TERMINAL_EVENTS.filter(
+        (event) => event?.event === "reached_safe_zone"
+          && Number(event.time_seconds) <= frameBoundary,
+      );
+      let completed = temporalEvents.reduce(
+        (sum, event) => sum + Math.max(0, Number(event.persons) || 0),
+        0,
+      );
+      if (!TERMINAL_EVENTS.length && bounded >= CLEARANCE_DURATION) {
+        completed = Number(
+          EVACUATION_METRICS.evacuated_persons
+            ?? CLEARANCE_AUDIT.evacuated_persons
+            ?? CLEARANCE_AUDIT.completed_agents
+            ?? 0,
+        );
+      }
+      completed = Math.min(Math.max(0, total), Math.max(0, completed));
+      return {
+        bounded,
+        total,
+        completed,
+        remaining: Math.max(0, total - completed),
+      };
+    }
+
+    function updateClearanceSummary(localTime = simSeconds) {
+      const total = Number(CLEARANCE_AUDIT.total_agents ?? AGENTS.length);
+      if (IS_EVACUATION) {
+        const progress = evacuationProgressAt(localTime);
+        const { bounded, completed, remaining } = progress;
+        const alarmDelay = Math.max(0, Number(EVACUATION.alarm_delay_seconds) || 0);
+        const cleared = total > 0 && remaining <= 0;
+        clearanceTitleEl.textContent = "当前疏散";
+        clearanceCardEl.dataset.state = cleared ? "cleared" : "active";
+        const rightCensored = !cleared
+          && CLEARANCE_AUDIT.right_censored === true
+          && bounded >= CLEARANCE_DURATION;
+        clearanceStatusEl.textContent = cleared
+          ? "已清场"
+          : rightCensored
+            ? "仿真截止"
+          : bounded < alarmDelay
+            ? "等待报警"
+            : "疏散中";
+        clearanceDetailEl.textContent = [
+          `完成 ${formatNumber(completed)} / ${formatNumber(total)}`,
+          `剩余 ${formatNumber(remaining)}`,
+          `当前时刻 ${formatPlaybackTime(bounded)}`,
+        ].join(" · ");
+        return;
+      }
+
+      clearanceTitleEl.textContent = "最终清场";
+      const completed = Number(CLEARANCE_AUDIT.completed_agents ?? 0);
+      const remaining = Number(CLEARANCE_AUDIT.remaining_agents ?? 0);
+      const skipped = Number(CLEARANCE_AUDIT.skipped_agents ?? 0);
+      const hasAudit = Number.isFinite(total) && total > 0
+        && ("cleared" in CLEARANCE_AUDIT || Number.isFinite(completed));
+      if (!hasAudit) {
+        clearanceCardEl.dataset.state = "unknown";
+        clearanceStatusEl.textContent = "--";
+        clearanceDetailEl.textContent = "\u8f68\u8ff9\u672a\u5305\u542b\u6e05\u573a\u5ba1\u8ba1";
+        return;
+      }
+
+      const cleared = CLEARANCE_AUDIT.cleared === true
+        || (remaining <= 0 && skipped <= 0 && completed >= total);
+      const finalTime = positiveNumber(CLEARANCE_AUDIT.final_time_s, CLEARANCE_DURATION);
+      const maxTime = positiveNumber(CLEARANCE_AUDIT.max_duration_s, CLEARANCE_DURATION);
+      const rightCensored = !cleared && CLEARANCE_AUDIT.right_censored === true;
+      const outcome = cleared
+        ? `清场用时 ${formatPlaybackTime(finalTime)}`
+        : rightCensored
+          ? `右删失 · 截止 ${formatPlaybackTime(finalTime || maxTime)}`
+          : `达到最大清场 ${formatPlaybackTime(maxTime)}`;
+      clearanceCardEl.dataset.state = cleared ? "cleared" : rightCensored ? "active" : "blocked";
+      clearanceStatusEl.textContent = cleared
+        ? "\u5df2\u6e05\u573a"
+        : rightCensored
+          ? "\u4eff\u771f\u622a\u6b62"
+          : "\u672a\u6e05\u573a";
+      clearanceDetailEl.textContent = [
+        `\u5b8c\u6210 ${formatNumber(completed)} / ${formatNumber(total)}`,
+        `\u5269\u4f59 ${formatNumber(remaining)}`,
+        `\u8df3\u8fc7 ${formatNumber(skipped)}`,
+        outcome,
+      ].join(" · ");
+    }
+
+    function formatNumber(value) {
+      const number = Number(value);
+      return Number.isFinite(number) ? Math.round(number).toLocaleString("zh-CN") : "--";
+    }
+
+    function sourceLabelText(sourceLabel, sampleHours) {
+      const sample = Number(sampleHours);
+      const suffix = Number.isFinite(sample) && sample > 0 ? ` · ${sample} 小时样本` : "";
+      if (sourceLabel === "normal_workday_mean") return `常态工作日均值${suffix}`;
+      if (sourceLabel === "all_days_mean") return `全样本均值${suffix}`;
+      if (sourceLabel) return `${sourceLabel}${suffix}`;
+      return "--";
+    }
+
+    function backendLabel(backend, model) {
+      const backendName = backend || "--";
+      return model ? `${backendName} · ${model}` : backendName;
+    }
+
+    function updateDiagnosticHelp() {
+      const copy = {
+        off: "隐藏诊断图层，仅显示乘客与设施状态。",
+        decision: "显示固定状态决策区域，用于检查乘客是否在区域内触发选择。",
+        target: "显示乘客当前导航目标，用于判断路径是否合理。",
+        queue: "突出设施排队位置与排队人数。",
+        slow: "标记速度过低的乘客位置。",
+        platform_wait: IS_EVACUATION ? "标记仍停留在站台区域的疏散乘客。" : "标记站台候车乘客。",
+        all: "同时显示目标、排队、慢行与候车图层。",
+      };
+      diagnosticHelpEl.textContent = copy[selectedDiagnosticLayer()] || copy.off;
+    }
+
+    function nx(value) {
+      return Number(value) * W;
+    }
+
+    function ny(value) {
+      return Number(value) * H;
+    }
+
+    function pathFromPoints(points) {
+      ctx.beginPath();
+      points.forEach((point, index) => {
+        const x = nx(point[0]);
+        const y = ny(point[1]);
+        if (index === 0) ctx.moveTo(x, y);
+        else ctx.lineTo(x, y);
+      });
+      ctx.closePath();
+    }
+
+    function drawPolygon(points, fill, stroke, lineWidth = 2) {
+      if (!points || points.length < 3) return;
+      pathFromPoints(points);
+      ctx.fillStyle = fill;
+      ctx.fill();
+      if (stroke) {
+        ctx.strokeStyle = stroke;
+        ctx.lineWidth = lineWidth;
+        ctx.stroke();
+      }
+    }
+
+    function drawTileGrid(points, color = "rgba(76, 91, 95, 0.16)") {
+      const xs = points.map((point) => nx(point[0]));
+      const ys = points.map((point) => ny(point[1]));
+      const minX = Math.max(0, Math.floor(Math.min(...xs) / 28) * 28);
+      const maxX = Math.min(W, Math.ceil(Math.max(...xs) / 28) * 28);
+      const minY = Math.max(0, Math.floor(Math.min(...ys) / 28) * 28);
+      const maxY = Math.min(H, Math.ceil(Math.max(...ys) / 28) * 28);
+
+      ctx.save();
+      pathFromPoints(points);
+      ctx.clip();
+      ctx.strokeStyle = color;
+      ctx.lineWidth = 1;
+      for (let x = minX; x <= maxX; x += 28) {
+        ctx.beginPath();
+        ctx.moveTo(x, minY);
+        ctx.lineTo(x, maxY);
+        ctx.stroke();
+      }
+      for (let y = minY; y <= maxY; y += 28) {
+        ctx.beginPath();
+        ctx.moveTo(minX, y);
+        ctx.lineTo(maxX, y);
+        ctx.stroke();
+      }
+      ctx.restore();
+    }
+
+    function channelColor(channel) {
+      if (channel.kind === "escalator" && channel.direction === "down") return "#52d95f";
+      if (channel.kind === "escalator" && channel.direction === "up") return "#ff8a27";
+      if (channel.kind === "stairs") return "#d8e5ea";
+      if (channel.kind?.startsWith("elevator")) return "#ffd166";
+      return "#9fb8c4";
+    }
+
+    function drawChannel(channel) {
+      const line = channel.line || [];
+      if (line.length < 2) return;
+      ctx.save();
+      ctx.lineCap = "round";
+      ctx.lineJoin = "round";
+      ctx.globalAlpha = 0.2;
+      ctx.strokeStyle = channelColor(channel);
+      ctx.lineWidth = Math.max(10, Number(channel.width_px || 40));
+      ctx.beginPath();
+      line.forEach((point, index) => {
+        const x = nx(point[0]);
+        const y = ny(point[1]);
+        if (index === 0) ctx.moveTo(x, y);
+        else ctx.lineTo(x, y);
+      });
+      ctx.stroke();
+
+      ctx.globalAlpha = 0.82;
+      ctx.lineWidth = Math.max(3, Number(channel.width_px || 40) * 0.12);
+      ctx.setLineDash(channel.kind === "stairs" ? [8, 8] : []);
+      ctx.beginPath();
+      line.forEach((point, index) => {
+        const x = nx(point[0]);
+        const y = ny(point[1]);
+        if (index === 0) ctx.moveTo(x, y);
+        else ctx.lineTo(x, y);
+      });
+      ctx.stroke();
+      ctx.restore();
+    }
+
+    function drawFacilityBox(facility) {
+      const points = facility.points || [];
+      if (facility.kind === "track") {
+        drawPolygon(points, "#11181d", "rgba(79, 91, 97, 0.95)", 2);
+        return;
+      }
+      if (facility.kind === "screen_door") {
+        drawPolygon(points, "rgba(95, 171, 211, 0.55)", "rgba(161, 213, 238, 0.9)", 2);
+        return;
+      }
+      const fillByKind = {
+        gate: "rgba(255, 255, 255, 0.8)",
+        elevator: "rgba(255, 209, 102, 0.18)",
+      };
+      const strokeByKind = {
+        gate: "rgba(61, 140, 255, 0.8)",
+        elevator: "rgba(255, 209, 102, 0.75)",
+      };
+      drawPolygon(
+        points,
+        fillByKind[facility.kind] || "rgba(177, 193, 201, 0.28)",
+        strokeByKind[facility.kind] || "rgba(215, 229, 236, 0.45)",
+        facility.kind === "elevator" ? 3 : 2,
+      );
+    }
+
+    function decisionRegionStyle(kind) {
+      const styles = {
+        entry_gate_decision: ["rgba(255, 209, 102, 0.20)", "rgba(255, 209, 102, 0.88)"],
+        vertical_transfer_decision: ["rgba(93, 212, 95, 0.17)", "rgba(93, 212, 95, 0.80)"],
+        platform_boarding_decision: ["rgba(255, 102, 204, 0.15)", "rgba(255, 102, 204, 0.76)"],
+        exit_vertical_decision: ["rgba(82, 162, 255, 0.14)", "rgba(82, 162, 255, 0.78)"],
+        exit_gate_decision: ["rgba(74, 163, 255, 0.18)", "rgba(74, 163, 255, 0.84)"],
+      };
+      return styles[kind] || ["rgba(255,255,255,0.12)", "rgba(255,255,255,0.62)"];
+    }
+
+    function polygonCenter(points) {
+      if (!points || !points.length) return [0, 0];
+      return [
+        points.reduce((sum, point) => sum + Number(point[0] || 0), 0) / points.length,
+        points.reduce((sum, point) => sum + Number(point[1] || 0), 0) / points.length,
+      ];
+    }
+
+    function drawDecisionRegions() {
+      const regions = LAYOUT.decision_regions || [];
+      if (!regions.length) return;
+      ctx.save();
+      for (const region of regions) {
+        const points = region.points || [];
+        if (points.length < 3) continue;
+        const [fill, stroke] = decisionRegionStyle(region.kind);
+        pathFromPoints(points);
+        ctx.fillStyle = fill;
+        ctx.fill();
+        ctx.strokeStyle = stroke;
+        ctx.lineWidth = 2.2;
+        ctx.setLineDash([8, 6]);
+        ctx.stroke();
+        ctx.setLineDash([]);
+
+        const [cx, cy] = polygonCenter(points);
+        const label = region.label || region.id || "";
+        if (label) {
+          ctx.font = "600 12px Inter, system-ui, sans-serif";
+          const textWidth = ctx.measureText(label).width;
+          const x = nx(cx);
+          const y = ny(cy);
+          ctx.fillStyle = "rgba(7, 19, 27, 0.68)";
+          ctx.beginPath();
+          ctx.roundRect(x - textWidth / 2 - 7, y - 10, textWidth + 14, 20, 6);
+          ctx.fill();
+          ctx.fillStyle = stroke;
+          ctx.textAlign = "center";
+          ctx.textBaseline = "middle";
+          ctx.fillText(label, x, y);
+        }
+      }
+      ctx.restore();
+    }
+
+    function drawTrackRails() {
+      ctx.save();
+      for (const y of [0.852, 0.927]) {
+        ctx.strokeStyle = "#b58b53";
+        ctx.lineWidth = 4;
+        ctx.beginPath();
+        ctx.moveTo(nx(0.055), ny(y));
+        ctx.lineTo(nx(0.945), ny(y));
+        ctx.stroke();
+        ctx.strokeStyle = "rgba(222, 230, 232, 0.34)";
+        ctx.lineWidth = 2;
+        for (let x = 0.07; x <= 0.93; x += 0.018) {
+          ctx.beginPath();
+          ctx.moveTo(nx(x), ny(y - 0.018));
+          ctx.lineTo(nx(x + 0.006), ny(y + 0.018));
+          ctx.stroke();
+        }
+      }
+      ctx.restore();
+    }
+
+    function drawObstacles() {
+      for (const obstacle of LAYOUT.obstacles || []) {
+        if (obstacle.demoVisible === false) continue;
+        const isWaterBarrier = obstacle.kind === "water_barrier";
+        const fill = isWaterBarrier
+          ? "rgba(238, 113, 33, 0.88)"
+          : obstacle.blocking
+          ? "rgba(83, 101, 105, 0.38)"
+          : "rgba(130, 145, 145, 0.16)";
+        const stroke = isWaterBarrier
+          ? "rgba(255, 226, 149, 0.98)"
+          : obstacle.blocking
+          ? "rgba(102, 125, 131, 0.50)"
+          : "rgba(158, 174, 176, 0.32)";
+        drawPolygon(
+          obstacle.points,
+          fill,
+          stroke,
+          isWaterBarrier ? 2.8 : obstacle.blocking ? 1.4 : 1,
+        );
+      }
+    }
+
+    function pathFromPixelPoints(points) {
+      ctx.beginPath();
+      points.forEach((point, index) => {
+        if (index === 0) ctx.moveTo(point[0], point[1]);
+        else ctx.lineTo(point[0], point[1]);
+      });
+      ctx.closePath();
+    }
+
+    function stationSceneLevelStyle(levelId) {
+      const palette = [
+        ["rgba(72, 149, 239, 0.20)", "rgba(72, 149, 239, 0.90)"],
+        ["rgba(82, 183, 136, 0.17)", "rgba(82, 183, 136, 0.88)"],
+        ["rgba(181, 101, 218, 0.16)", "rgba(181, 101, 218, 0.88)"],
+        ["rgba(244, 162, 97, 0.16)", "rgba(244, 162, 97, 0.90)"],
+      ];
+      return palette[stationSceneLevelIndex(levelId) % palette.length];
+    }
+
+    function stationSceneLevelIndex(levelId) {
+      const levels = Array.isArray(SCENE_RENDER_MODEL?.levels) ? SCENE_RENDER_MODEL.levels : [];
+      return Math.max(
+        0,
+        levels.findIndex((level) => String(level?.level_id) === String(levelId)),
+      );
+    }
+
+    function stationSceneStyle(kind, levelId) {
+      const styles = {
+        platform_edge: ["rgba(255, 209, 102, 0.64)", "#ffdf86"],
+        entrance: ["rgba(76, 175, 128, 0.34)", "#5dd49a"],
+        gate: ["rgba(61, 140, 255, 0.25)", "#6dacff"],
+        escalator: ["rgba(82, 217, 95, 0.24)", "#52d95f"],
+        stairs: ["rgba(216, 229, 234, 0.26)", "#d8e5ea"],
+        elevator: ["rgba(255, 209, 102, 0.20)", "#ffd166"],
+        shop: ["rgba(194, 125, 255, 0.22)", "#cf9cff"],
+        equipment: ["rgba(151, 172, 183, 0.28)", "#b4c6ce"],
+        obstacle: ["rgba(83, 101, 105, 0.48)", "#667d83"],
+      };
+      if (String(kind).startsWith("queue:")) {
+        return ["rgba(255, 255, 255, 0.06)", "rgba(255, 255, 255, 0.40)"];
+      }
+      if (kind === "walkable_area") return stationSceneLevelStyle(levelId);
+      return styles[kind] || ["rgba(159, 184, 196, 0.18)", "rgba(205, 224, 232, 0.65)"];
+    }
+
+    function drawStationLevelBadge(entity, levelId) {
+      const level = (SCENE_RENDER_MODEL.levels || []).find(
+        (item) => String(item?.level_id) === String(levelId),
+      );
+      const label = String(level?.label || levelId);
+      const [, color] = stationSceneLevelStyle(levelId);
+      const x = entity.boundsPx.x + 10;
+      const y = entity.boundsPx.y + 18 + stationSceneLevelIndex(levelId) * 22;
+      ctx.save();
+      ctx.font = "700 12px Inter, system-ui, sans-serif";
+      const width = ctx.measureText(label).width + 14;
+      ctx.fillStyle = "rgba(7, 19, 27, 0.78)";
+      ctx.beginPath();
+      ctx.roundRect(x - 5, y - 12, width, 20, 6);
+      ctx.fill();
+      ctx.fillStyle = color;
+      ctx.textAlign = "left";
+      ctx.textBaseline = "middle";
+      ctx.fillText(label, x + 2, y - 2);
+      ctx.restore();
+    }
+
+    function drawStationScene() {
+      ctx.fillStyle = "#07131b";
+      ctx.fillRect(0, 0, W, H);
+      ctx.save();
+      ctx.strokeStyle = "rgba(139, 176, 193, 0.16)";
+      ctx.lineWidth = 1.2;
+      for (const relation of SCENE_RENDER_MODEL.relations || []) {
+        if (!sceneRelationVisible(relation)) continue;
+        const line = relation.line || [];
+        if (line.length < 2) continue;
+        ctx.beginPath();
+        ctx.moveTo(line[0][0], line[0][1]);
+        ctx.lineTo(line[1][0], line[1][1]);
+        ctx.stroke();
+      }
+      ctx.restore();
+
+      const labeledLevels = new Set();
+      for (const entity of SCENE_RENDER_MODEL.entities || []) {
+        if (!sceneEntityVisible(entity)) continue;
+        const points = entity.points || [];
+        const primaryLevelId = entity.levelIds?.[0] || null;
+        const [fill, stroke] = stationSceneStyle(entity.kind, primaryLevelId);
+        ctx.save();
+        if (entity.kind.startsWith("queue:")) ctx.setLineDash([7, 6]);
+        if (points.length === 1) {
+          ctx.fillStyle = fill;
+          ctx.strokeStyle = stroke;
+          ctx.beginPath();
+          ctx.arc(points[0][0], points[0][1], 5, 0, Math.PI * 2);
+          ctx.fill();
+          ctx.stroke();
+        } else if (entity.shape === "polyline") {
+          ctx.beginPath();
+          points.forEach((point, index) => {
+            if (index === 0) ctx.moveTo(point[0], point[1]);
+            else ctx.lineTo(point[0], point[1]);
+          });
+          ctx.strokeStyle = stroke;
+          ctx.lineWidth = 2.4;
+          ctx.stroke();
+        } else {
+          pathFromPixelPoints(points);
+          ctx.fillStyle = fill;
+          ctx.fill();
+          ctx.strokeStyle = stroke;
+          ctx.lineWidth = entity.kind === "elevator" ? 3 : 1.8;
+          ctx.stroke();
+        }
+        if (entity.kind === "walkable_area" && points.length >= 3) {
+          ctx.globalAlpha = 0.72;
+          ctx.strokeStyle = "rgba(70, 91, 96, 0.16)";
+          ctx.lineWidth = 1;
+          const box = entity.boundsPx;
+          for (let x = box.x; x <= box.x + box.w; x += 28) {
+            ctx.beginPath();
+            ctx.moveTo(x, box.y);
+            ctx.lineTo(x, box.y + box.h);
+            ctx.stroke();
+          }
+        }
+        ctx.restore();
+        if (
+          entity.kind === "walkable_area"
+          && primaryLevelId
+          && !labeledLevels.has(primaryLevelId)
+        ) {
+          drawStationLevelBadge(entity, primaryLevelId);
+          labeledLevels.add(primaryLevelId);
+        }
+      }
+    }
+
+    function drawStationGeometry() {
+      if (SCENE_RENDER_MODEL) {
+        drawStationScene();
+        return;
+      }
+      ctx.fillStyle = "#07131b";
+      ctx.fillRect(0, 0, W, H);
+
+      for (const facility of LAYOUT.facility_boxes || []) {
+        if (facility.kind === "track") drawFacilityBox(facility);
+      }
+      drawTrackRails();
+
+      for (const region of LAYOUT.walkable_regions || []) {
+        const isPlatform = region.id?.startsWith("b2");
+        const fill = isPlatform ? "#c9d6cf" : "#d6ded9";
+        const stroke = isPlatform ? "#63777b" : "#7b898b";
+        drawPolygon(region.points, fill, stroke, 3);
+        drawTileGrid(region.points, isPlatform ? "rgba(77, 96, 99, 0.16)" : "rgba(90, 103, 105, 0.14)");
+      }
+
+      for (const channel of LAYOUT.connector_channels || []) {
+        drawChannel(channel);
+      }
+
+      drawObstacles();
+
+      for (const facility of LAYOUT.facility_boxes || []) {
+        if (facility.kind !== "track") drawFacilityBox(facility);
+      }
+
+      ctx.save();
+      ctx.fillStyle = "rgba(255, 209, 102, 0.55)";
+      ctx.fillRect(nx(0.050), ny(0.758), nx(0.900), 8);
+      ctx.restore();
+    }
+
+    function nearestQueueSnapshot(localTime) {
+      if (!QUEUE_SAMPLES.length) return {};
+      let best = QUEUE_SAMPLES[0];
+      let bestDistance = Math.abs(best.time - localTime);
+      for (let i = 1; i < QUEUE_SAMPLES.length; i += 1) {
+        const distance = Math.abs(QUEUE_SAMPLES[i].time - localTime);
+        if (distance < bestDistance) {
+          best = QUEUE_SAMPLES[i];
+          bestDistance = distance;
+        }
+      }
+      return best.queues || {};
+    }
+
+    function nearestDiagnosticSnapshot(localTime) {
+      if (!DIAGNOSTIC_SAMPLES.length) return null;
+      let best = DIAGNOSTIC_SAMPLES[0];
+      let bestDistance = Math.abs(best.time - localTime);
+      for (let i = 1; i < DIAGNOSTIC_SAMPLES.length; i += 1) {
+        const distance = Math.abs(DIAGNOSTIC_SAMPLES[i].time - localTime);
+        if (distance < bestDistance) {
+          best = DIAGNOSTIC_SAMPLES[i];
+          bestDistance = distance;
+        }
+      }
+      return best;
+    }
+
+    function nearestFacilitySnapshot(localTime) {
+      if (!FACILITY_SAMPLES.length) return null;
+      let best = FACILITY_SAMPLES[0];
+      let bestDistance = Math.abs(best.time - localTime);
+      for (let i = 1; i < FACILITY_SAMPLES.length; i += 1) {
+        const distance = Math.abs(FACILITY_SAMPLES[i].time - localTime);
+        if (distance < bestDistance) {
+          best = FACILITY_SAMPLES[i];
+          bestDistance = distance;
+        }
+      }
+      return best;
+    }
+
+    function facilityAnchorPoint(facilityId) {
+      for (const layout of QUEUE_LAYOUTS) {
+        if (String(layout?.geometry?.facility_id || "") !== String(facilityId)) continue;
+        return layout.exit || layout.head || null;
+      }
+      return null;
+    }
+
+    function utilizationColor(value, pressure) {
+      if (pressure >= 1 || value >= 0.9) return "#c93a32";
+      if (value >= 0.65 || pressure >= 0.65) return "#c9871f";
+      return "#19836f";
+    }
+
+    function drawFacilityUtilization(t) {
+      const sample = nearestFacilitySnapshot(normalizePlaybackTime(t));
+      const facilities = sample?.facilities || {};
+      const entries = Object.values(facilities);
+      if (!entries.length) return;
+
+      ctx.save();
+      ctx.font = "700 10px Inter, system-ui, sans-serif";
+      ctx.textBaseline = "middle";
+      for (const facility of entries) {
+        const anchor = facilityAnchorPoint(facility.id);
+        if (!anchor) continue;
+        const queue = Number(facility.queue_persons || 0);
+        const active = Number(facility.active_persons || 0);
+        const utilization = Number(facility.utilization || 0);
+        const pressure = Number(facility.pressure || 0);
+        if (queue <= 0 && active <= 0 && utilization < 0.05) continue;
+
+        const load = Math.max(0, Math.min(1, Math.max(utilization, pressure)));
+        const x = nx(anchor[0]);
+        const y = ny(anchor[1]) - 26;
+        const width = 58;
+        const height = 7;
+        const color = utilizationColor(utilization, pressure);
+        ctx.fillStyle = "rgba(7, 19, 27, 0.72)";
+        ctx.beginPath();
+        ctx.roundRect(x - width / 2 - 5, y - 11, width + 10, 24, 7);
+        ctx.fill();
+        ctx.fillStyle = "rgba(255,255,255,0.34)";
+        ctx.fillRect(x - width / 2, y - height / 2, width, height);
+        ctx.fillStyle = color;
+        ctx.fillRect(x - width / 2, y - height / 2, width * load, height);
+        ctx.fillStyle = "#ffffff";
+        ctx.textAlign = "center";
+        ctx.fillText(`q${queue}`, x, y + 11);
+      }
+      ctx.restore();
+    }
+
+    function drawQueueLayouts(t, highlight = false) {
+      if (!QUEUE_LAYOUTS.length) return;
+      const localTime = normalizePlaybackTime(t);
+      const snapshot = nearestQueueSnapshot(localTime);
+      ctx.save();
+      for (const queue of QUEUE_LAYOUTS) {
+        const slots = queue.slots || [];
+        const metrics = snapshot[queue.id] || {};
+        const occupied = Math.min(slots.length, Number(metrics.enqueued || 0));
+        const targeting = Math.min(slots.length, Number(metrics.targeting || 0));
+        const pressure = Math.max(0, targeting);
+        const queueColor = queueVisualColor(queue);
+
+        if (slots.length > 1) {
+          ctx.globalAlpha = highlight ? 0.42 : occupied > 0 ? 0.28 : pressure > 0 ? 0.16 : 0.12;
+          ctx.strokeStyle = queueColor;
+          ctx.lineWidth = highlight ? 2.4 : queue.kind === "boarding" ? 1.5 : 1.8;
+          ctx.beginPath();
+          slots.forEach((slot, index) => {
+            const x = nx(slot[0]);
+            const y = ny(slot[1]);
+            if (index === 0) ctx.moveTo(x, y);
+            else ctx.lineTo(x, y);
+          });
+          ctx.stroke();
+          ctx.globalAlpha = 1;
+        }
+
+        slots.forEach((slot, index) => {
+          const pressureSlots = Math.min(slots.length, Math.max(pressure, occupied ? 2 : 3));
+          if (index >= Math.max(occupied, pressureSlots)) return;
+          const isHead = index === 0;
+          const isOccupied = index < occupied;
+          const isPressure = !isOccupied && index < pressureSlots;
+          ctx.beginPath();
+          ctx.arc(nx(slot[0]), ny(slot[1]), isHead ? 4.6 : isOccupied ? 2.4 : 2.0, 0, Math.PI * 2);
+          ctx.fillStyle = isOccupied
+            ? `${queueColor}44`
+            : "rgba(7, 19, 27, 0.20)";
+          ctx.fill();
+          ctx.strokeStyle = isPressure
+            ? `${queueColor}44`
+            : `${queueColor}66`;
+          ctx.lineWidth = isHead ? 1.3 : isPressure ? 1.1 : 0.8;
+          ctx.stroke();
+        });
+      }
+      ctx.restore();
+    }
+
+    function queueVisualColor(queue) {
+      const id = String(queue?.id || "");
+      if (id.includes("elevator")) return "#ffd166";
+      if (id.includes("stairs")) return "#cfd9df";
+      if (id.includes("escalator") && id.includes("_up_")) return "#ff8a27";
+      if (id.includes("escalator")) return "#5dd45f";
+      return queue?.color || "#ffffff";
+    }
+
+    function drawJourneyTrails(t) {
+      if (!showJourneyTrails || !TRAIL_AGENTS.length) return;
+      const localTime = normalizePlaybackTime(t);
+      ctx.save();
+      ctx.lineCap = "round";
+      ctx.lineJoin = "round";
+      for (const agent of TRAIL_AGENTS) {
+        drawFullTrail(agent);
+        drawCompletedTrail(agent, localTime);
+      }
+      ctx.restore();
+    }
+
+    function drawFullTrail(agent) {
+      const points = agent.points || [];
+      if (points.length < 2) return;
+      ctx.beginPath();
+      points.forEach((point, index) => {
+        if (index === 0) ctx.moveTo(point[1], point[2]);
+        else ctx.lineTo(point[1], point[2]);
+      });
+      ctx.strokeStyle = agentTrailColor(agent, 0.055);
+      ctx.lineWidth = 1.1;
+      ctx.stroke();
+    }
+
+    function drawCompletedTrail(agent, localTime) {
+      const points = agent.points || [];
+      if (points.length < 2 || localTime < points[0][0]) return;
+      ctx.beginPath();
+      ctx.moveTo(points[0][1], points[0][2]);
+      let drew = false;
+      for (let index = 1; index < points.length; index += 1) {
+        const previous = points[index - 1];
+        const current = points[index];
+        if (segmentOverlapsElevatorRide(agent.id, previous[0], Math.min(current[0], localTime))) {
+          ctx.moveTo(current[1], current[2]);
+          continue;
+        }
+        if (current[0] <= localTime) {
+          ctx.lineTo(current[1], current[2]);
+          drew = true;
+          continue;
+        }
+        const span = Math.max(0.001, current[0] - previous[0]);
+        const p = clamp((localTime - previous[0]) / span, 0, 1);
+        ctx.lineTo(lerp(previous[1], current[1], p), lerp(previous[2], current[2], p));
+        drew = true;
+        break;
+      }
+      if (!drew) return;
+      ctx.strokeStyle = agentTrailColor(agent, 0.28);
+      ctx.lineWidth = 1.7;
+      ctx.stroke();
+    }
+
+    function segmentOverlapsElevatorRide(agentId, startTime, endTime) {
+      const rides = [
+        ...(ELEVATOR_RIDES_BY_AGENT.get(Number(agentId)) || []),
+        ...(CONVEYOR_RIDES_BY_AGENT.get(Number(agentId)) || []),
+      ];
+      if (!rides || endTime < startTime) return false;
+      return rides.some((ride) => endTime >= ride.start && startTime <= ride.end);
+    }
+
+    function agentTrailColor(agent, alpha) {
+      const route = String(agent.route || "");
+      if (route.includes("exit")) return `rgba(61, 140, 255, ${alpha})`;
+      return `rgba(255, 209, 102, ${alpha})`;
+    }
+
+    function drawFlow(ax, ay, bx, by, color, phase, width = 8, count = 8) {
+      const x1 = ax * W;
+      const y1 = ay * H;
+      const x2 = bx * W;
+      const y2 = by * H;
+      drawFlowPixels(x1, y1, x2, y2, color, phase, width, count);
+    }
+
+    function drawFlowPixels(x1, y1, x2, y2, color, phase, width = 8, count = 8) {
+      const angle = Math.atan2(y2 - y1, x2 - x1);
+      const length = Math.hypot(x2 - x1, y2 - y1);
+      if (length <= 1) return;
+
+      ctx.save();
+      ctx.lineCap = "round";
+      ctx.strokeStyle = color;
+      ctx.globalAlpha = 0.16;
+      ctx.lineWidth = width + 9;
+      ctx.beginPath();
+      ctx.moveTo(x1, y1);
+      ctx.lineTo(x2, y2);
+      ctx.stroke();
+
+      ctx.globalAlpha = 0.34;
+      ctx.lineWidth = Math.max(2, width * 0.42);
+      ctx.setLineDash([10, 14]);
+      ctx.lineDashOffset = -phase * 42;
+      ctx.beginPath();
+      ctx.moveTo(x1, y1);
+      ctx.lineTo(x2, y2);
+      ctx.stroke();
+      ctx.setLineDash([]);
+      ctx.translate(x1, y1);
+      ctx.rotate(angle);
+      for (let i = 0; i < count; i += 1) {
+        const t = (i / count + phase) % 1;
+        const alpha = 0.14 + 0.52 * Math.sin(Math.PI * t);
+        const pulseW = width * 3.8;
+        ctx.globalAlpha = alpha;
+        ctx.fillStyle = color;
+        ctx.beginPath();
+        ctx.roundRect(t * length - pulseW * 0.5, -width * 0.44, pulseW, width * 0.88, width);
+        ctx.fill();
+      }
+      ctx.restore();
+    }
+
+    function drawTransportFlows(t) {
+      if (SCENE_RENDER_MODEL) {
+        drawStationSceneTransportFlows(t);
+        return;
+      }
+      const downPhase = (t * 0.23) % 1;
+      const upPhase = (t * 0.2) % 1;
+      const stairPhase = (t * 0.09) % 1;
+      drawFlow(0.184, 0.428, 0.116, 0.716, "#52d95f", downPhase, 7, 8);
+      drawFlow(0.49, 0.428, 0.54, 0.716, "#52d95f", (downPhase + 0.4) % 1, 7, 8);
+      drawFlow(0.288, 0.716, 0.276, 0.428, "#ff8a27", upPhase, 7, 8);
+      drawFlow(0.815, 0.716, 0.776, 0.428, "#ff8a27", (upPhase + 0.48) % 1, 7, 8);
+      drawFlow(0.892, 0.426, 0.85, 0.708, "#c9d7de", stairPhase, 4, 5);
+    }
+
+    function drawStationSceneTransportFlows(t) {
+      const seen = new Set();
+      for (const binding of SCENE_RENDER_MODEL.runtimeBindings || []) {
+        if (!["escalator", "stairs"].includes(binding.kind)) continue;
+        if (!sceneEntityVisible(SCENE_RENDER_MODEL.entityById?.[binding.sceneEntityId])) continue;
+        const start = binding.position;
+        const end = binding.exitPosition;
+        if (!Array.isArray(start) || !Array.isArray(end)) continue;
+        const unorderedEndpoints = [start, end]
+          .map((point) => point.map((value) => Number(value).toFixed(2)).join(","))
+          .sort()
+          .join("|");
+        const key = `${binding.sceneEntityId}:${unorderedEndpoints}`;
+        if (seen.has(key)) continue;
+        seen.add(key);
+        const isStairs = binding.kind === "stairs";
+        const isUp = binding.direction === "up";
+        const color = isStairs ? "#c9d7de" : isUp ? "#ff8a27" : "#52d95f";
+        const phase = (t * (isStairs ? 0.09 : isUp ? 0.20 : 0.23)) % 1;
+        drawFlowPixels(
+          start[0],
+          start[1],
+          end[0],
+          end[1],
+          color,
+          phase,
+          isStairs ? 4 : 7,
+          isStairs ? 5 : 8,
+        );
+      }
+    }
+
+    peopleCountEl.textContent = "0";
+
+    function drawPerson(x, y, angle, scale, color, alpha = 1, gait = {}) {
+      const moving = (gait.speed || 0) > 7;
+      const step = gait.step || 0;
+      const wobble = gait.wobble || 1;
+      const bodyBob = moving ? Math.sin(step) * 0.55 * wobble : 0;
+      const shoulder = moving ? Math.sin(step * 0.5) * 0.45 * wobble : 0;
+      const armSwing = moving ? Math.sin(step) * 1.55 * wobble : 0;
+      const legSwing = moving ? Math.sin(step + Math.PI) * 1.9 * wobble : 0;
+      ctx.save();
+      ctx.translate(x, y);
+      ctx.scale(scale, scale);
+      ctx.globalAlpha = alpha;
+      ctx.fillStyle = "rgba(0, 0, 0, 0.22)";
+      ctx.beginPath();
+      ctx.ellipse(0, 7, 6, 2.2, 0, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.fillStyle = color;
+      ctx.beginPath();
+      ctx.arc(shoulder * 0.35, -5.5 + bodyBob, 3.1, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.strokeStyle = color;
+      ctx.lineWidth = 2.5;
+      ctx.lineCap = "round";
+      ctx.beginPath();
+      ctx.moveTo(shoulder * 0.28, -1.5 + bodyBob);
+      ctx.lineTo(-shoulder * 0.18, 5.3);
+      ctx.stroke();
+      ctx.strokeStyle = "rgba(7, 14, 19, 0.72)";
+      ctx.lineWidth = 1.5;
+      ctx.beginPath();
+      ctx.moveTo(-3.6, 0.2 + armSwing * 0.35);
+      ctx.lineTo(3.6, 1.2 - armSwing * 0.25);
+      ctx.moveTo(-2.8, 9.2 + legSwing * 0.25);
+      ctx.lineTo(0, 5.3);
+      ctx.lineTo(3.2, 9.2 - legSwing * 0.25);
+      ctx.stroke();
+
+      ctx.save();
+      ctx.rotate(angle);
+      ctx.translate(0, 12.4);
+      ctx.fillStyle = "rgba(245, 251, 255, 0.9)";
+      ctx.strokeStyle = "rgba(5, 12, 18, 0.72)";
+      ctx.lineWidth = 0.8;
+      ctx.beginPath();
+      ctx.moveTo(4.2, 0);
+      ctx.lineTo(-2.4, -2.3);
+      ctx.lineTo(-1.2, 0);
+      ctx.lineTo(-2.4, 2.3);
+      ctx.closePath();
+      ctx.fill();
+      ctx.stroke();
+      ctx.restore();
+      ctx.restore();
+    }
+
+    function drawPeople(t) {
+      drawTrackedPeople(t);
+    }
+
+    function sampleAgentTrack(agent, localTime) {
+      // Replay the authoritative composite source track. Presentation-only
+      // decorators remain available for diagnostics, but may not replace the
+      // 5 Hz JuPedSim samples or facility-state snapshots seen by the viewer.
+      const points = agent.points;
+      if (!points || points.length < 2) return null;
+      if (localTime < points[0][0] || localTime > points[points.length - 1][0]) return null;
+
+      let lo = 0;
+      let hi = points.length - 1;
+      while (hi - lo > 1) {
+        const mid = (lo + hi) >> 1;
+        if (points[mid][0] <= localTime) lo = mid;
+        else hi = mid;
+      }
+
+      const a = points[lo];
+      const b = points[hi];
+      const span = Math.max(0.001, b[0] - a[0]);
+      const p = clamp((localTime - a[0]) / span, 0, 1);
+      const dx = b[1] - a[1];
+      const dy = b[2] - a[2];
+      return {
+        x: lerp(a[1], b[1], p),
+        y: lerp(a[2], b[2], p),
+        angle: window.MetroAnimationViewModel?.interpolateHeading?.(a[3], b[3], p)
+          ?? lerp(a[3], b[3], p),
+        alpha: lerp(a[4], b[4], p),
+        speed: Math.hypot(dx, dy) / span,
+        target: sampleTarget(a, b, p),
+        diagnostic: sampleDiagnostic(a, b, p),
+      };
+    }
+
+    function pointTarget(sample) {
+      if (!sample || sample.length < 7) return null;
+      if (sample[5] === null || sample[6] === null) return null;
+      const x = Number(sample[5]);
+      const y = Number(sample[6]);
+      if (!Number.isFinite(x) || !Number.isFinite(y)) return null;
+      return { x, y, mode: sample.length >= 8 ? String(sample[7]) : "enqueued" };
+    }
+
+    function sampleTarget(a, b, p) {
+      const preferred = p < 0.5 ? pointTarget(a) : pointTarget(b);
+      if (preferred) return preferred;
+      return p < 0.5 ? pointTarget(b) : pointTarget(a);
+    }
+
+    function pointDiagnostic(sample) {
+      if (!sample || sample.length < 9 || sample[8] === null) return "target";
+      return String(sample[8]);
+    }
+
+    function sampleDiagnostic(a, b, p) {
+      const preferred = p < 0.5 ? pointDiagnostic(a) : pointDiagnostic(b);
+      if (preferred) return preferred;
+      return p < 0.5 ? pointDiagnostic(b) : pointDiagnostic(a);
+    }
+
+    function drawTargetMarkers(states) {
+      ctx.save();
+      ctx.lineCap = "round";
+      for (const state of states) {
+        const { agent, point, target } = state;
+        if (!target || point.alpha <= 0.08) continue;
+        const dx = target.x - point.x;
+        const dy = target.y - point.y;
+        const distance = Math.hypot(dx, dy);
+        const isTargeting = target.mode === "targeting";
+        if (distance < 8 || distance > (isTargeting ? 70 : 160)) continue;
+        const alpha = isTargeting
+          ? Math.min(0.14, Math.max(0.05, point.alpha * 0.11))
+          : Math.min(0.22, Math.max(0.08, point.alpha * 0.18));
+        ctx.globalAlpha = alpha;
+        ctx.strokeStyle = agent.color || "#2f89ff";
+        ctx.fillStyle = agent.color || "#2f89ff";
+        if (distance > 5 && !isTargeting) {
+          ctx.lineWidth = 1;
+          ctx.beginPath();
+          ctx.moveTo(point.x, point.y);
+          ctx.lineTo(target.x, target.y);
+          ctx.stroke();
+        }
+        ctx.setLineDash([]);
+        ctx.beginPath();
+        ctx.arc(target.x, target.y, isTargeting ? 2.4 : 3.2, 0, Math.PI * 2);
+        ctx.fill();
+        if (!isTargeting) {
+          ctx.globalAlpha = alpha * 1.8;
+          ctx.beginPath();
+          ctx.arc(target.x, target.y, 6.4, 0, Math.PI * 2);
+          ctx.stroke();
+        }
+      }
+      ctx.restore();
+    }
+
+    function drawDiagnosticRings(states, layer) {
+      if (layer === "off" || layer === "target") return;
+      const colors = {
+        queue: "rgba(93, 212, 95, 0.78)",
+        slow: "rgba(255, 143, 74, 0.82)",
+        platform_wait: "rgba(180, 136, 255, 0.76)",
+      };
+      ctx.save();
+      ctx.lineWidth = 1.4;
+      for (const { point } of states) {
+        const diagnostic = point.diagnostic;
+        if (layer !== "all" && diagnostic !== layer) continue;
+        if (!colors[diagnostic]) continue;
+        ctx.strokeStyle = colors[diagnostic];
+        ctx.globalAlpha = Math.min(0.85, Math.max(0.18, point.alpha * 0.9));
+        ctx.beginPath();
+        ctx.arc(point.x, point.y, diagnostic === "slow" ? 8 : 6.5, 0, Math.PI * 2);
+        ctx.stroke();
+      }
+      ctx.restore();
+    }
+
+    function updateDiagnosticCounts(localTime, states) {
+      const snapshot = nearestDiagnosticSnapshot(localTime);
+      const counts = snapshot?.counts || countDiagnosticsFromStates(states);
+      diagTargetCountEl.textContent = String(Number(counts.target || 0));
+      diagQueueCountEl.textContent = String(Number(counts.queue || 0));
+      diagSlowCountEl.textContent = String(Number(counts.slow || 0));
+      diagPlatformWaitCountEl.textContent = String(Number(counts.platform_wait || 0));
+    }
+
+    function countDiagnosticsFromStates(states) {
+      const counts = { target: 0, queue: 0, slow: 0, platform_wait: 0 };
+      for (const { agent, point } of states) {
+        if (point.diagnostic in counts) {
+          counts[point.diagnostic] += Math.max(1, Number(agent?.count ?? agent?.n ?? 1) || 1);
+        }
+      }
+      return counts;
+    }
+
+    function drawTrackedPeople(t) {
+      if (!DATA_STATE.ok || !playbackDuration() || !AGENTS.length) {
+        peopleCountEl.textContent = "0";
+        gateQueueCountEl.textContent = "0";
+        updateVerticalQueueCounts(0);
+        updateDiagnosticCounts(0, []);
+        return;
+      }
+      const localTime = normalizePlaybackTime(t);
+      const diagnosticLayer = selectedDiagnosticLayer();
+      let active = 0;
+      const states = [];
+      for (const agent of AGENTS) {
+        const point = sampleAgentTrack(agent, localTime);
+        if (!point) continue;
+        if (point.alpha > 0.05) active += Math.max(1, Number(agent.count ?? agent.n ?? 1) || 1);
+        if (point.alpha <= 0.02) continue;
+        states.push({
+          agent,
+          point,
+          target: point.target,
+        });
+      }
+      if (diagnosticLayer === "target" || diagnosticLayer === "all") drawTargetMarkers(states);
+      for (const { agent, point } of states) {
+        const motion = agent.motion || {};
+        const strideHz = motion.stride_hz || 1.45;
+        const phase = motion.phase || 0;
+        const wobble = motion.wobble || 1;
+        const moving = point.speed > 7;
+        const step = localTime * strideHz * Math.PI * 2 + phase;
+        const lateral = moving ? Math.sin(step * 0.5) * 0.55 * wobble : 0;
+        const forward = moving ? Math.sin(step) * 0.22 * wobble : 0;
+        const drawX = point.x + Math.cos(point.angle + Math.PI / 2) * lateral + Math.cos(point.angle) * forward;
+        const drawY = point.y + Math.sin(point.angle + Math.PI / 2) * lateral + Math.sin(point.angle) * forward;
+        const spriteDrawn = PASSENGER_SPRITES?.draw(ctx, {
+          agent,
+          point,
+          localTime,
+          x: drawX,
+          y: drawY,
+          angle: point.angle,
+          alpha: point.alpha,
+        });
+        if (!spriteDrawn) {
+          drawPerson(
+            drawX,
+            drawY,
+            point.angle,
+            agent.size || 1,
+            agent.color || "#2f89ff",
+            point.alpha,
+            { speed: point.speed, step, wobble },
+          );
+        }
+      }
+      drawDiagnosticRings(states, diagnosticLayer);
+      peopleCountEl.textContent = IS_EVACUATION
+        ? String(evacuationProgressAt(localTime).remaining)
+        : String(active);
+      gateQueueCountEl.textContent = String(queueTotal(localTime, "entry_gate_"));
+      updateVerticalQueueCounts(localTime);
+      updateDiagnosticCounts(localTime, states);
+    }
+
+    function queueTotal(localTime, prefix) {
+      const queues = nearestQueueSnapshot(localTime);
+      let total = 0;
+      for (const [name, value] of Object.entries(queues)) {
+        if (name.startsWith(prefix)) total += Number(value.enqueued || 0) + Number(value.targeting || 0);
+      }
+      return total;
+    }
+
+    function updateVerticalQueueCounts(localTime) {
+      const counts = verticalQueueCounts(localTime);
+      escalatorQueueCountEl.textContent = String(counts.escalator);
+      elevatorQueueCountEl.textContent = String(counts.elevator);
+      stairsQueueCountEl.textContent = String(counts.stairs);
+    }
+
+    function verticalQueueCounts(localTime) {
+      const queues = nearestQueueSnapshot(localTime);
+      const counts = { escalator: 0, elevator: 0, stairs: 0 };
+      for (const [name, value] of Object.entries(queues)) {
+        if (!isVerticalQueueName(name)) continue;
+        const load = Number(value.enqueued || 0) + Number(value.targeting || 0);
+        if (name.includes("elevator")) counts.elevator += load;
+        else if (name.includes("stairs")) counts.stairs += load;
+        else if (name.includes("escalator")) counts.escalator += load;
+      }
+      return counts;
+    }
+
+    function isVerticalQueueName(name) {
+      const value = String(name || "");
+      return value.startsWith("vertical_")
+        || value.includes("escalator")
+        || value.includes("elevator")
+        || value.includes("stairs");
+    }
+
+    function elevatorMotion(t, rides = ELEVATOR_RIDES, allowDemoMotion = true) {
+      const ride = activeElevatorRide(t, rides);
+      if (ride) return elevatorMotionFromRide(ride, t);
+      if (rides.length) return elevatorIdleMotion(t, rides);
+      if (!allowDemoMotion) return { pos: 0, open: 0.18, label: "待机", ride: null };
+      const e = t % 16;
+      if (e < 4) {
+        return { pos: 0, open: Math.sin((e / 4) * Math.PI), label: "B1", ride: null };
+      }
+      if (e < 8) {
+        return { pos: ease((e - 4) / 4), open: 0, label: "下行", ride: null };
+      }
+      if (e < 12) {
+        return { pos: 1, open: Math.sin(((e - 8) / 4) * Math.PI), label: "B2", ride: null };
+      }
+      return { pos: 1 - ease((e - 12) / 4), open: 0, label: "上行", ride: null };
+    }
+
+    function activeElevatorRide(t, rides = ELEVATOR_RIDES) {
+      return rides.find((ride) => t >= ride.start && t <= ride.end) || null;
+    }
+
+    function elevatorIdleMotion(t, rides = ELEVATOR_RIDES) {
+      let last = null;
+      let next = null;
+      for (const ride of rides) {
+        if (ride.end < t) last = ride;
+        if (ride.start > t) {
+          next = ride;
+          break;
+        }
+      }
+      const pos = last ? elevatorLevelPosition(last.toLevel) : next ? elevatorLevelPosition(next.fromLevel) : 0;
+      const level = pos >= 0.5 ? "B2" : "B1";
+      return { pos, open: 0.18, label: `${level}待机`, ride: null };
+    }
+
+    function elevatorMotionFromRide(ride, t) {
+      const fromPos = elevatorLevelPosition(ride.fromLevel);
+      const toPos = elevatorLevelPosition(ride.toLevel);
+      if (t < ride.boardEnd) {
+        const p = clamp((t - ride.start) / Math.max(0.001, ride.boardEnd - ride.start), 0, 1);
+        return {
+          pos: fromPos,
+          open: 1 - ease(p) * 0.7,
+          label: `装载 ${ride.count}人`,
+          ride,
+        };
+      }
+      if (t < ride.arrive) {
+        const p = ease(clamp((t - ride.boardEnd) / Math.max(0.001, ride.arrive - ride.boardEnd), 0, 1));
+        return {
+          pos: lerp(fromPos, toPos, p),
+          open: 0,
+          label: `${ride.count}人${ride.direction === "up" ? "上行" : "下行"}`,
+          ride,
+        };
+      }
+      const unloadP = clamp((t - ride.arrive) / Math.max(0.001, ride.end - ride.arrive), 0, 1);
+      return {
+        pos: toPos,
+        open: Math.sin(unloadP * Math.PI),
+        label: `释放 ${ride.count}人`,
+        ride,
+      };
+    }
+
+    function elevatorLevelPosition(level) {
+      const sceneLevels = Array.isArray(SCENE_RENDER_MODEL?.levels)
+        ? SCENE_RENDER_MODEL.levels
+        : [];
+      if (sceneLevels.length > 1) {
+        const index = sceneLevels.findIndex((item) => String(item?.level_id) === String(level));
+        if (index >= 0) return index / (sceneLevels.length - 1);
+      }
+      return String(level).toUpperCase() === "B2" ? 1 : 0;
+    }
+
+    function elevatorCabinRect(
+      t,
+      box = ELEVATOR_BOX,
+      rides = ELEVATOR_RIDES,
+      allowDemoMotion = true,
+    ) {
+      const state = elevatorMotion(t, rides, allowDemoMotion);
+      const cabinPadding = Math.min(ELEVATOR_CABIN_PADDING, box.w * 0.12);
+      const cabinH = box.h * ELEVATOR_CABIN_HEIGHT_SHARE;
+      return {
+        state,
+        x: box.x + cabinPadding,
+        y: box.y + state.pos * (box.h - cabinH),
+        w: box.w - cabinPadding * 2,
+        h: cabinH,
+      };
+    }
+
+    function drawElevator(t) {
+      if (SCENE_RENDER_MODEL) {
+        const visibleElevators = SCENE_ELEVATOR_ENTITIES.filter(sceneEntityVisible);
+        let activeCount = 0;
+        for (const entity of visibleElevators) {
+          const rides = elevatorRidesForSceneEntity(entity.id);
+          const state = drawElevatorAt(t, entity.boundsPx, rides, false);
+          if (state.ride) activeCount += 1;
+        }
+        liftStatusEl.textContent = `${visibleElevators.length}部电梯 · ${activeCount}部运行`;
+        return;
+      }
+      const state = drawElevatorAt(t, ELEVATOR_BOX, ELEVATOR_RIDES, true);
+      liftStatusEl.textContent = state.label;
+    }
+
+    function elevatorRidesForSceneEntity(entityId) {
+      const runtimeToEntity = SCENE_RENDER_MODEL?.runtimeToEntity || {};
+      return ELEVATOR_RIDES.filter((ride) => runtimeToEntity[ride.facility] === entityId);
+    }
+
+    function drawElevatorAt(t, box, rides, allowDemoMotion) {
+      const cabin = elevatorCabinRect(t, box, rides, allowDemoMotion);
+      const state = cabin.state;
+
+      const { x, y, w, h } = box;
+      const cabinH = cabin.h;
+      const cabinY = cabin.y;
+      const doorGap = state.open * w * 0.16;
+
+      ctx.save();
+      ctx.shadowColor = "rgba(255, 209, 102, 0.55)";
+      ctx.shadowBlur = 18;
+      ctx.strokeStyle = "rgba(255, 209, 102, 0.82)";
+      ctx.lineWidth = 3;
+      ctx.roundRect(x, y, w, h, 4);
+      ctx.stroke();
+
+      ctx.shadowBlur = 12;
+      const gradient = ctx.createLinearGradient(x, cabinY, x + w, cabinY + cabinH);
+      gradient.addColorStop(0, "rgba(190, 222, 235, 0.16)");
+      gradient.addColorStop(0.5, "rgba(255, 209, 102, 0.42)");
+      gradient.addColorStop(1, "rgba(93, 212, 95, 0.18)");
+      ctx.fillStyle = gradient;
+      ctx.roundRect(cabin.x, cabinY, cabin.w, cabinH, 5);
+      ctx.fill();
+
+      ctx.fillStyle = "rgba(6, 15, 20, 0.58)";
+      ctx.fillRect(x + 12, cabinY + 9, w / 2 - 12 - doorGap, cabinH - 18);
+      ctx.fillRect(x + w / 2 + doorGap, cabinY + 9, w / 2 - 12 - doorGap, cabinH - 18);
+      drawElevatorOccupancy(cabin, state);
+      ctx.restore();
+      return state;
+    }
+
+    function drawElevatorOccupancy(cabin, state) {
+      const ride = state.ride;
+      if (!ride || ride.count <= 0) return;
+      const visible = Math.min(ride.count, 8);
+      const cols = Math.min(4, visible);
+      const rows = Math.ceil(visible / cols);
+      const startX = cabin.x + cabin.w * 0.24;
+      const startY = cabin.y + cabin.h * 0.34;
+      const gapX = cabin.w * 0.16;
+      const gapY = cabin.h * 0.24;
+      ctx.save();
+      ctx.shadowColor = "rgba(255, 209, 102, 0.68)";
+      ctx.shadowBlur = 10;
+      for (let index = 0; index < visible; index += 1) {
+        const col = index % cols;
+        const row = Math.floor(index / cols);
+        const px = startX + (col - (cols - 1) / 2) * gapX + cabin.w * 0.26;
+        const py = startY + (row - (rows - 1) / 2) * gapY + cabin.h * 0.18;
+        ctx.fillStyle = index % 2 ? "#7b5fa3" : "#147463";
+        ctx.strokeStyle = "rgba(255, 255, 255, 0.92)";
+        ctx.lineWidth = 2;
+        ctx.beginPath();
+        ctx.arc(px, py, 5.8, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.stroke();
+      }
+      ctx.shadowBlur = 0;
+      ctx.fillStyle = "rgba(5, 12, 18, 0.76)";
+      ctx.strokeStyle = "rgba(255, 209, 102, 0.82)";
+      ctx.lineWidth = 1.2;
+      ctx.roundRect(cabin.x + cabin.w - 34, cabin.y + cabin.h - 24, 28, 17, 7);
+      ctx.fill();
+      ctx.stroke();
+      ctx.fillStyle = "rgba(255, 249, 214, 0.96)";
+      ctx.font = "700 11px Inter, sans-serif";
+      ctx.textAlign = "center";
+      ctx.textBaseline = "middle";
+      ctx.fillText(String(ride.count), cabin.x + cabin.w - 20, cabin.y + cabin.h - 15.5);
+      ctx.restore();
+    }
+
+    function trainTimeline(t, offset = 0, reverse = false, payloadTrain = null) {
+      const trainW = W * 0.86;
+      const targetX = W * 0.065;
+      const approachSeconds = Math.min(12, Math.max(5, TRAIN_HEADWAY_SECONDS * 0.12));
+      const departSeconds = Math.min(12, Math.max(5, TRAIN_HEADWAY_SECONDS * 0.12));
+      const dwellSeconds = Math.min(
+        TRAIN_DWELL_SECONDS,
+        Math.max(4, TRAIN_HEADWAY_SECONDS - approachSeconds - departSeconds),
+      );
+      const serviceTime = t - TRAIN_INITIAL_OFFSET_SECONDS + offset + approachSeconds;
+      const cycleT = ((serviceTime % TRAIN_HEADWAY_SECONDS) + TRAIN_HEADWAY_SECONDS) % TRAIN_HEADWAY_SECONDS;
+      const dwellStart = approachSeconds;
+      const departStart = dwellStart + dwellSeconds;
+      const departEnd = departStart + departSeconds;
+      let x;
+      let doorOpen = 0;
+      let state = "区间";
+      let moving = false;
+
+      if (cycleT < approachSeconds) {
+        const p = ease(cycleT / approachSeconds);
+        x = lerp(-trainW * 0.96, targetX, p);
+        state = "进站";
+        moving = true;
+      } else if (cycleT < departStart) {
+        x = targetX;
+        const dwellT = cycleT - dwellStart;
+        const openIn = clamp(dwellT / 2.2, 0, 1);
+        const closeOut = 1 - clamp((dwellT - Math.max(0, dwellSeconds - 2.4)) / 2.4, 0, 1);
+        doorOpen = Math.min(openIn, closeOut);
+        state = payloadTrain?.state === "boarding" || doorOpen > 0.12 ? "开门" : "停靠";
+      } else if (cycleT < departEnd) {
+        const p = ease((cycleT - departStart) / departSeconds);
+        x = lerp(targetX, W * 1.07, p);
+        state = "离站";
+        moving = true;
+      } else {
+        x = W * 1.08;
+        state = "区间";
+      }
+
+      if (reverse) {
+        x = W - x - trainW;
+      }
+
+      return { cycleT, x, trainW, doorOpen, state, moving, reverse };
+    }
+
+    function nearestTrainSnapshot(localTime) {
+      if (!TRAIN_SAMPLES.length) return null;
+      let best = TRAIN_SAMPLES[0];
+      let bestDistance = Math.abs(best.time - localTime);
+      for (let i = 1; i < TRAIN_SAMPLES.length; i += 1) {
+        const distance = Math.abs(TRAIN_SAMPLES[i].time - localTime);
+        if (distance < bestDistance) {
+          best = TRAIN_SAMPLES[i];
+          bestDistance = distance;
+        }
+      }
+      return best;
+    }
+
+    function trainFromSnapshot(localTime, direction) {
+      const snapshot = nearestTrainSnapshot(localTime);
+      const trains = Array.isArray(snapshot?.trains) ? snapshot.trains : [];
+      return trains.find((train) => train.direction === direction) || null;
+    }
+
+    function drawMotionBlur(x, y, w, h, reverse, alpha) {
+      const dir = reverse ? 1 : -1;
+      ctx.save();
+      ctx.globalAlpha = alpha;
+      for (let i = 0; i < 6; i += 1) {
+        ctx.fillStyle = `rgba(232, 239, 243, ${0.08 - i * 0.01})`;
+        ctx.fillRect(x + dir * (i + 1) * 16, y + i * 2, w, h - i * 4);
+      }
+      ctx.restore();
+    }
+
+    function drawTrain(x, y, w, h, options) {
+      const { doorOpen, moving, reverse, opacity = 1, accent = "#d1432f" } = options;
+      const carCount = 8;
+      const carW = w / carCount;
+      const bodyH = h * 0.9;
+      const roofH = h * 0.12;
+
+      if (moving) {
+        drawMotionBlur(x, y, w, bodyH, reverse, 0.9 * opacity);
+      }
+
+      ctx.save();
+      ctx.globalAlpha = opacity;
+      ctx.shadowColor = "rgba(0, 0, 0, 0.36)";
+      ctx.shadowBlur = 24;
+      ctx.shadowOffsetY = 10;
+      ctx.fillStyle = "rgba(0, 0, 0, 0.28)";
+      ctx.roundRect(x + 14, y + h * 0.75, w - 28, h * 0.26, 16);
+      ctx.fill();
+
+      ctx.shadowBlur = 0;
+      for (let i = 0; i < carCount; i += 1) {
+        const cx = x + i * carW;
+        const isHead = (!reverse && i === 0) || (reverse && i === carCount - 1);
+        const isTail = (!reverse && i === carCount - 1) || (reverse && i === 0);
+
+        const bodyGradient = ctx.createLinearGradient(cx, y, cx, y + bodyH);
+        bodyGradient.addColorStop(0, "#f4f7f8");
+        bodyGradient.addColorStop(0.55, "#ccd5da");
+        bodyGradient.addColorStop(1, "#87949c");
+        ctx.fillStyle = bodyGradient;
+        ctx.beginPath();
+        const leftRadius = isHead && !reverse ? 26 : isTail && reverse ? 22 : 7;
+        const rightRadius = isHead && reverse ? 26 : isTail && !reverse ? 22 : 7;
+        roundedRectPath(ctx, cx + 2, y + roofH, carW - 4, bodyH - roofH, leftRadius, rightRadius);
+        ctx.fill();
+
+        ctx.fillStyle = "rgba(255, 255, 255, 0.54)";
+        ctx.fillRect(cx + 10, y + roofH, carW - 20, h * 0.08);
+
+        ctx.fillStyle = accent;
+        ctx.fillRect(cx + 8, y + bodyH * 0.68, carW - 16, 5);
+
+        ctx.strokeStyle = "rgba(35, 48, 55, 0.42)";
+        ctx.lineWidth = 1;
+        ctx.strokeRect(cx + carW - 2, y + roofH + 6, 1, bodyH - roofH - 12);
+
+        const windowY = y + bodyH * 0.25;
+        const winH = bodyH * 0.25;
+        const winW = carW * 0.16;
+        for (let j = 0; j < 4; j += 1) {
+          const wx = cx + carW * (0.16 + j * 0.16);
+          const wg = ctx.createLinearGradient(wx, windowY, wx, windowY + winH);
+          wg.addColorStop(0, "#314653");
+          wg.addColorStop(1, "#101a21");
+          ctx.fillStyle = wg;
+          ctx.roundRect(wx, windowY, winW, winH, 4);
+          ctx.fill();
+          ctx.fillStyle = "rgba(161, 203, 223, 0.22)";
+          ctx.fillRect(wx + 3, windowY + 3, winW - 6, 3);
+        }
+
+        const doorW = carW * 0.13;
+        const doorH = bodyH * 0.52;
+        const doorY = y + bodyH * 0.23;
+        [0.36, 0.68].forEach((pos) => {
+          const center = cx + carW * pos;
+          ctx.fillStyle = "rgba(33, 43, 49, 0.7)";
+          ctx.fillRect(center - doorW / 2, doorY, doorW, doorH);
+          const open = doorOpen * doorW * 0.42;
+          ctx.fillStyle = "#cfd8dd";
+          ctx.fillRect(center - doorW / 2 - open, doorY, doorW / 2, doorH);
+          ctx.fillRect(center + open, doorY, doorW / 2, doorH);
+          if (doorOpen > 0.05) {
+            ctx.fillStyle = "rgba(255, 209, 102, 0.7)";
+            ctx.fillRect(center - 2, doorY, 4, doorH);
+          }
+        });
+
+        if (isHead) {
+          const headX = reverse ? cx + carW - 30 : cx + 11;
+          ctx.fillStyle = "#17222b";
+          ctx.roundRect(headX, y + bodyH * 0.22, 26, bodyH * 0.32, 6);
+          ctx.fill();
+          ctx.fillStyle = "rgba(255, 218, 133, 0.9)";
+          ctx.beginPath();
+          ctx.arc(reverse ? cx + carW - 16 : cx + 24, y + bodyH * 0.62, 4, 0, Math.PI * 2);
+          ctx.fill();
+        }
+      }
+      ctx.restore();
+    }
+
+    function roundedRectPath(context, x, y, width, height, leftRadius, rightRadius) {
+      const lr = Math.min(leftRadius, width / 2, height / 2);
+      const rr = Math.min(rightRadius, width / 2, height / 2);
+      context.moveTo(x + lr, y);
+      context.lineTo(x + width - rr, y);
+      context.quadraticCurveTo(x + width, y, x + width, y + rr);
+      context.lineTo(x + width, y + height - rr);
+      context.quadraticCurveTo(x + width, y + height, x + width - rr, y + height);
+      context.lineTo(x + lr, y + height);
+      context.quadraticCurveTo(x, y + height, x, y + height - lr);
+      context.lineTo(x, y + lr);
+      context.quadraticCurveTo(x, y, x + lr, y);
+    }
+
+    function drawPlatformDoorHighlights(train, y, h, color) {
+      const open = train.doorOpen;
+      if (open <= 0.03) return;
+      const carCount = 8;
+      const carW = train.trainW / carCount;
+      ctx.save();
+      ctx.globalAlpha = 0.55 * open;
+      ctx.shadowColor = color;
+      ctx.shadowBlur = 14;
+      ctx.fillStyle = color;
+      for (let i = 0; i < carCount; i += 1) {
+        const cx = train.x + i * carW;
+        [0.36, 0.68].forEach((pos) => {
+          const center = cx + carW * pos;
+          if (center < 0 || center > W) return;
+          ctx.fillRect(center - 11, y, 22, h);
+        });
+      }
+      ctx.restore();
+    }
+
+    function drawTrains(t) {
+      const localTime = normalizePlaybackTime(t);
+      const trainA = trainTimeline(
+        localTime,
+        0,
+        false,
+        trainFromSnapshot(localTime, "down"),
+      );
+      const trainB = trainTimeline(
+        localTime,
+        TRAIN_HEADWAY_SECONDS / 2,
+        true,
+        trainFromSnapshot(localTime, "up"),
+      );
+      drawPlatformDoorHighlights(trainA, 0.731 * H, 0.045 * H, "#ffd166");
+      drawPlatformDoorHighlights(trainB, 0.894 * H, 0.028 * H, "#ff8a27");
+      drawTrain(trainA.x, 0.785 * H, trainA.trainW, 0.108 * H, {
+        doorOpen: trainA.doorOpen,
+        moving: trainA.moving,
+        reverse: false,
+        opacity: 0.98,
+        accent: "#d13c2f",
+      });
+      drawTrain(trainB.x, 0.887 * H, trainB.trainW, 0.1 * H, {
+        doorOpen: trainB.doorOpen,
+        moving: trainB.moving,
+        reverse: true,
+        opacity: 0.62,
+        accent: "#3d8cff",
+      });
+
+      trainAEl.textContent = trainA.state;
+      trainBEl.textContent = trainB.state;
+      trainRightEl.textContent = `往右方向 ${trainA.state}`;
+      trainLeftEl.textContent = `往左方向 ${trainB.state}`;
+      doorStatusEl.textContent = Math.max(trainA.doorOpen, trainB.doorOpen) > 0.15 ? "开启" : "关闭";
+      cycleTextEl.textContent = `${trainA.cycleT.toFixed(1)} / ${TRAIN_HEADWAY_SECONDS.toFixed(0)} s`;
+      cycleBarEl.style.width = `${(trainA.cycleT / TRAIN_HEADWAY_SECONDS) * 100}%`;
+    }
+
+    function drawClock(t) {
+      const scenarioHour = Number(SCENARIO.hour);
+      const startSeconds = Number.isFinite(Number(SCENARIO.clock_start_seconds))
+        ? Number(SCENARIO.clock_start_seconds)
+        : (Number.isFinite(scenarioHour) ? scenarioHour * 3600 : 18 * 3600);
+      const total = startSeconds + Math.floor(normalizePlaybackTime(t));
+      const hour = Math.floor(total / 3600) % 24;
+      const min = Math.floor((total % 3600) / 60);
+      const sec = total % 60;
+      clockEl.textContent = [hour, min, sec].map((part) => String(part).padStart(2, "0")).join(":");
+    }
+
+    function draw() {
+      const localTime = normalizePlaybackTime(simSeconds);
+      ctx.clearRect(0, 0, W, H);
+      drawStationGeometry();
+      const diagnosticLayer = selectedDiagnosticLayer();
+      if (diagnosticLayer === "decision" || diagnosticLayer === "all") drawDecisionRegions();
+      drawQueueLayouts(localTime, diagnosticLayer === "queue" || diagnosticLayer === "all");
+      drawFacilityUtilization(localTime);
+      drawTransportFlows(localTime);
+      drawJourneyTrails(localTime);
+      drawElevator(localTime);
+      if (SHOW_TRAIN_SERVICE) drawTrains(localTime);
+      drawPeople(localTime);
+      drawClock(localTime);
+      updateTimelineUi(localTime);
+      if (SCENE_RENDER_MODEL && firstSceneFrameMs === null) {
+        firstSceneFrameMs = performance.now();
+      }
+    }
+
+    function loop(now) {
+      const delta = Math.min(0.08, (now - lastTick) / 1000);
+      lastTick = now;
+      if (running) {
+        simSeconds += delta * speed;
+        if (playbackDuration() && simSeconds > playbackDuration()) {
+          if (playbackMode === "clearance") {
+            simSeconds = playbackDuration();
+            setRunning(false);
+          } else {
+            simSeconds = wrapTrackTime(simSeconds);
+          }
+        }
+      }
+      draw();
+      requestAnimationFrame(loop);
+    }
+
+    draw();
+    requestAnimationFrame(loop);
+    });
+  </script>
+</body>
+</html>

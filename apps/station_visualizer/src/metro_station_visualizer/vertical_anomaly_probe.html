@@ -1,0 +1,460 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>垂直设施入口轨迹诊断</title>
+  <style>
+    :root {
+      color-scheme: dark;
+      --bg: #06131a;
+      --panel: rgba(10, 24, 32, 0.92);
+      --line: rgba(157, 183, 190, 0.32);
+      --text: #e8f3f5;
+      --muted: #9db2bb;
+      --accent: #ffd45a;
+      --warn: #ff7a42;
+      --ok: #5ee675;
+    }
+
+    * {
+      box-sizing: border-box;
+    }
+
+    body {
+      margin: 0;
+      min-height: 100vh;
+      background: var(--bg);
+      color: var(--text);
+      font-family: Inter, "Microsoft YaHei", system-ui, sans-serif;
+      display: grid;
+      grid-template-columns: 280px minmax(0, 1fr);
+      gap: 16px;
+      padding: 18px;
+    }
+
+    .panel {
+      background: var(--panel);
+      border: 1px solid rgba(166, 194, 204, 0.22);
+      border-radius: 8px;
+      padding: 16px;
+      align-self: start;
+      box-shadow: 0 18px 50px rgba(0, 0, 0, 0.28);
+    }
+
+    h1 {
+      margin: 0 0 10px;
+      font-size: 18px;
+      line-height: 1.2;
+    }
+
+    .metric {
+      border-top: 1px solid rgba(166, 194, 204, 0.18);
+      padding: 12px 0;
+      display: grid;
+      gap: 4px;
+    }
+
+    .metric:first-of-type {
+      border-top: 0;
+    }
+
+    .label {
+      color: var(--muted);
+      font-size: 12px;
+    }
+
+    .value {
+      font-size: 18px;
+      font-weight: 700;
+      word-break: break-word;
+    }
+
+    .chips {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+      margin-top: 8px;
+    }
+
+    button {
+      border: 1px solid rgba(166, 194, 204, 0.24);
+      border-radius: 6px;
+      background: #12303d;
+      color: var(--text);
+      min-height: 34px;
+      padding: 0 12px;
+      font-weight: 700;
+      cursor: pointer;
+    }
+
+    button.active {
+      background: #174a78;
+      border-color: #3d91e6;
+    }
+
+    input[type="range"] {
+      width: 100%;
+      accent-color: var(--accent);
+    }
+
+    .stage {
+      position: relative;
+      min-width: 0;
+      display: grid;
+      gap: 10px;
+    }
+
+    canvas {
+      width: 100%;
+      height: min(calc(100vh - 36px), 760px);
+      min-height: 560px;
+      background: #071820;
+      border: 1px solid rgba(166, 194, 204, 0.2);
+      border-radius: 8px;
+      box-shadow: 0 18px 50px rgba(0, 0, 0, 0.3);
+    }
+
+    .legend {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 12px;
+      color: var(--muted);
+      font-size: 12px;
+      align-items: center;
+    }
+
+    .key {
+      display: inline-grid;
+      grid-template-columns: 12px auto;
+      gap: 6px;
+      align-items: center;
+    }
+
+    .dot {
+      width: 12px;
+      height: 12px;
+      border-radius: 999px;
+      background: var(--accent);
+      display: inline-block;
+    }
+
+    .dot.warn {
+      background: var(--warn);
+    }
+
+    .dot.ok {
+      background: var(--ok);
+    }
+
+    @media (max-width: 900px) {
+      body {
+        grid-template-columns: 1fr;
+      }
+
+      canvas {
+        min-height: 460px;
+      }
+    }
+  </style>
+</head>
+<body>
+  <aside class="panel">
+    <h1>入口附近慢速抖动样本</h1>
+    <div class="metric">
+      <span class="label">追踪对象</span>
+      <span class="value" id="trackValue">#33</span>
+    </div>
+    <div class="metric">
+      <span class="label">当前时间</span>
+      <span class="value" id="timeValue">--</span>
+      <input id="timeSlider" type="range" min="70" max="190" step="1" value="120" />
+      <div class="chips">
+        <button id="playButton" class="active" type="button">暂停</button>
+        <button data-jump="95" type="button">95s</button>
+        <button data-jump="120" type="button">120s</button>
+        <button data-jump="175" type="button">175s</button>
+      </div>
+    </div>
+    <div class="metric">
+      <span class="label">状态</span>
+      <span class="value" id="stateValue">--</span>
+    </div>
+    <div class="metric">
+      <span class="label">位置</span>
+      <span class="value" id="positionValue">--</span>
+    </div>
+    <div class="metric">
+      <span class="label">窗口位移</span>
+      <span class="value">70s-130s: 1.83m</span>
+    </div>
+  </aside>
+
+  <main class="stage">
+    <canvas id="scene" width="1180" height="760"></canvas>
+    <div class="legend">
+      <span class="key"><i class="dot"></i>33号当前位置</span>
+      <span class="key"><i class="dot warn"></i>slow/targeting 采样点</span>
+      <span class="key"><i class="dot ok"></i>下行扶梯入口线</span>
+    </div>
+  </main>
+
+  <script src="assets/passenger_tracks_jps.js"></script>
+  <script>
+    const params = new URLSearchParams(location.search);
+    const TRACK_ID = Number(params.get("track") || 33);
+    const START = Number(params.get("start") || 70);
+    const END = Number(params.get("end") || 190);
+    const initialT = Number(params.get("t") || 120);
+
+    const payload = window.JPS_TRACKS;
+    const canvas = document.getElementById("scene");
+    const ctx = canvas.getContext("2d");
+    const slider = document.getElementById("timeSlider");
+    const playButton = document.getElementById("playButton");
+    const timeValue = document.getElementById("timeValue");
+    const stateValue = document.getElementById("stateValue");
+    const positionValue = document.getElementById("positionValue");
+    const trackValue = document.getElementById("trackValue");
+
+    slider.min = String(START);
+    slider.max = String(END);
+    slider.value = String(Math.max(START, Math.min(END, initialT)));
+    trackValue.textContent = `#${TRACK_ID}`;
+
+    const agent = payload.agents.find((item) => Number(item.id) === TRACK_ID);
+    const points = (agent?.points || []).filter((point) => point[0] >= START && point[0] <= END);
+    const W = 1672;
+    const H = 941;
+    const crop = { x: 210, y: 315, width: 350, height: 250 };
+    let time = Number(slider.value);
+    let playing = params.get("play") !== "0";
+    let lastFrame = performance.now();
+
+    function sx(x) {
+      return ((x - crop.x) / crop.width) * canvas.width;
+    }
+
+    function sy(y) {
+      return ((y - crop.y) / crop.height) * canvas.height;
+    }
+
+    function scalePoint(point) {
+      const x = Math.abs(point[0]) <= 1.5 ? point[0] * W : point[0];
+      const y = Math.abs(point[1]) <= 1.5 ? point[1] * H : point[1];
+      return [sx(x), sy(y)];
+    }
+
+    function drawPolygon(points, fill, stroke) {
+      if (!Array.isArray(points) || points.length < 2) return;
+      ctx.beginPath();
+      points.forEach((point, index) => {
+        const [x, y] = scalePoint(point);
+        if (index === 0) ctx.moveTo(x, y);
+        else ctx.lineTo(x, y);
+      });
+      ctx.closePath();
+      if (fill) {
+        ctx.fillStyle = fill;
+        ctx.fill();
+      }
+      if (stroke) {
+        ctx.strokeStyle = stroke;
+        ctx.lineWidth = 1;
+        ctx.stroke();
+      }
+    }
+
+    function interpolateTrack(trackPoints, t) {
+      if (!trackPoints.length) return null;
+      if (t <= trackPoints[0][0]) return trackPoints[0];
+      for (let index = 1; index < trackPoints.length; index += 1) {
+        const prev = trackPoints[index - 1];
+        const next = trackPoints[index];
+        if (t <= next[0]) {
+          const span = Math.max(0.001, next[0] - prev[0]);
+          const alpha = (t - prev[0]) / span;
+          const mixed = [...next];
+          mixed[0] = t;
+          mixed[1] = prev[1] + (next[1] - prev[1]) * alpha;
+          mixed[2] = prev[2] + (next[2] - prev[2]) * alpha;
+          return mixed;
+        }
+      }
+      return trackPoints[trackPoints.length - 1];
+    }
+
+    function drawLayout() {
+      ctx.fillStyle = "#071820";
+      ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+      for (const region of payload.layout.walkable_regions || []) {
+        drawPolygon(region.points, "rgba(207, 223, 220, 0.86)", "rgba(92, 112, 116, 0.7)");
+      }
+      for (const obstacle of payload.layout.obstacles || []) {
+        drawPolygon(obstacle.points, "rgba(87, 103, 104, 0.45)", "rgba(60, 76, 78, 0.7)");
+      }
+
+      ctx.save();
+      ctx.globalAlpha = 0.25;
+      ctx.strokeStyle = "#8aa1a7";
+      ctx.lineWidth = 1;
+      for (let x = Math.floor(crop.x / 32) * 32; x < crop.x + crop.width; x += 32) {
+        ctx.beginPath();
+        ctx.moveTo(sx(x), 0);
+        ctx.lineTo(sx(x), canvas.height);
+        ctx.stroke();
+      }
+      for (let y = Math.floor(crop.y / 32) * 32; y < crop.y + crop.height; y += 32) {
+        ctx.beginPath();
+        ctx.moveTo(0, sy(y));
+        ctx.lineTo(canvas.width, sy(y));
+        ctx.stroke();
+      }
+      ctx.restore();
+
+      for (const channel of payload.layout.connector_channels || []) {
+        if (!channel.id.includes("escalator")) continue;
+        const line = channel.line.map(scalePoint);
+        ctx.beginPath();
+        ctx.moveTo(line[0][0], line[0][1]);
+        for (const p of line.slice(1)) ctx.lineTo(p[0], p[1]);
+        const isFocus = channel.id === "down_escalator_1";
+        ctx.strokeStyle = isFocus ? "rgba(94, 230, 117, 0.88)" : "rgba(255, 122, 66, 0.28)";
+        ctx.lineWidth = isFocus ? 18 : 10;
+        ctx.lineCap = "round";
+        ctx.stroke();
+      }
+
+      ctx.fillStyle = "rgba(255, 255, 255, 0.86)";
+      ctx.font = "700 18px Microsoft YaHei, sans-serif";
+      ctx.fillText("下行扶梯入口", sx(305), sy(392));
+    }
+
+    function drawTrack() {
+      if (!points.length) return;
+      ctx.lineWidth = 4;
+      ctx.lineCap = "round";
+      ctx.lineJoin = "round";
+      ctx.strokeStyle = "rgba(255, 212, 90, 0.88)";
+      ctx.beginPath();
+      points.forEach((point, index) => {
+        const x = sx(point[1]);
+        const y = sy(point[2]);
+        if (index === 0) ctx.moveTo(x, y);
+        else ctx.lineTo(x, y);
+      });
+      ctx.stroke();
+
+      for (const point of points) {
+        const isSlow = point[8] === "slow";
+        ctx.fillStyle = isSlow ? "rgba(255, 122, 66, 0.95)" : "rgba(255, 212, 90, 0.9)";
+        ctx.beginPath();
+        ctx.arc(sx(point[1]), sy(point[2]), isSlow ? 6 : 4, 0, Math.PI * 2);
+        ctx.fill();
+      }
+    }
+
+    function drawOtherPeople() {
+      for (const other of payload.agents || []) {
+        if (Number(other.id) === TRACK_ID) continue;
+        const sample = interpolateTrack(other.points || [], time);
+        if (!sample) continue;
+        const x = sample[1];
+        const y = sample[2];
+        if (x < crop.x || x > crop.x + crop.width || y < crop.y || y > crop.y + crop.height) continue;
+        ctx.fillStyle = "rgba(28, 45, 52, 0.42)";
+        ctx.beginPath();
+        ctx.arc(sx(x), sy(y), 3, 0, Math.PI * 2);
+        ctx.fill();
+      }
+    }
+
+    function drawCurrent() {
+      const point = interpolateTrack(points, time);
+      if (!point) return;
+      const x = sx(point[1]);
+      const y = sy(point[2]);
+      ctx.strokeStyle = "rgba(255, 212, 90, 0.34)";
+      ctx.lineWidth = 28;
+      ctx.beginPath();
+      ctx.arc(x, y, 1, 0, Math.PI * 2);
+      ctx.stroke();
+      ctx.fillStyle = "#ffd45a";
+      ctx.beginPath();
+      ctx.arc(x, y, 10, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.strokeStyle = "#071820";
+      ctx.lineWidth = 3;
+      ctx.stroke();
+
+      ctx.fillStyle = "#06131a";
+      ctx.strokeStyle = "rgba(255, 212, 90, 0.8)";
+      ctx.lineWidth = 1;
+      const label = `#${TRACK_ID}`;
+      ctx.font = "700 18px Inter, sans-serif";
+      const width = ctx.measureText(label).width + 18;
+      ctx.beginPath();
+      ctx.roundRect(x + 14, y - 32, width, 28, 6);
+      ctx.fill();
+      ctx.stroke();
+      ctx.fillStyle = "#fff4c8";
+      ctx.fillText(label, x + 23, y - 12);
+
+      timeValue.textContent = `${Math.round(time)}s`;
+      stateValue.textContent = `${point[7] || "--"} / ${point[8] || "--"}`;
+      positionValue.textContent = `${(point[1] / 20).toFixed(2)}m, ${(point[2] / 20).toFixed(2)}m`;
+    }
+
+    function render() {
+      drawLayout();
+      drawOtherPeople();
+      drawTrack();
+      drawCurrent();
+    }
+
+    function tick(now) {
+      const dt = (now - lastFrame) / 1000;
+      lastFrame = now;
+      if (playing) {
+        time += dt * 8;
+        if (time > END) time = START;
+        slider.value = String(time);
+      }
+      render();
+      requestAnimationFrame(tick);
+    }
+
+    playButton.addEventListener("click", () => {
+      playing = !playing;
+      playButton.textContent = playing ? "暂停" : "播放";
+      playButton.classList.toggle("active", playing);
+    });
+
+    slider.addEventListener("input", () => {
+      time = Number(slider.value);
+      playing = false;
+      playButton.textContent = "播放";
+      playButton.classList.remove("active");
+      render();
+    });
+
+    document.querySelectorAll("[data-jump]").forEach((button) => {
+      button.addEventListener("click", () => {
+        time = Number(button.dataset.jump);
+        slider.value = String(time);
+        playing = false;
+        playButton.textContent = "播放";
+        playButton.classList.remove("active");
+        render();
+      });
+    });
+
+    render();
+    requestAnimationFrame((now) => {
+      lastFrame = now;
+      requestAnimationFrame(tick);
+    });
+  </script>
+</body>
+</html>

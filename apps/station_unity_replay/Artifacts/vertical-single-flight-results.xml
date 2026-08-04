@@ -1,0 +1,93 @@
+<?xml version="1.0" encoding="utf-8"?>
+<test-run id="2" testcasecount="10" result="Passed" total="10" passed="10" failed="0" inconclusive="0" skipped="0" asserts="0" engine-version="3.5.0.0" clr-version="4.0.30319.42000" start-time="2026-08-01 14:40:11Z" end-time="2026-08-01 14:40:11Z" duration="0.0780474">
+  <test-suite type="TestSuite" id="1000" name="Metro Station 3D Replay" fullname="Metro Station 3D Replay" runstate="Runnable" testcasecount="262" result="Passed" start-time="2026-08-01 14:40:11Z" end-time="2026-08-01 14:40:11Z" duration="0.078047" total="10" passed="10" failed="0" inconclusive="0" skipped="0" asserts="0">
+    <properties>
+      <property name="platform" value="EditMode" />
+    </properties>
+    <test-suite type="Assembly" id="1062" name="MetroReplay.Tests.EditMode.dll" fullname="D:/metro/.codex_tmp/station_unity_replay_verify/Library/ScriptAssemblies/MetroReplay.Tests.EditMode.dll" runstate="Runnable" testcasecount="44" result="Passed" start-time="2026-08-01 14:40:11Z" end-time="2026-08-01 14:40:11Z" duration="0.071353" total="10" passed="10" failed="0" inconclusive="0" skipped="0" asserts="0">
+      <properties>
+        <property name="_PID" value="67840" />
+        <property name="_APPDOMAIN" value="Unity Child Domain" />
+        <property name="platform" value="EditMode" />
+        <property name="EditorOnly" value="True" />
+      </properties>
+      <test-suite type="TestSuite" id="1063" name="MetroReplay" fullname="MetroReplay" runstate="Runnable" testcasecount="44" result="Passed" start-time="2026-08-01 14:40:11Z" end-time="2026-08-01 14:40:11Z" duration="0.070723" total="10" passed="10" failed="0" inconclusive="0" skipped="0" asserts="0">
+        <properties />
+        <test-suite type="TestSuite" id="1064" name="Tests" fullname="MetroReplay.Tests" runstate="Runnable" testcasecount="44" result="Passed" start-time="2026-08-01 14:40:11Z" end-time="2026-08-01 14:40:11Z" duration="0.070299" total="10" passed="10" failed="0" inconclusive="0" skipped="0" asserts="0">
+          <properties />
+          <test-suite type="TestFixture" id="1034" name="ReplaySamplerTests" fullname="MetroReplay.Tests.ReplaySamplerTests" classname="MetroReplay.Tests.ReplaySamplerTests" runstate="Runnable" testcasecount="10" result="Passed" start-time="2026-08-01 14:40:11Z" end-time="2026-08-01 14:40:11Z" duration="0.069249" total="10" passed="10" failed="0" inconclusive="0" skipped="0" asserts="0">
+            <properties />
+            <test-suite type="ParameterizedMethod" id="1041" name="DerivedVerticalRoutePreservesAuthoritativeAnchorsAtReadableSlope" fullname="MetroReplay.Tests.ReplaySamplerTests.DerivedVerticalRoutePreservesAuthoritativeAnchorsAtReadableSlope" classname="MetroReplay.Tests.ReplaySamplerTests" runstate="Runnable" testcasecount="2" result="Passed" start-time="2026-08-01 14:40:11Z" end-time="2026-08-01 14:40:11Z" duration="0.012561" total="2" passed="2" failed="0" inconclusive="0" skipped="0" asserts="0">
+              <properties />
+              <test-case id="1039" name="DerivedVerticalRoutePreservesAuthoritativeAnchorsAtReadableSlope(&quot;escalator&quot;,30.0f)" fullname="MetroReplay.Tests.ReplaySamplerTests.DerivedVerticalRoutePreservesAuthoritativeAnchorsAtReadableSlope(&quot;escalator&quot;,30.0f)" methodname="DerivedVerticalRoutePreservesAuthoritativeAnchorsAtReadableSlope" classname="MetroReplay.Tests.ReplaySamplerTests" runstate="Runnable" seed="1052575871" result="Passed" start-time="2026-08-01 14:40:11Z" end-time="2026-08-01 14:40:11Z" duration="0.009060" asserts="0">
+                <properties>
+                  <property name="retryIteration" value="0" />
+                  <property name="repeatIteration" value="0" />
+                </properties>
+              </test-case>
+              <test-case id="1040" name="DerivedVerticalRoutePreservesAuthoritativeAnchorsAtReadableSlope(&quot;stairs&quot;,35.0f)" fullname="MetroReplay.Tests.ReplaySamplerTests.DerivedVerticalRoutePreservesAuthoritativeAnchorsAtReadableSlope(&quot;stairs&quot;,35.0f)" methodname="DerivedVerticalRoutePreservesAuthoritativeAnchorsAtReadableSlope" classname="MetroReplay.Tests.ReplaySamplerTests" runstate="Runnable" seed="148473333" result="Passed" start-time="2026-08-01 14:40:11Z" end-time="2026-08-01 14:40:11Z" duration="0.000112" asserts="0">
+                <properties>
+                  <property name="retryIteration" value="0" />
+                  <property name="repeatIteration" value="0" />
+                </properties>
+              </test-case>
+            </test-suite>
+            <test-case id="1037" name="KeepsCapsuleFallbackBottomOnFootPosition" fullname="MetroReplay.Tests.ReplaySamplerTests.KeepsCapsuleFallbackBottomOnFootPosition" methodname="KeepsCapsuleFallbackBottomOnFootPosition" classname="MetroReplay.Tests.ReplaySamplerTests" runstate="Runnable" seed="181373420" result="Passed" start-time="2026-08-01 14:40:11Z" end-time="2026-08-01 14:40:11Z" duration="0.024463" asserts="0">
+              <properties>
+                <property name="retryIteration" value="0" />
+                <property name="repeatIteration" value="0" />
+              </properties>
+            </test-case>
+            <test-case id="1036" name="PlacesWalkingPassengerFeetOnWalkableSurface" fullname="MetroReplay.Tests.ReplaySamplerTests.PlacesWalkingPassengerFeetOnWalkableSurface" methodname="PlacesWalkingPassengerFeetOnWalkableSurface" classname="MetroReplay.Tests.ReplaySamplerTests" runstate="Runnable" seed="374963591" result="Passed" start-time="2026-08-01 14:40:11Z" end-time="2026-08-01 14:40:11Z" duration="0.014317" asserts="0">
+              <properties>
+                <property name="retryIteration" value="0" />
+                <property name="repeatIteration" value="0" />
+              </properties>
+            </test-case>
+            <test-case id="1035" name="ReconstructsElevatorTravelAtAnySeekTime" fullname="MetroReplay.Tests.ReplaySamplerTests.ReconstructsElevatorTravelAtAnySeekTime" methodname="ReconstructsElevatorTravelAtAnySeekTime" classname="MetroReplay.Tests.ReplaySamplerTests" runstate="Runnable" seed="1922965988" result="Passed" start-time="2026-08-01 14:40:11Z" end-time="2026-08-01 14:40:11Z" duration="0.001911" asserts="0">
+              <properties>
+                <property name="retryIteration" value="0" />
+                <property name="repeatIteration" value="0" />
+              </properties>
+            </test-case>
+            <test-case id="1038" name="SamplesThreeHundredPassengersWithoutDuplicateIds" fullname="MetroReplay.Tests.ReplaySamplerTests.SamplesThreeHundredPassengersWithoutDuplicateIds" methodname="SamplesThreeHundredPassengersWithoutDuplicateIds" classname="MetroReplay.Tests.ReplaySamplerTests" runstate="Runnable" seed="1249351307" result="Passed" start-time="2026-08-01 14:40:11Z" end-time="2026-08-01 14:40:11Z" duration="0.009417" asserts="0">
+              <properties>
+                <property name="retryIteration" value="0" />
+                <property name="repeatIteration" value="0" />
+              </properties>
+            </test-case>
+            <test-suite type="ParameterizedMethod" id="1046" name="SelectsExistingQuaterniusAnimation" fullname="MetroReplay.Tests.ReplaySamplerTests.SelectsExistingQuaterniusAnimation" classname="MetroReplay.Tests.ReplaySamplerTests" runstate="Runnable" testcasecount="4" result="Passed" start-time="2026-08-01 14:40:11Z" end-time="2026-08-01 14:40:11Z" duration="0.001314" total="4" passed="4" failed="0" inconclusive="0" skipped="0" asserts="0">
+              <properties />
+              <test-case id="1042" name="SelectsExistingQuaterniusAnimation(&quot;queueing_exit_gate&quot;,False,&quot;Idle_Loop&quot;)" fullname="MetroReplay.Tests.ReplaySamplerTests.SelectsExistingQuaterniusAnimation(&quot;queueing_exit_gate&quot;,False,&quot;Idle_Loop&quot;)" methodname="SelectsExistingQuaterniusAnimation" classname="MetroReplay.Tests.ReplaySamplerTests" runstate="Runnable" seed="601274151" result="Passed" start-time="2026-08-01 14:40:11Z" end-time="2026-08-01 14:40:11Z" duration="0.000426" asserts="0">
+                <properties>
+                  <property name="retryIteration" value="0" />
+                  <property name="repeatIteration" value="0" />
+                </properties>
+              </test-case>
+              <test-case id="1043" name="SelectsExistingQuaterniusAnimation(&quot;running&quot;,False,&quot;Jog_Fwd_Loop&quot;)" fullname="MetroReplay.Tests.ReplaySamplerTests.SelectsExistingQuaterniusAnimation(&quot;running&quot;,False,&quot;Jog_Fwd_Loop&quot;)" methodname="SelectsExistingQuaterniusAnimation" classname="MetroReplay.Tests.ReplaySamplerTests" runstate="Runnable" seed="1195706689" result="Passed" start-time="2026-08-01 14:40:11Z" end-time="2026-08-01 14:40:11Z" duration="0.000058" asserts="0">
+                <properties>
+                  <property name="retryIteration" value="0" />
+                  <property name="repeatIteration" value="0" />
+                </properties>
+              </test-case>
+              <test-case id="1044" name="SelectsExistingQuaterniusAnimation(&quot;walking_to_vertical&quot;,False,&quot;Walk_Loop&quot;)" fullname="MetroReplay.Tests.ReplaySamplerTests.SelectsExistingQuaterniusAnimation(&quot;walking_to_vertical&quot;,False,&quot;Walk_Loop&quot;)" methodname="SelectsExistingQuaterniusAnimation" classname="MetroReplay.Tests.ReplaySamplerTests" runstate="Runnable" seed="195222581" result="Passed" start-time="2026-08-01 14:40:11Z" end-time="2026-08-01 14:40:11Z" duration="0.000024" asserts="0">
+                <properties>
+                  <property name="retryIteration" value="0" />
+                  <property name="repeatIteration" value="0" />
+                </properties>
+              </test-case>
+              <test-case id="1045" name="SelectsExistingQuaterniusAnimation(&quot;riding_vertical&quot;,True,&quot;Walk_Loop&quot;)" fullname="MetroReplay.Tests.ReplaySamplerTests.SelectsExistingQuaterniusAnimation(&quot;riding_vertical&quot;,True,&quot;Walk_Loop&quot;)" methodname="SelectsExistingQuaterniusAnimation" classname="MetroReplay.Tests.ReplaySamplerTests" runstate="Runnable" seed="1300572821" result="Passed" start-time="2026-08-01 14:40:11Z" end-time="2026-08-01 14:40:11Z" duration="0.000022" asserts="0">
+                <properties>
+                  <property name="retryIteration" value="0" />
+                  <property name="repeatIteration" value="0" />
+                </properties>
+                <output><![CDATA[Saving results to: C:/Users/1/AppData/LocalLow/Metro Simulation Lab/Metro Station 3D Replay\TestResults.xml
+]]></output>
+              </test-case>
+            </test-suite>
+          </test-suite>
+        </test-suite>
+      </test-suite>
+    </test-suite>
+  </test-suite>
+</test-run>

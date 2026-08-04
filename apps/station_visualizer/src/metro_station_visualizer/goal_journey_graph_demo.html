@@ -1,0 +1,91 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>单旅客进站到上车 · Graph 可视化</title>
+  <link rel="stylesheet" href="assets/goal_journey_graph_demo.css" />
+</head>
+<body>
+  <main class="app-shell">
+    <header class="topbar">
+      <div>
+        <div class="eyebrow">GOAL GRAPH · PHYSICAL JOURNEY</div>
+        <h1>单旅客进站到上车</h1>
+        <p id="scenarioDescription">拥挤模式：92 名流动背景旅客与 36 名局部阻塞旅客，共同触发闸机、楼梯、车门的重新选择。</p>
+      </div>
+      <div class="status-pill"><i></i><label>场景
+        <select id="modeSelect">
+          <option value="crowded_full_journey" selected>拥挤模式 · 129 人峰值</option>
+          <option value="natural_full_journey">清场模式 · 1 人</option>
+        </select>
+      </label></div>
+    </header>
+
+    <section class="metrics" aria-label="运行指标">
+      <div><span>仿真时间</span><strong id="timeValue">0.00 s</strong></div>
+      <div><span>当前楼层</span><strong id="levelValue">站厅层</strong></div>
+      <div><span>旅客状态</span><strong id="passengerState">进入车站</strong></div>
+      <div><span>服务进度</span><strong id="serviceCount">0 / 3</strong></div>
+      <div><span>场内人数</span><strong id="crowdCount">1</strong></div>
+    </section>
+
+    <section class="workspace">
+      <div class="scene-card card">
+        <div class="card-head">
+          <div><span class="section-index">01</span><b>物理场景</b></div>
+          <div class="legend">
+            <span><i class="dot passenger"></i>研究旅客</span>
+            <span><i class="dot target"></i>当前目标</span>
+            <span><i class="dot service"></i>设施服务</span>
+          </div>
+        </div>
+        <div class="canvas-wrap">
+          <canvas id="journeyCanvas" aria-label="单旅客站内物理轨迹"></canvas>
+          <div class="canvas-note">同一旅客 ID · 同一物理时钟 · 逐 tick 实测轨迹</div>
+        </div>
+        <div class="controls">
+          <button id="playButton" type="button" aria-label="播放或暂停">暂停</button>
+          <button id="resetButton" type="button">重播</button>
+          <input id="timeline" type="range" min="0" max="45.25" step="0.01" value="0" />
+          <label>速度
+            <select id="speedSelect">
+              <option value="0.5">0.5×</option>
+              <option value="1">1×</option>
+              <option value="2" selected>2×</option>
+              <option value="4">4×</option>
+            </select>
+          </label>
+        </div>
+      </div>
+
+      <aside class="graph-card card">
+        <div class="card-head">
+          <div><span class="section-index">02</span><b>Journey Graph</b></div>
+          <span class="graph-version">v1</span>
+        </div>
+        <div id="graphNodes" class="graph-nodes" aria-label="Journey Graph 节点"></div>
+        <div class="state-panel">
+          <div><span>当前节点</span><strong id="currentNode">—</strong></div>
+          <div><span>子状态</span><strong id="interactionState">—</strong></div>
+          <div><span>承诺设施</span><strong id="commitmentValue">—</strong></div>
+          <div><span>最后事件</span><strong id="eventValue">start</strong></div>
+        </div>
+      </aside>
+    </section>
+
+    <section class="events-card card">
+      <div class="card-head">
+        <div><span class="section-index">03</span><b>事件时间线</b></div>
+        <span>GraphEvent → GoalCommand → 物理组件</span>
+      </div>
+      <div id="eventTimeline" class="event-timeline"></div>
+    </section>
+  </main>
+
+  <script src="assets/goal_journey_demo_data.js"></script>
+  <script src="assets/goal_journey_crowded_data.js"></script>
+  <script src="assets/goal_journey_graph_scene.js"></script>
+  <script src="assets/goal_journey_graph_app.js"></script>
+</body>
+</html>

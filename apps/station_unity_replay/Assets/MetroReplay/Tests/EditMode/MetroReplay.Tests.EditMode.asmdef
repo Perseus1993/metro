@@ -1,0 +1,19 @@
+{
+  "name": "MetroReplay.Tests.EditMode",
+  "rootNamespace": "MetroReplay.Tests",
+  "references": [
+    "MetroReplay.Runtime",
+    "Unity.Newtonsoft.Json"
+  ],
+  "optionalUnityReferences": [
+    "TestAssemblies"
+  ],
+  "overrideReferences": true,
+  "precompiledReferences": [
+    "Newtonsoft.Json.dll"
+  ],
+  "includePlatforms": [
+    "Editor"
+  ],
+  "autoReferenced": false
+}

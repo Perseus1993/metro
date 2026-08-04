@@ -1,0 +1,610 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Gate Bank Flow Probe</title>
+  <style>
+    :root {
+      color-scheme: dark;
+      font-family: Inter, Segoe UI, Arial, sans-serif;
+      background: #081117;
+      color: #d9e7ee;
+    }
+    body {
+      margin: 0;
+      min-height: 100vh;
+      display: grid;
+      grid-template-rows: auto 1fr auto;
+      background: #081117;
+    }
+    header,
+    footer {
+      padding: 10px 14px;
+      display: flex;
+      gap: 16px;
+      align-items: center;
+      border-color: rgba(217, 231, 238, 0.12);
+    }
+    header {
+      border-bottom: 1px solid rgba(217, 231, 238, 0.12);
+    }
+    footer {
+      border-top: 1px solid rgba(217, 231, 238, 0.12);
+    }
+    .metric {
+      min-width: 112px;
+      color: #9bb5c0;
+      font-size: 12px;
+    }
+    .metric strong {
+      display: block;
+      color: #f4fbff;
+      font-size: 16px;
+      font-weight: 650;
+      line-height: 1.15;
+    }
+    main {
+      min-height: 0;
+      display: grid;
+      place-items: center;
+      padding: 10px;
+    }
+    .stage {
+      position: relative;
+      width: min(100%, 1180px);
+    }
+    canvas {
+      width: 100%;
+      height: auto;
+      max-height: calc(100vh - 120px);
+      background: #0b1720;
+      border: 1px solid rgba(217, 231, 238, 0.18);
+      border-radius: 6px;
+    }
+    .track-panel {
+      position: absolute;
+      top: 10px;
+      right: 10px;
+      width: min(300px, calc(100% - 20px));
+      padding: 8px;
+      border: 1px solid rgba(217, 231, 238, 0.16);
+      border-radius: 6px;
+      background: rgba(8, 17, 23, 0.76);
+      backdrop-filter: blur(4px);
+      color: #d9e7ee;
+      font-size: 12px;
+      pointer-events: none;
+    }
+    .track-row {
+      display: grid;
+      grid-template-columns: 12px 46px 1fr 56px;
+      gap: 7px;
+      align-items: center;
+      padding: 4px 2px;
+      border-top: 1px solid rgba(217, 231, 238, 0.08);
+    }
+    .track-row:first-child {
+      border-top: 0;
+    }
+    .track-dot {
+      width: 9px;
+      height: 9px;
+      border-radius: 50%;
+      border: 1px solid rgba(255, 255, 255, 0.75);
+    }
+    .track-id {
+      color: #f4fbff;
+      font-weight: 650;
+    }
+    .track-state {
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+      color: #9bb5c0;
+    }
+    .track-speed {
+      text-align: right;
+      color: #d9e7ee;
+      font-variant-numeric: tabular-nums;
+    }
+    button,
+    select,
+    input[type="range"] {
+      accent-color: #4aa3ff;
+    }
+    button,
+    select {
+      background: #142633;
+      border: 1px solid rgba(217, 231, 238, 0.2);
+      color: #e7f3f8;
+      border-radius: 6px;
+      padding: 6px 9px;
+    }
+    input[type="range"] {
+      flex: 1;
+      min-width: 180px;
+    }
+  </style>
+</head>
+<body>
+  <header>
+    <div class="metric"><strong id="timeValue">0.0s</strong>time</div>
+    <div class="metric"><strong id="visibleValue">0</strong>visible people</div>
+    <div class="metric"><strong id="queueValue">0</strong>queueing gate</div>
+    <div class="metric"><strong id="servedValue">0</strong>gate served</div>
+    <div class="metric"><strong id="issuesValue">0</strong>reverse jumps</div>
+  </header>
+  <main>
+    <div class="stage">
+      <canvas id="scene" width="1180" height="720"></canvas>
+      <div id="trackPanel" class="track-panel"></div>
+    </div>
+  </main>
+  <footer>
+    <button id="playButton" type="button">Pause</button>
+    <input id="timeline" type="range" min="0" max="0" value="0" step="0.01" />
+    <select id="speedSelect">
+      <option value="0.5">0.5x</option>
+      <option value="1" selected>1x</option>
+      <option value="2">2x</option>
+      <option value="4">4x</option>
+    </select>
+  </footer>
+  <script src="assets/passenger_tracks_jps.js"></script>
+  <script>
+    window.__gateProbeErrors = [];
+    window.addEventListener("error", (event) => {
+      window.__gateProbeErrors.push(String(event.message || event.error || event));
+    });
+    const payload = window.JPS_TRACKS || {};
+    const agents = Array.isArray(payload.agents) ? payload.agents : [];
+    const events = (payload.simulation_trace?.facility_events || [])
+      .filter((event) => event.facility_kind === "gate" && event.mode === "entry_gate");
+    const queueLayouts = (payload.queue_layouts || [])
+      .filter((queue) => queue.kind === "entry_gate");
+    const canvas = document.getElementById("scene");
+    const ctx = canvas.getContext("2d");
+    const playButton = document.getElementById("playButton");
+    const timeline = document.getElementById("timeline");
+    const speedSelect = document.getElementById("speedSelect");
+    const trackPanel = document.getElementById("trackPanel");
+    const W = 1672;
+    const H = 941;
+    const PX_PER_METER = 20;
+    const crop = { x0: 220, y0: 90, x1: 540, y1: 390 };
+    const duration = Number(payload.duration || 480);
+    const serviceByPassenger = new Map();
+    const agentById = new Map(agents.map((agent) => [agent.id, agent]));
+    const monitorColors = ["#ff5c8a", "#ffd166", "#2dd4bf", "#4aa3ff", "#b58cff"];
+    const pinnedAgentIds = (new URLSearchParams(location.search).get("track") || "")
+      .split(",")
+      .map((value) => Number(value.trim()))
+      .filter((value) => Number.isInteger(value));
+    let monitoredAgentIds = [];
+    let playing = true;
+    let time = Number(new URLSearchParams(location.search).get("t") || 0);
+    let lastNow = performance.now();
+
+    timeline.max = String(duration);
+    timeline.value = String(time);
+
+    for (const event of events) {
+      for (const passengerId of event.passenger_ids || []) {
+        const list = serviceByPassenger.get(passengerId) || [];
+        list.push(event);
+        serviceByPassenger.set(passengerId, list);
+      }
+    }
+
+    const n = (value, fallback = 0) => Number.isFinite(Number(value)) ? Number(value) : fallback;
+    const toScreen = (point) => {
+      const x = (point[0] - crop.x0) / (crop.x1 - crop.x0) * canvas.width;
+      const y = (point[1] - crop.y0) / (crop.y1 - crop.y0) * canvas.height;
+      return [x, y];
+    };
+    const meterToCanvas = (point) => [point[0] * PX_PER_METER, point[1] * PX_PER_METER];
+    const normToScreen = (point) => toScreen([point[0] * W, point[1] * H]);
+    const insideCrop = (point, pad = 40) => (
+      point[0] >= crop.x0 - pad && point[0] <= crop.x1 + pad
+      && point[1] >= crop.y0 - pad && point[1] <= crop.y1 + pad
+    );
+
+    const pointAt = (points, t) => {
+      if (!points.length) return null;
+      if (t <= points[0][0]) return points[0];
+      for (let i = 1; i < points.length; i += 1) {
+        const prev = points[i - 1];
+        const next = points[i];
+        if (t <= next[0]) {
+          const span = Math.max(0.001, next[0] - prev[0]);
+          const f = Math.max(0, Math.min(1, (t - prev[0]) / span));
+          return [
+            t,
+            prev[1] + (next[1] - prev[1]) * f,
+            prev[2] + (next[2] - prev[2]) * f,
+            next[3],
+            next[4],
+            next[5],
+            next[6],
+            next[7],
+            next[8],
+            next[9],
+          ];
+        }
+      }
+      return points[points.length - 1];
+    };
+
+    const isGateRelevant = (agent, point, before = 18, after = 14) => {
+      if (!point) return false;
+      const gateEvents = serviceByPassenger.get(agent.id) || [];
+      return point[8] === "queue"
+        || point[9]?.reason === "gate_service_visual_smoothing"
+        || gateEvents.some((event) => time >= event.start_time - before && time <= event.end_time + after);
+    };
+
+    const serviceEventNear = (agent, before = 18, after = 14) => {
+      const gateEvents = serviceByPassenger.get(agent.id) || [];
+      return gateEvents.find((event) => time >= event.start_time - 1 && time <= event.end_time + 1)
+        || gateEvents.find((event) => time >= event.start_time - before && time <= event.end_time + after)
+        || null;
+    };
+
+    const laneLabel = (event) => {
+      if (!event?.facility_id) return "--";
+      return event.facility_id.split(":").pop().replace("lane_", "L");
+    };
+
+    const speedMps = (agent) => {
+      const points = agent.points || [];
+      const prev = pointAt(points, Math.max(0, time - 1));
+      const next = pointAt(points, Math.min(duration, time + 1));
+      if (!prev || !next || next[0] <= prev[0]) return 0;
+      return Math.hypot(next[1] - prev[1], next[2] - prev[2]) / (next[0] - prev[0]) / PX_PER_METER;
+    };
+
+    const trackState = (point, event) => {
+      if (event && time >= event.start_time && time <= event.end_time) return "service";
+      if (point[8] === "queue") return "queue";
+      if (point[9]?.reason === "gate_service_visual_smoothing") return "smooth";
+      if (point[8] === "slow") return "slow";
+      return point[7] || "walk";
+    };
+
+    const chooseMonitoredAgents = () => {
+      const pinned = pinnedAgentIds
+        .map((id) => agentById.get(id))
+        .filter(Boolean)
+        .filter((agent) => {
+          const point = pointAt(agent.points || [], time);
+          return point && insideCrop([point[1], point[2]], 110);
+        });
+      const kept = monitoredAgentIds
+        .map((id) => agentById.get(id))
+        .filter(Boolean)
+        .filter((agent) => {
+          const point = pointAt(agent.points || [], time);
+          return point && insideCrop([point[1], point[2]], 70) && isGateRelevant(agent, point, 24, 18);
+        });
+      const keepById = new Map([...pinned, ...kept].map((agent) => [agent.id, agent]));
+      if (keepById.size >= 3) return [...keepById.values()].slice(0, monitorColors.length);
+
+      const candidates = agents
+        .map((agent) => {
+          if (keepById.has(agent.id)) return null;
+          const point = pointAt(agent.points || [], time);
+          if (!point || !insideCrop([point[1], point[2]], 70) || !isGateRelevant(agent, point, 24, 18)) {
+            return null;
+          }
+          const event = serviceEventNear(agent, 24, 18);
+          const distanceToService = event
+            ? Math.min(Math.abs(time - event.start_time), Math.abs(time - event.end_time))
+            : 999;
+          const queueScore = point[8] === "queue" ? 0 : 40;
+          const serviceScore = event && time >= event.start_time && time <= event.end_time ? -20 : 0;
+          return { agent, score: queueScore + serviceScore + distanceToService };
+        })
+        .filter(Boolean)
+        .sort((left, right) => left.score - right.score || left.agent.id - right.agent.id)
+        .slice(0, Math.max(0, monitorColors.length - keepById.size))
+        .map((candidate) => candidate.agent);
+
+      const monitored = [...keepById.values(), ...candidates].slice(0, monitorColors.length);
+      monitoredAgentIds = monitored.map((agent) => agent.id);
+      return monitored;
+    };
+
+    const sampledTrack = (agent, start, end, step = 1) => {
+      const points = [];
+      for (let t = Math.max(0, start); t <= Math.min(duration, end); t += step) {
+        const point = pointAt(agent.points || [], t);
+        if (point) points.push(point);
+      }
+      const last = pointAt(agent.points || [], end);
+      if (last && (!points.length || points[points.length - 1][0] !== last[0])) points.push(last);
+      return points;
+    };
+
+    const drawTrackPath = (points, color, dashed, alpha, width) => {
+      if (points.length < 2) return;
+      ctx.save();
+      ctx.globalAlpha = alpha;
+      ctx.strokeStyle = color;
+      ctx.lineWidth = width;
+      ctx.lineCap = "round";
+      ctx.lineJoin = "round";
+      if (dashed) ctx.setLineDash([8, 7]);
+      ctx.beginPath();
+      let drawing = false;
+      points.forEach((point, index) => {
+        if (!insideCrop([point[1], point[2]], 12)) {
+          drawing = false;
+          return;
+        }
+        const [x, y] = toScreen([point[1], point[2]]);
+        if (index === 0 || !drawing) ctx.moveTo(x, y);
+        else ctx.lineTo(x, y);
+        drawing = true;
+      });
+      ctx.stroke();
+      ctx.restore();
+    };
+
+    const drawTargetMarker = (point, color) => {
+      if (!Number.isFinite(point[5]) || !Number.isFinite(point[6])) return;
+      if (!insideCrop([point[5], point[6]], 30)) return;
+      const [x, y] = toScreen([point[5], point[6]]);
+      ctx.save();
+      ctx.strokeStyle = color;
+      ctx.lineWidth = 2;
+      ctx.setLineDash([5, 5]);
+      const [px, py] = toScreen([point[1], point[2]]);
+      ctx.beginPath();
+      ctx.moveTo(px, py);
+      ctx.lineTo(x, y);
+      ctx.stroke();
+      ctx.setLineDash([]);
+      ctx.beginPath();
+      ctx.moveTo(x - 7, y);
+      ctx.lineTo(x + 7, y);
+      ctx.moveTo(x, y - 7);
+      ctx.lineTo(x, y + 7);
+      ctx.stroke();
+      ctx.restore();
+    };
+
+    const updateTrackPanel = (rows) => {
+      trackPanel.replaceChildren();
+      for (const row of rows) {
+        const item = document.createElement("div");
+        item.className = "track-row";
+
+        const dot = document.createElement("span");
+        dot.className = "track-dot";
+        dot.style.background = row.color;
+
+        const id = document.createElement("span");
+        id.className = "track-id";
+        id.textContent = `#${row.id}`;
+
+        const state = document.createElement("span");
+        state.className = "track-state";
+        state.textContent = `${row.lane} ${row.state}`;
+
+        const speed = document.createElement("span");
+        speed.className = "track-speed";
+        speed.textContent = `${row.speed.toFixed(2)}m/s`;
+
+        item.append(dot, id, state, speed);
+        trackPanel.append(item);
+      }
+    };
+
+    const drawMonitoredTrajectories = () => {
+      const monitored = chooseMonitoredAgents();
+      const rows = [];
+      monitored.forEach((agent, index) => {
+        const point = pointAt(agent.points || [], time);
+        if (!point) return;
+        const color = monitorColors[index % monitorColors.length];
+        const past = sampledTrack(agent, time - 24, time, 1);
+        const future = sampledTrack(agent, time, time + 28, 1);
+        const event = serviceEventNear(agent, 24, 18);
+        drawTrackPath(past, color, false, 0.72, 3);
+        drawTrackPath(future, color, true, 0.38, 2);
+        drawTargetMarker(point, color);
+        const [x, y] = toScreen([point[1], point[2]]);
+        ctx.save();
+        ctx.strokeStyle = color;
+        ctx.lineWidth = 3;
+        ctx.beginPath();
+        ctx.arc(x, y, 12, 0, Math.PI * 2);
+        ctx.stroke();
+        ctx.restore();
+        rows.push({
+          color,
+          id: agent.id,
+          lane: laneLabel(event),
+          state: trackState(point, event),
+          speed: speedMps(agent),
+        });
+      });
+      return rows;
+    };
+
+    const colorFor = (point) => {
+      if (point[8] === "queue") return "#ffd166";
+      if (point[9]?.reason === "gate_service_visual_smoothing") return "#b58cff";
+      if (point[7] === "targeting") return "#61d394";
+      return "#6cb6ff";
+    };
+
+    const drawBackground = () => {
+      ctx.fillStyle = "#0b1720";
+      ctx.fillRect(0, 0, canvas.width, canvas.height);
+      ctx.strokeStyle = "rgba(217,231,238,0.08)";
+      ctx.lineWidth = 1;
+      for (let x = Math.ceil(crop.x0 / 24) * 24; x <= crop.x1; x += 24) {
+        const sx = toScreen([x, crop.y0])[0];
+        ctx.beginPath();
+        ctx.moveTo(sx, 0);
+        ctx.lineTo(sx, canvas.height);
+        ctx.stroke();
+      }
+      for (let y = Math.ceil(crop.y0 / 24) * 24; y <= crop.y1; y += 24) {
+        const sy = toScreen([crop.x0, y])[1];
+        ctx.beginPath();
+        ctx.moveTo(0, sy);
+        ctx.lineTo(canvas.width, sy);
+        ctx.stroke();
+      }
+      ctx.fillStyle = "rgba(223,233,230,0.9)";
+      ctx.fillRect(0, 0, canvas.width, canvas.height);
+      ctx.fillStyle = "rgba(8,17,23,0.92)";
+      const topWall = toScreen([crop.x0, 150])[1];
+      ctx.fillRect(0, 0, canvas.width, topWall);
+      const paidBand = toScreen([crop.x0, 370])[1];
+      ctx.fillRect(0, paidBand, canvas.width, canvas.height - paidBand);
+    };
+
+    const drawQueues = () => {
+      for (const queue of queueLayouts) {
+        const slots = queue.slots || [];
+        ctx.strokeStyle = "rgba(191,143,0,0.16)";
+        ctx.lineWidth = 1;
+        ctx.setLineDash([4, 8]);
+        ctx.beginPath();
+        for (const slot of slots) {
+          const [x, y] = normToScreen(slot);
+          ctx.moveTo(x - 14, y);
+          ctx.lineTo(x + 14, y);
+        }
+        ctx.stroke();
+        ctx.setLineDash([]);
+
+        const [headX, headY] = normToScreen(queue.head);
+        const [exitX, exitY] = normToScreen(queue.exit);
+        ctx.strokeStyle = "#4aa3ff";
+        ctx.lineWidth = 3;
+        ctx.beginPath();
+        ctx.moveTo(headX, headY);
+        ctx.lineTo(exitX, exitY);
+        ctx.stroke();
+
+        ctx.fillStyle = "rgba(74,163,255,0.18)";
+        ctx.strokeStyle = "#4aa3ff";
+        ctx.lineWidth = 2;
+        ctx.fillRect(exitX - 10, exitY - 28, 20, 56);
+        ctx.strokeRect(exitX - 10, exitY - 28, 20, 56);
+      }
+    };
+
+    const drawServiceLines = () => {
+      const active = events.filter((event) => (
+        time >= event.start_time - 0.5 && time <= event.end_time + 0.5
+      ));
+      ctx.strokeStyle = "rgba(181,140,255,0.55)";
+      ctx.lineWidth = 3;
+      for (const event of active) {
+        const start = meterToCanvas(event.start_position);
+        const end = meterToCanvas(event.end_position);
+        const [sx, sy] = toScreen(start);
+        const [ex, ey] = toScreen(end);
+        ctx.beginPath();
+        ctx.moveTo(sx, sy);
+        ctx.lineTo(ex, ey);
+        ctx.stroke();
+      }
+    };
+
+    const drawPassengers = () => {
+      let visible = 0;
+      let queueing = 0;
+      for (const agent of agents) {
+        const point = pointAt(agent.points || [], time);
+        if (!point || !insideCrop([point[1], point[2]], 28)) continue;
+        if (!isGateRelevant(agent, point)) continue;
+        visible += 1;
+        if (point[8] === "queue") queueing += 1;
+        const [x, y] = toScreen([point[1], point[2]]);
+        ctx.fillStyle = colorFor(point);
+        ctx.strokeStyle = "#ffffff";
+        ctx.lineWidth = 2;
+        ctx.beginPath();
+        ctx.arc(x, y, 7, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.stroke();
+        ctx.fillStyle = "#061017";
+        ctx.font = "9px Inter, Arial";
+        ctx.textAlign = "center";
+        ctx.fillText(String(agent.id), x, y + 3);
+      }
+      document.getElementById("visibleValue").textContent = String(visible);
+      document.getElementById("queueValue").textContent = String(queueing);
+    };
+
+    const reverseJumpCount = () => {
+      let count = 0;
+      for (const event of events) {
+        for (const passengerId of event.passenger_ids || []) {
+          const agent = agents.find((item) => item.id === passengerId);
+          if (!agent) continue;
+          const windowPoints = agent.points.filter((point) => (
+            point[0] >= event.start_time - 5 && point[0] <= event.end_time + 5
+          ));
+          for (let i = 1; i < windowPoints.length; i += 1) {
+            const prev = windowPoints[i - 1];
+            const next = windowPoints[i];
+            if (prev[9]?.reason === "gate_service_visual_smoothing" && next[9]?.reason !== "gate_service_visual_smoothing") {
+              if (Math.hypot(next[1] - prev[1], next[2] - prev[2]) > 42) count += 1;
+            }
+          }
+        }
+      }
+      return count;
+    };
+
+    const draw = () => {
+      drawBackground();
+      drawQueues();
+      drawServiceLines();
+      const monitoredRows = drawMonitoredTrajectories();
+      drawPassengers();
+      updateTrackPanel(monitoredRows);
+      const served = events.filter((event) => event.end_time <= time).length;
+      document.getElementById("timeValue").textContent = `${time.toFixed(1)}s`;
+      document.getElementById("servedValue").textContent = String(served);
+      document.getElementById("issuesValue").textContent = String(reverseJumpCount());
+    };
+
+    const step = (now) => {
+      try {
+        const dt = (now - lastNow) / 1000;
+        lastNow = now;
+        if (playing) {
+          time = Math.min(duration, time + dt * Number(speedSelect.value || 1) * 5);
+          if (time >= duration) playing = false;
+          timeline.value = String(time);
+          playButton.textContent = playing ? "Pause" : "Play";
+        }
+        draw();
+      } catch (error) {
+        window.__gateProbeErrors.push(String(error?.stack || error));
+        playing = false;
+      }
+    };
+
+    playButton.addEventListener("click", () => {
+      playing = !playing;
+      playButton.textContent = playing ? "Pause" : "Play";
+    });
+    timeline.addEventListener("input", () => {
+      time = Number(timeline.value || 0);
+      draw();
+    });
+    draw();
+    setInterval(() => step(performance.now()), 33);
+  </script>
+</body>
+</html>

@@ -47,6 +47,19 @@
 | PM-027 | 更完整的 3D 展示 | 时空诊断已验证且视觉需求影响任务成功率 | 后置 |
 | PM-029 | 外部数字资产合同与导入 | `asset_manifest.v2` 的 URI/hash、坐标轴、单位、LOD、动画、材质、许可证和fallback 评审通过 | `proposed`；负责人：架构/产品；截止条件：首个外部二进制资产导入 PR 之前。v1 继续只承诺程序化资产与放置变换 |
 | PM-032 | PyTorch 运动与可微标定可行性 | V0.2 真实用户门禁不得被挤占；按 `PM-032_TORCH_MOVEMENT_P0.md` 冻结基线、时间盒和四选一决策门 | `proposed`；只批准 8～12 人日 Phase 0，不承诺整体重写、默认后端、运动 SDK 或真实数据有效性 |
+| PM-034 | 站台列车交换与 PTI 共用空间合同 | `capacity.coactive_slot_conflict` 已在编译期稳定拒绝上/下客源区重叠；先保留当前指纹 hold 基线 | `deferred / architecture backlog`；不得在无基线时拆开实施 |
+
+### PM-034 延后范围：站台列车交换
+
+当前编译器已将下车 source lattice 物化为容量证书，并能在 `build_model` 前拒绝 `queue_platform_edge_a_down` 与 boarding holding 的共时冲突。以下五项是真实架构缺口，但不属于本轮编译门禁修复；必须在独立计划、基线 tag 和验收矩阵齐备后再启动：
+
+1. train-specific exchange manifest；
+2. 上/下车共用的 PTI 控制器；
+3. 下车优先或有现场/文献依据的混合策略；
+4. 共享通道预约；
+5. 有界 deadlock/hold。
+
+进入条件：当前源码能对应到可恢复的 Git 提交；alignment 的编译期反例、60/64/4 几何证据和 `capacity.coactive_slot_conflict` 均绑定同一指纹；每项先给出独立合同与反例，不以延长 horizon、降低需求或运行期重试作为验收。
 
 ## 接口分层规则
 

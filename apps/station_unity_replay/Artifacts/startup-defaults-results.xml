@@ -1,0 +1,45 @@
+<?xml version="1.0" encoding="utf-8"?>
+<test-run id="2" testcasecount="3" result="Passed" total="3" passed="3" failed="0" inconclusive="0" skipped="0" asserts="0" engine-version="3.5.0.0" clr-version="4.0.30319.42000" start-time="2026-08-01 12:05:35Z" end-time="2026-08-01 12:05:41Z" duration="5.1938374">
+  <test-suite type="TestSuite" id="1000" name="Metro Station 3D Replay" fullname="Metro Station 3D Replay" runstate="Runnable" testcasecount="259" result="Passed" start-time="2026-08-01 12:05:35Z" end-time="2026-08-01 12:05:41Z" duration="5.193837" total="3" passed="3" failed="0" inconclusive="0" skipped="0" asserts="0">
+    <properties>
+      <property name="platform" value="EditMode" />
+    </properties>
+    <test-suite type="Assembly" id="1058" name="MetroReplay.Tests.EditMode.dll" fullname="D:/metro/apps/station_unity_replay/Library/ScriptAssemblies/MetroReplay.Tests.EditMode.dll" runstate="Runnable" testcasecount="41" result="Passed" start-time="2026-08-01 12:05:35Z" end-time="2026-08-01 12:05:41Z" duration="5.187794" total="3" passed="3" failed="0" inconclusive="0" skipped="0" asserts="0">
+      <properties>
+        <property name="_PID" value="82876" />
+        <property name="_APPDOMAIN" value="Unity Child Domain" />
+        <property name="platform" value="EditMode" />
+        <property name="EditorOnly" value="True" />
+      </properties>
+      <test-suite type="TestSuite" id="1059" name="MetroReplay" fullname="MetroReplay" runstate="Runnable" testcasecount="41" result="Passed" start-time="2026-08-01 12:05:35Z" end-time="2026-08-01 12:05:41Z" duration="5.187246" total="3" passed="3" failed="0" inconclusive="0" skipped="0" asserts="0">
+        <properties />
+        <test-suite type="TestSuite" id="1060" name="Tests" fullname="MetroReplay.Tests" runstate="Runnable" testcasecount="41" result="Passed" start-time="2026-08-01 12:05:35Z" end-time="2026-08-01 12:05:41Z" duration="5.186836" total="3" passed="3" failed="0" inconclusive="0" skipped="0" asserts="0">
+          <properties />
+          <test-suite type="TestFixture" id="1043" name="ReplayStartupDefaultsTests" fullname="MetroReplay.Tests.ReplayStartupDefaultsTests" classname="MetroReplay.Tests.ReplayStartupDefaultsTests" runstate="Runnable" testcasecount="3" result="Passed" start-time="2026-08-01 12:05:35Z" end-time="2026-08-01 12:05:41Z" duration="5.185588" total="3" passed="3" failed="0" inconclusive="0" skipped="0" asserts="0">
+            <properties />
+            <test-case id="1044" name="DoubleClickDefaultsToThreeHundredPassengerClearance" fullname="MetroReplay.Tests.ReplayStartupDefaultsTests.DoubleClickDefaultsToThreeHundredPassengerClearance" methodname="DoubleClickDefaultsToThreeHundredPassengerClearance" classname="MetroReplay.Tests.ReplayStartupDefaultsTests" runstate="Runnable" seed="1923124580" result="Passed" start-time="2026-08-01 12:05:35Z" end-time="2026-08-01 12:05:36Z" duration="0.010807" asserts="0">
+              <properties>
+                <property name="retryIteration" value="0" />
+                <property name="repeatIteration" value="0" />
+              </properties>
+            </test-case>
+            <test-case id="1045" name="ExplicitPresentationArgumentsOverrideClearanceDefaults" fullname="MetroReplay.Tests.ReplayStartupDefaultsTests.ExplicitPresentationArgumentsOverrideClearanceDefaults" methodname="ExplicitPresentationArgumentsOverrideClearanceDefaults" classname="MetroReplay.Tests.ReplayStartupDefaultsTests" runstate="Runnable" seed="2046155141" result="Passed" start-time="2026-08-01 12:05:36Z" end-time="2026-08-01 12:05:36Z" duration="0.000239" asserts="0">
+              <properties>
+                <property name="retryIteration" value="0" />
+                <property name="repeatIteration" value="0" />
+              </properties>
+            </test-case>
+            <test-case id="1046" name="PackagedReplayIsCompleteThreeHundredPassengerClearance" fullname="MetroReplay.Tests.ReplayStartupDefaultsTests.PackagedReplayIsCompleteThreeHundredPassengerClearance" methodname="PackagedReplayIsCompleteThreeHundredPassengerClearance" classname="MetroReplay.Tests.ReplayStartupDefaultsTests" runstate="Runnable" seed="1980877581" result="Passed" start-time="2026-08-01 12:05:36Z" end-time="2026-08-01 12:05:41Z" duration="5.167136" asserts="0">
+              <properties>
+                <property name="retryIteration" value="0" />
+                <property name="repeatIteration" value="0" />
+              </properties>
+              <output><![CDATA[Saving results to: C:/Users/1/AppData/LocalLow/Metro Simulation Lab/Metro Station 3D Replay\TestResults.xml
+]]></output>
+            </test-case>
+          </test-suite>
+        </test-suite>
+      </test-suite>
+    </test-suite>
+  </test-suite>
+</test-run>

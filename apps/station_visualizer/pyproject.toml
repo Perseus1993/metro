@@ -1,0 +1,34 @@
+[build-system]
+requires = ["setuptools>=77"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "metro-station-visualizer"
+version = "0.1.0"
+description = "Renderer and replay application for metro-station."
+requires-python = ">=3.12"
+dependencies = [
+    "imageio-ffmpeg",
+    "jupedsim>=1.4.1",
+    "metro-station==0.1.0",
+    "pillow",
+    "playwright",
+    "shapely>=2.0",
+]
+
+[project.scripts]
+metro-station-visualizer = "metro_station_visualizer.cli:main"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.setuptools.package-data]
+metro_station_visualizer = [
+    "*.html",
+    "*.json",
+    "assets/*",
+    "assets/experiment_tracks/*",
+]
+
+[tool.uv.sources]
+metro-station = { workspace = true }

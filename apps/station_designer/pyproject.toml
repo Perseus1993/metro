@@ -1,0 +1,31 @@
+[build-system]
+requires = ["setuptools>=77"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "metro-station-designer"
+version = "0.1.0"
+description = "Interactive station-design application for metro-station."
+requires-python = ">=3.12"
+dependencies = [
+    "metro-station==0.1.0",
+    "metro-station-experiments==0.1.0",
+    "metro-station-visualizer==0.1.0",
+]
+
+[project.scripts]
+metro-station-designer = "metro_station_designer.cli:main"
+
+[project.entry-points."metro_station.applications"]
+designer = "metro_station_designer.cli:main"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.setuptools.package-data]
+metro_station_designer = ["*.css", "*.html", "*.js", "assets/*"]
+
+[tool.uv.sources]
+metro-station = { workspace = true }
+metro-station-experiments = { workspace = true }
+metro-station-visualizer = { workspace = true }

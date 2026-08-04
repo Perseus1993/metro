@@ -1,0 +1,10 @@
+Poly Haven assets in this directory are provided under Creative Commons Zero (CC0 1.0).
+
+Official license information:
+https://polyhaven.com/license
+
+Asset pages:
+https://polyhaven.com/a/security_camera_01
+https://polyhaven.com/a/korean_fire_extinguisher_01
+
+Downloaded on 2026-07-31 through the official Poly Haven public API.

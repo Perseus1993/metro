@@ -1,0 +1,11 @@
+{
+  "name": "MetroReplay.Runtime",
+  "rootNamespace": "MetroReplay",
+  "references": [
+    "Unity.Newtonsoft.Json",
+    "glTFast",
+    "Unity.RenderPipelines.Core.Runtime",
+    "Unity.RenderPipelines.HighDefinition.Runtime"
+  ],
+  "autoReferenced": true
+}
