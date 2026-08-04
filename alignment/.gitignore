@@ -1,0 +1,13 @@
+data/raw/
+data/canonical/
+notebooks/
+.venv/
+.codex_tmp/
+__pycache__/
+*.pyc
+*.parquet
+*.csv
+*.txt.gz
+!data/metrics/*.json
+data/metrics/*.movement_trace.json
+!docs/**

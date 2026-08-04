@@ -1,0 +1,43 @@
+{
+  "schema_version": "alignment_comparison.v2",
+  "scene_id": "platform_boarding",
+  "observed_dataset_id": "eindhoven_platform_v1",
+  "overall_verdict": "hold",
+  "release_blockers": [
+    "simulation geometry is not observed-matched: Eindhoven days 01-10 trajectory bounding-box dimensions only; internal obstacles, access points, and train-door positions are not observed-matched"
+  ],
+  "comparison_thresholds": {
+    "free_flow_speed_p50_rel_error_max": 0.15,
+    "fundamental_in_band_fraction_min": 0.8
+  },
+  "inputs": {
+    "observed": {
+      "path": "eindhoven_platform_v1_observed.json",
+      "sha256": "36d4b398a589d2ebb3ece621c562aced9072db90f73e45dcff3a7f920d42af94"
+    },
+    "simulation": {
+      "path": "platform_boarding_simulated.json",
+      "sha256": "fe89ea86c78e5b2f2052b7ddac28ba39646ba2fdd961e66d439bc4f126b63c73"
+    }
+  },
+  "metrics": {
+    "free_flow_speed_m_s": {
+      "observed": 1.1302322770121225,
+      "simulated": 0.9130943229296973,
+      "rel_error": -0.19211799069873514,
+      "absolute_error": -0.2171379540824252,
+      "verdict": "outside_band",
+      "reason": "",
+      "evidence_n": 54117
+    },
+    "fundamental_in_band_fraction": {
+      "observed": 0.8,
+      "simulated": 0.0,
+      "rel_error": -1.0,
+      "absolute_error": -0.8,
+      "verdict": "outside_band",
+      "reason": "",
+      "evidence_n": 3001
+    }
+  }
+}

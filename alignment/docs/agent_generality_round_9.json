@@ -1,0 +1,23 @@
+{
+  "round": 9,
+  "agent": "generality",
+  "status": "pass",
+  "checks": [
+    "canonical schema version defined: alignment_trajectory.v1",
+    "canonical schema columns are defined and reusable",
+    "metrics helper chain is unified",
+    "report.py exports parameter table with unified structure",
+    "registry includes loader/canonical entry indirection fields",
+    "corridor_unidirectional.py: supports parameterized config",
+    "bottleneck.py: supports parameterized config",
+    "platform_boarding.py: supports parameterized config",
+    "build_canonical.py uses registry-driven loader and converter",
+    "build_canonical.py has no known dataset prefix split",
+    "pending stub datasets found: atc_osaka_stub, julich_corridor_stub",
+    "fundamental.py has no _tmp marker",
+    "comparison.py has no stale marker",
+    "build_canonical guards placeholder datasets with explicit pending signal"
+  ],
+  "issues": [],
+  "recommendation": "Generic path is reusable; continue iterative regression rounds"
+}

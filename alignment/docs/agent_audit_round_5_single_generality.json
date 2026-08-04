@@ -1,0 +1,25 @@
+{
+  "round": 5,
+  "agent": "generality",
+  "result": {
+    "round": 5,
+    "agent": "generality",
+    "status": "warn",
+    "checks": [
+      "canonical schema version defined: alignment_trajectory.v1",
+      "canonical schema columns are defined and可复用",
+      "指标链路使用统一的 metrics helper",
+      "report.py 使用统一参数建议表结构",
+      "corridor_unidirectional.py: 支持参数化配置构建",
+      "bottleneck.py: 支持参数化配置构建",
+      "platform_boarding.py: 支持参数化配置构建",
+      "存在待补齐占位条目: atc_osaka_stub, julich_corridor_stub",
+      "metrics 实现未见 _tmp 标记",
+      "comparison 实现未见未清理临时标记"
+    ],
+    "issues": [
+      "build_canonical.py 仍按数据集前缀硬分支，属于通用化待完成项"
+    ],
+    "recommendation": "继续补齐 build_canonical 的注册表驱动工厂，核心逻辑可复用并逐步替换占位条目"
+  }
+}

@@ -1,0 +1,104 @@
+{
+  "schema_version": "alignment_acceptance.v2",
+  "generated_at": "2026-08-04T02:45:14.003131+00:00",
+  "implementation_status": "hold",
+  "release_status": "hold",
+  "steps": [
+    {
+      "step": 1,
+      "name": "基础工程化",
+      "status": "pass",
+      "evidence": [
+        "uv lock --check passed",
+        "imports passed: alignment=0.1.0, metro=0.1.0, PedPy=1.5.1"
+      ],
+      "blockers": []
+    },
+    {
+      "step": 2,
+      "name": "数据注册与下载",
+      "status": "pass",
+      "evidence": [
+        "registry active=['eindhoven_platform_v1']; pending=['julich_corridor_stub', 'atc_osaka_stub']",
+        "download 200/206 resume and verified-skip behavior tests passed"
+      ],
+      "blockers": []
+    },
+    {
+      "step": 3,
+      "name": "Canonical 统一格式",
+      "status": "pass",
+      "evidence": [
+        "real parquet has exact canonical column order",
+        "dataset_id row-group null_count=0",
+        "t_s row-group null_count=0",
+        "x_m row-group null_count=0",
+        "y_m row-group null_count=0",
+        "validated real rows=185234516; strict per-agent time recorded"
+      ],
+      "blockers": []
+    },
+    {
+      "step": 4,
+      "name": "观测侧指标",
+      "status": "fail",
+      "evidence": [],
+      "blockers": [
+        "observed metric schema is stale",
+        "PedPy method or explicit measurement area missing",
+        "free-flow sample/percentiles fail method sanity gate",
+        "fundamental diagram bins are empty"
+      ]
+    },
+    {
+      "step": 5,
+      "name": "仿真轨迹对齐",
+      "status": "fail",
+      "evidence": [],
+      "blockers": [
+        "simulation manifest schema is stale"
+      ]
+    },
+    {
+      "step": 6,
+      "name": "观测-仿真对比",
+      "status": "fail",
+      "evidence": [],
+      "blockers": [
+        "comparison schema is stale"
+      ]
+    },
+    {
+      "step": 7,
+      "name": "结果报告",
+      "status": "pending",
+      "evidence": [],
+      "blockers": [
+        "parameter report missing"
+      ]
+    },
+    {
+      "step": 8,
+      "name": "交付与隔离",
+      "status": "pass",
+      "evidence": [
+        "ignored: data/raw/",
+        "ignored: data/canonical/",
+        "ignored: data/metrics/*.movement_trace.json",
+        "full pytest suite passed",
+        "ruff passed"
+      ],
+      "blockers": []
+    }
+  ],
+  "commands": {
+    "pytest": {
+      "passed": true,
+      "tail": "skipped by caller"
+    },
+    "ruff": {
+      "passed": true,
+      "tail": "skipped by caller"
+    }
+  }
+}

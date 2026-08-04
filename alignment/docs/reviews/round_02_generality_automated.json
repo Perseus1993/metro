@@ -1,0 +1,17 @@
+{
+  "round": 2,
+  "agent": "generality_patch_vs_solution",
+  "status": "pass",
+  "evidence": [
+    "counterexample suite passed: .......................                                                  [100%]\n23 passed in 2.21s",
+    "src/metro_alignment/canonical.py: no registered dataset-ID coupling",
+    "src/metro_alignment/sampling.py: no registered dataset-ID coupling",
+    "src/metro_alignment/metro_trace.py: no registered dataset-ID coupling",
+    "src/metro_alignment/metrics/fundamental.py: no registered dataset-ID coupling",
+    "src/metro_alignment/metrics/comparison.py: no registered dataset-ID coupling",
+    "active=['eindhoven_platform_v1']; explicit pending=['julich_corridor_stub', 'atc_osaka_stub']",
+    "window rebasing evidence: binned_frames=4909, packed_frames=4909"
+  ],
+  "findings": [],
+  "scope_statement": "Generic contracts are verified for registered sources and supported trace schemas; pending datasets/scenes remain explicitly unimplemented, not silently passed."
+}

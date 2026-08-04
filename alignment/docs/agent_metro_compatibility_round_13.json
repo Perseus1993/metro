@@ -1,0 +1,24 @@
+{
+  "round": 13,
+  "agent": "metro_compatibility",
+  "status": "pass",
+  "checks": [
+    "run_alignment_scene calls movement_trace()",
+    "run_alignment_scene has no visual_tracks reference",
+    "run_alignment_scene sets simulation_clock_mode=physical (string check)",
+    "scenes package exposes SceneConfig",
+    "corridor_unidirectional.py: has SceneConfig and build_scene_config",
+    "bottleneck.py: has SceneConfig and build_scene_config",
+    "platform_boarding.py: has SceneConfig and build_scene_config",
+    "D:\\metro\\alignment\\data\\metrics\\platform_boarding_simulated.json: trajectory block exists",
+    "D:\\metro\\alignment\\data\\metrics\\platform_boarding_simulated.json: trajectory.point_count > 0",
+    "D:\\metro\\alignment\\data\\metrics\\platform_boarding_simulated.json: trajectory.agent_count > 0",
+    "D:\\metro\\alignment\\data\\metrics\\platform_boarding_simulated.json: trace file persisted and non-empty",
+    "D:\\metro\\alignment\\data\\metrics\\platform_boarding_simulated.json: has canonical path in payload.trajectory.path",
+    "D:\\metro\\alignment\\data\\metrics\\platform_boarding_simulated.json: canonical trajectory rows=811491",
+    "D:\\metro\\alignment\\data\\metrics\\platform_boarding_simulated.json: canonical trajectory columns valid",
+    "D:\\metro\\alignment\\data\\metrics\\platform_boarding_simulated.json: movement trace output path exists",
+    "D:\\metro\\alignment\\data\\metrics\\platform_boarding_simulated.json: simulated metrics include free_flow_speed_m_s"
+  ],
+  "issues": []
+}

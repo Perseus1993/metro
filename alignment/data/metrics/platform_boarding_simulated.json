@@ -1,0 +1,264 @@
+{
+  "schema_version": "alignment_simulation_metrics.v2",
+  "scene_id": "platform_boarding",
+  "simulation_seed": 42,
+  "canonical_schema_version": "alignment_trajectory.v1",
+  "metric_schema_version": "alignment_metrics.v2",
+  "scene_config": {
+    "scene_id": "platform_boarding",
+    "status": "ready",
+    "minutes": 10,
+    "tick_seconds": 1,
+    "entry_count_hour": 2500,
+    "exit_count_hour": 2200,
+    "demand_minutes": 10,
+    "movement_trace_sample_seconds": 0.2,
+    "entry_entrance_weights": [],
+    "jupedsim_dt_seconds": 0.01,
+    "jupedsim_iterations_per_tick": 150,
+    "jupedsim_desired_speed_mps": 1.22,
+    "jupedsim_free_speed_min_mps": 0.75,
+    "jupedsim_free_speed_max_mps": 1.65,
+    "stairs_preference_share": 0.18,
+    "stair_fatigue_cost_up": 0.6,
+    "stair_fatigue_cost_down": 0.15,
+    "stair_bidirectional_conflict_factor": 0.3,
+    "gate_service_persons_per_min": 55,
+    "escalator_speed_units_per_tick": 2.3,
+    "stairs_speed_units_per_tick": 1.55,
+    "elevator_speed_units_per_tick": 4.2,
+    "seed": 42,
+    "measurement_bounds_m": [
+      4.0,
+      10.0,
+      86.269,
+      27.597
+    ],
+    "measurement_area_id": "eindhoven_platform_bbox_translation_v1",
+    "pending_reason": "",
+    "geometry_evidence_status": "proxy",
+    "geometry_evidence": "Eindhoven days 01-10 trajectory bounding-box dimensions only; internal obstacles, access points, and train-door positions are not observed-matched",
+    "platform_length_m": 82.269,
+    "platform_width_m": 17.597,
+    "train_door_x_m": 18.0
+  },
+  "design_sha256": "d401a34735b0aa1e54273eead86b5e8435594e82693ed245a4ac870abbe8ba99",
+  "scientific_comparability": {
+    "geometry_evidence_status": "proxy",
+    "geometry_evidence": "Eindhoven days 01-10 trajectory bounding-box dimensions only; internal obstacles, access points, and train-door positions are not observed-matched",
+    "release_eligible": false
+  },
+  "trace_provenance": {
+    "source_schema_version": "movement_trace.v1",
+    "authority": "jupedsim_committed_walk",
+    "coordinates": "station_model_meters",
+    "sample_interval_seconds": 0.2,
+    "included_phases": [
+      "walking"
+    ],
+    "excluded_phase_point_count": 159861,
+    "source_point_count": 888506,
+    "canonical_point_count": 728645,
+    "episode_count": 75530,
+    "passenger_count": 783,
+    "agent_id_contract": "sorted(passenger_id,episode_id)+90000000"
+  },
+  "metrics": {
+    "schema_version": "alignment_metrics.v2",
+    "method": {
+      "library": "PedPy",
+      "library_version": "1.5.1",
+      "speed": "compute_individual_speed:BORDER_SINGLE_SIDED",
+      "density": "compute_classic_density",
+      "frame_mean_speed": "compute_mean_speed_per_frame",
+      "frame_rate_hz": 5.0,
+      "measurement_area": {
+        "id": "eindhoven_platform_bbox_translation_v1",
+        "bounds_m": [
+          4.0,
+          10.0,
+          86.269,
+          27.597
+        ],
+        "source": "explicit",
+        "comparable": true
+      },
+      "config": {
+        "frame_rate_hz": 5.0,
+        "speed_frame_step": 1,
+        "free_flow_density_max_p_m2": 0.3,
+        "walking_speed_min_m_s": 0.5,
+        "max_valid_speed_m_s": 3.0,
+        "measurement_bounds_m": [
+          4.0,
+          10.0,
+          86.269,
+          27.597
+        ],
+        "measurement_area_id": "eindhoven_platform_bbox_translation_v1",
+        "density_bin_edges": [
+          0.0,
+          0.1,
+          0.2,
+          0.3,
+          0.5,
+          0.75,
+          1.0,
+          1.5,
+          2.0,
+          3.0,
+          4.0,
+          6.0
+        ]
+      }
+    },
+    "free_flow_speed_m_s": {
+      "n": 54117,
+      "p5": 0.532863817073216,
+      "p25": 0.676515524640998,
+      "p50": 0.9130943229296973,
+      "p75": 1.096550413906368,
+      "p95": 1.2709812947095038,
+      "mean": 0.9005229012605541,
+      "std": 0.23936534706289253
+    },
+    "fundamental_diagram": {
+      "method": "PedPy classic density + mean speed per frame",
+      "density_unit": "persons/m^2",
+      "speed_unit": "m/s",
+      "density_bin_edges": [
+        0.0,
+        0.1,
+        0.2,
+        0.3,
+        0.5,
+        0.75,
+        1.0,
+        1.5,
+        2.0,
+        3.0,
+        4.0,
+        6.0
+      ],
+      "bins": [
+        {
+          "density_low_p_m2": -0.001,
+          "density_high_p_m2": 0.1,
+          "density_p_m2": 0.0604435665427052,
+          "speed_p50": 0.17545398707853016,
+          "speed_p5": 0.09519116622787846,
+          "speed_p95": 1.1526036802170243,
+          "n": 1176
+        },
+        {
+          "density_low_p_m2": 0.1,
+          "density_high_p_m2": 0.2,
+          "density_p_m2": 0.13706760278988248,
+          "speed_p50": 0.20373440382367844,
+          "speed_p5": 0.07136760625463393,
+          "speed_p95": 0.4231398654675534,
+          "n": 515
+        },
+        {
+          "density_low_p_m2": 0.2,
+          "density_high_p_m2": 0.3,
+          "density_p_m2": 0.23418371926660897,
+          "speed_p50": 0.06865201368520654,
+          "speed_p5": 0.0368827899745053,
+          "speed_p95": 0.19249764444875067,
+          "n": 925
+        },
+        {
+          "density_low_p_m2": 0.3,
+          "density_high_p_m2": 0.5,
+          "density_p_m2": 0.3670829881895008,
+          "speed_p50": 0.0781014166277142,
+          "speed_p5": 0.03421149217443364,
+          "speed_p95": 0.12323197759322362,
+          "n": 363
+        },
+        {
+          "density_low_p_m2": 0.5,
+          "density_high_p_m2": 0.75,
+          "density_p_m2": 0.5351795035192562,
+          "speed_p50": 0.07985404073863511,
+          "speed_p5": 0.07041027925341557,
+          "speed_p95": 0.0866256340430516,
+          "n": 22
+        }
+      ]
+    },
+    "fundamental_in_band_fraction": {
+      "value": null,
+      "status": "requires_observed_reference"
+    },
+    "quality": {
+      "status": "comparable",
+      "limitations": []
+    }
+  },
+  "final_frame_metrics": {
+    "station_persons": 639,
+    "gate_queue_persons": 10,
+    "vertical_queue_persons": 0,
+    "door_queue_persons": 21,
+    "platform_waiting_persons": 2,
+    "pending_alighting_persons": 0,
+    "boarded_persons": 0,
+    "departed_persons": 145,
+    "evacuated_persons": 0,
+    "spawned_persons": 784,
+    "spawned_entry_persons": 417,
+    "spawned_exit_persons": 367,
+    "spawned_transfer_persons": 0,
+    "average_system_minutes": 2.48,
+    "crowding_index": 2.15,
+    "average_walk_speed_factor": 0.93,
+    "gate_state": "open",
+    "gate_served_persons": 183,
+    "exit_gate_served_persons": 162,
+    "vertical_served_persons": 0,
+    "boarding_door_served_persons": 0,
+    "platform_capacity_remaining": 4977,
+    "train_state": "away",
+    "train_load_persons": 0,
+    "train_last_departed_load_persons": 0,
+    "train_departure_elapsed_seconds": 10,
+    "departed_trains": 3,
+    "train_count": 1,
+    "admin_count": 0,
+    "admin_guided_passengers": 0,
+    "movement_backend": "BatchedJuPedSimMovementBackend",
+    "jupedsim_operational_model": "collision_free_speed",
+    "jupedsim_steps": 130623,
+    "jupedsim_batches": 600,
+    "jupedsim_missing_agents": 0,
+    "jupedsim_recovered_agents": 0,
+    "jupedsim_degraded_holds": 0,
+    "walking_cost_evaluation_count": 16391,
+    "walking_cost_source_counts": {
+      "physical_waypoint_geodesic": 16391
+    },
+    "audit_counts": {
+      "facility_choice_decision": 23151,
+      "passenger_replanned_stalled_region_approach": 618
+    }
+  },
+  "trajectory": {
+    "point_count": 728645,
+    "agent_count": 75530,
+    "duration_s": 600.0
+  },
+  "artifacts": {
+    "canonical": {
+      "path": "platform_boarding_simulated.parquet",
+      "sha256": "d87de512a354efb6486b425508b38e9486db6fa51b38c908763147b93d1d56d1",
+      "size_bytes": 13827717
+    },
+    "movement_trace": {
+      "path": "platform_boarding_simulated.movement_trace.json",
+      "sha256": "c864cf4e4c97dc3f7805bfedb02cad770b2674784e2129f16e46728aba735961",
+      "size_bytes": 269452546
+    }
+  }
+}

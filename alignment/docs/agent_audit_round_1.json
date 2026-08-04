@@ -1,0 +1,38 @@
+{
+  "round": 1,
+  "agents": {
+    "paper_methodology": {
+      "status": "pass",
+      "checks": [
+        "free_flow 5/25/50/75/95 百分位与 n 已输出",
+        "包含基本图落带对齐字段"
+      ],
+      "issues": [],
+      "recommendation": "保持并补齐文档中的 PedPy fallback 风险说明"
+    },
+    "metro_integration": {
+      "status": "pass",
+      "checks": [
+        "已包含关键点: simulation_clock_mode=\"physical\"",
+        "已包含关键点: movement_backend_name=\"jupedsim\"",
+        "已包含关键点: movement_trace()",
+        "已包含关键点: station_design=create_design",
+        "已包含关键点: \"agent_id\"",
+        "已包含关键点: \"x_m\"",
+        "已包含关键点: \"y_m\""
+      ],
+      "issues": [],
+      "recommendation": "继续补齐对照验证脚本的样例数据即可继续"
+    },
+    "generality": {
+      "status": "pass",
+      "checks": [
+        "comparison 不依赖单文件特殊路径，可复用场景",
+        "存在 stub 数据集占位项，符合当前“先跑通接口”阶段",
+        "fundamental 支持以观测剖面对照，不再默认自对照"
+      ],
+      "issues": [],
+      "recommendation": "结构上可持续复用，建议保留该检查脚本按轮次运行"
+    }
+  }
+}

@@ -1,0 +1,152 @@
+{
+  "schema_version": "alignment_acceptance.v4",
+  "generated_at": "2026-08-04T12:56:51.208825+00:00",
+  "implementation_status": "hold",
+  "release_status": "hold",
+  "steps": [
+    {
+      "step": 1,
+      "name": "基础工程化",
+      "status": "pass",
+      "evidence": [
+        "uv lock --check passed",
+        "imports passed: alignment=0.1.0, metro=0.1.0, PedPy=1.5.1"
+      ],
+      "blockers": [],
+      "release_authorized": null
+    },
+    {
+      "step": 2,
+      "name": "数据注册与下载",
+      "status": "pass",
+      "evidence": [
+        "registry active=['eindhoven_platform_v1']; pending=['julich_corridor_stub', 'atc_osaka_stub']",
+        "download 200/206 resume and verified-skip behavior tests passed"
+      ],
+      "blockers": [],
+      "release_authorized": null
+    },
+    {
+      "step": 3,
+      "name": "Canonical 统一格式",
+      "status": "pass",
+      "evidence": [
+        "eindhoven_platform_v1: exact canonical column order",
+        "eindhoven_platform_v1: exact canonical physical dtypes",
+        "eindhoven_platform_v1: dataset_id row-group null_count=0",
+        "eindhoven_platform_v1: t_s row-group null_count=0",
+        "eindhoven_platform_v1: x_m row-group null_count=0",
+        "eindhoven_platform_v1: y_m row-group null_count=0",
+        "eindhoven_platform_v1: validated rows=185234516; strict per-agent time recorded"
+      ],
+      "blockers": [],
+      "release_authorized": null
+    },
+    {
+      "step": 4,
+      "name": "观测侧指标",
+      "status": "fail",
+      "evidence": [
+        "eindhoven_platform_v1: observed input hash verified: canonical",
+        "eindhoven_platform_v1: observed input hash verified: canonical_metadata",
+        "eindhoven_platform_v1: observed metrics and contributor support exactly recomputed",
+        "eindhoven_platform_v1: normalized analysis contract records a shared 0.4s speed window",
+        "eindhoven_platform_v1: metric schema=alignment_metrics.v5",
+        "eindhoven_platform_v1: PedPy methods and explicit measurement area recorded",
+        "eindhoven_platform_v1: walking-speed proxy n=102075 p50=1.169m/s",
+        "eindhoven_platform_v1: fundamental diagram populated bins=2",
+        "eindhoven_platform_v1: sample windows rebased; FD frames=4909/4909 packed"
+      ],
+      "blockers": [
+        "eindhoven_platform_v1: observed analysis runtime fingerprint is missing or stale"
+      ],
+      "release_authorized": null
+    },
+    {
+      "step": 5,
+      "name": "仿真轨迹对齐",
+      "status": "fail",
+      "evidence": [
+        "platform_boarding: current-fingerprint source geometry preflight completed",
+        "platform_boarding: runtime_status=not_started",
+        "platform_boarding: scientific_status=model_invalid"
+      ],
+      "blockers": [
+        "platform_boarding: blocker=alighting_source_geometry_conflict; details=[{'queue_id': 'queue_platform_edge_a_down', 'blockers': ['boarding_holding_area_overlaps_alighting_source_lattice', 'boarding_door_axis_overlaps_alighting_source_lattice']}]"
+      ],
+      "release_authorized": null
+    },
+    {
+      "step": 6,
+      "name": "观测-仿真对比",
+      "status": "fail",
+      "evidence": [],
+      "blockers": [
+        "platform_boarding: comparison schema is stale"
+      ],
+      "release_authorized": null
+    },
+    {
+      "step": 7,
+      "name": "结果报告",
+      "status": "pending",
+      "evidence": [],
+      "blockers": [
+        "platform_boarding: parameter report missing"
+      ],
+      "release_authorized": false
+    },
+    {
+      "step": 8,
+      "name": "交付与隔离",
+      "status": "pass",
+      "evidence": [
+        "ignored: data/raw/",
+        "ignored: data/canonical/",
+        "ignored: data/metrics/*.movement_trace.json",
+        "git confirms ignored: data\\raw\\eindhoven_platform_v1\\Eindhoven_centraal_platform_3_4.png",
+        "git confirms ignored: data\\raw\\eindhoven_platform_v1\\Eindhoven_centraal_trajectories_days_01_10.parquet",
+        "git confirms ignored: data\\canonical\\eindhoven_platform_v1.parquet",
+        "git confirms ignored: data\\metrics\\platform_boarding_simulated.movement_trace.json",
+        "full pytest suite passed",
+        "ruff passed"
+      ],
+      "blockers": [],
+      "release_authorized": null
+    }
+  ],
+  "commands": {
+    "pytest": {
+      "passed": true,
+      "tail": "........................................................................ [ 40%]\n........................................................................ [ 81%]\n................................                                         [100%]\n176 passed in 7.00s"
+    },
+    "ruff": {
+      "passed": true,
+      "tail": "All checks passed!"
+    }
+  },
+  "runtime_fingerprints": {
+    "analysis": {
+      "schema_version": "alignment_analysis_runtime.v1",
+      "python": "CPython 3.12.13",
+      "pedpy_version": "1.5.1",
+      "file_count": 32,
+      "content_sha256": "de4aa2b72896db26395f14023cd1800f676025211f5b7f3b49bcb99e7d7e1222"
+    },
+    "metro": {
+      "package_version": "0.1.0",
+      "python": "CPython 3.12.13",
+      "dependency_versions": {
+        "jupedsim": "1.4.2",
+        "mesa": "3.5.1",
+        "numpy": "2.5.1",
+        "pandas": "3.0.5",
+        "pedpy": "1.5.1",
+        "shapely": "2.1.2"
+      },
+      "python_file_count": 264,
+      "source_tree_sha256": "c8a52a41069e8059f717c0baaa9a8702c21a37781e353de06f96537d2edcd87b"
+    },
+    "acceptance": "65c0e800e351c7e08d5ebca170e2a0a66d1305eee8662dea9edaaac18df72cb7"
+  }
+}

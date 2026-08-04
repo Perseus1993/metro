@@ -1,0 +1,17 @@
+{
+  "round": 10,
+  "agent": "metro_compatibility",
+  "status": "fail",
+  "checks": [
+    "run_alignment_scene calls movement_trace()",
+    "run_alignment_scene has no visual_tracks reference",
+    "run_alignment_scene sets simulation_clock_mode=physical (string check)",
+    "scenes package exposes SceneConfig",
+    "corridor_unidirectional.py: has SceneConfig and build_scene_config",
+    "bottleneck.py: has SceneConfig and build_scene_config",
+    "platform_boarding.py: has SceneConfig and build_scene_config"
+  ],
+  "issues": [
+    "no *_simulated.json generated yet"
+  ]
+}

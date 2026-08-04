@@ -1,0 +1,18 @@
+{
+  "round": 2,
+  "agent": "industry_paper_methodology",
+  "status": "pass",
+  "method_sources": [
+    "https://pedpy.readthedocs.io/stable/user_guide.html",
+    "https://pedpy.readthedocs.io/stable/fundamental_diagram_at_measurement_line.html",
+    "https://arxiv.org/abs/2409.11857",
+    "https://doi.org/10.1016/j.trpro.2014.09.081",
+    "https://doi.org/10.1016/j.simpat.2017.05.002"
+  ],
+  "evidence": [
+    "eindhoven_platform_v1: canonical rows=185,234,516",
+    "eindhoven_platform_v1: free-flow n=100792, p50=1.130 m/s",
+    "eindhoven_platform_v1: complete-window sample rows=199806, packed_frames=4909"
+  ],
+  "findings": []
+}

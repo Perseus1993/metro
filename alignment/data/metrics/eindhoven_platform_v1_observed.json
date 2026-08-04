@@ -1,0 +1,301 @@
+{
+  "schema_version": "alignment_observed_metrics.v5",
+  "dataset_id": "eindhoven_platform_v1",
+  "canonical_schema_version": "alignment_trajectory.v1",
+  "metric_schema_version": "alignment_metrics.v5",
+  "analysis_runtime_fingerprint": {
+    "schema_version": "alignment_analysis_runtime.v1",
+    "python": "CPython 3.12.13",
+    "pedpy_version": "1.5.1",
+    "file_count": 32,
+    "content_sha256": "151bed69eed7e5eca1666a16cc8beb8cf2eea01ab1e3aa07dff66653ebfbd3f9"
+  },
+  "input_artifacts": {
+    "canonical": {
+      "path": "../canonical/eindhoven_platform_v1.parquet",
+      "sha256": "47ffda51dd79f1ffc0545a7fe1971982fdeda846038d489d6415c69f7ecccd76",
+      "size_bytes": 1381288070
+    },
+    "canonical_metadata": {
+      "path": "../canonical/eindhoven_platform_v1.meta.json",
+      "sha256": "c9bfe245a1db1bfa91212a981ffe15bf4fce71e907c9945a409cc0f316302f0a",
+      "size_bytes": 955
+    }
+  },
+  "metrics": {
+    "schema_version": "alignment_metrics.v5",
+    "analysis_contract": {
+      "schema_version": "alignment_analysis_contract.v1",
+      "library": {
+        "name": "PedPy",
+        "version": "1.5.1"
+      },
+      "speed": {
+        "method": "compute_individual_speed:BORDER_SINGLE_SIDED",
+        "frame_mean_method": "compute_mean_speed_per_frame",
+        "physical_window_s": 0.4
+      },
+      "density": {
+        "method": "compute_classic_density"
+      },
+      "walking_speed_proxy": {
+        "semantics": "low_global_density_speed_truncated_proxy",
+        "density_max_p_m2": 0.3,
+        "speed_min_m_s": 0.5,
+        "speed_max_m_s": 3.0,
+        "desired_speed_release_eligible": false
+      },
+      "density_bin_edges": [
+        0.0,
+        0.1,
+        0.2,
+        0.3,
+        0.5,
+        0.75,
+        1.0,
+        1.5,
+        2.0,
+        3.0,
+        4.0,
+        6.0
+      ],
+      "fundamental_diagram": {
+        "method": "PedPy classic density + mean speed per frame"
+      },
+      "measurement": {
+        "area_id": "eindhoven_platform_bbox_translation_v1",
+        "comparison_frame_id": "eindhoven_platform_shared_v1",
+        "comparison_polygon_sha256": "4aeb8557721c036386c5019822630921c2b5d8127eb57fbab5ea05301f48c1f4",
+        "shape": {
+          "bounds_m_rounded": [
+            "4.000000000",
+            "10.000000000",
+            "86.269000000",
+            "27.597000000"
+          ],
+          "width_m": "82.269000000",
+          "height_m": "17.597000000",
+          "area_m2": "1447.687593000"
+        }
+      }
+    },
+    "method": {
+      "library": "PedPy",
+      "library_version": "1.5.1",
+      "speed": "compute_individual_speed:BORDER_SINGLE_SIDED",
+      "speed_frame_step": 2,
+      "physical_speed_window_s": 0.4,
+      "density": "compute_classic_density",
+      "frame_mean_speed": "compute_mean_speed_per_frame",
+      "frame_rate_hz": 10.0,
+      "measurement_area": {
+        "id": "eindhoven_platform_bbox_translation_v1",
+        "bounds_m": [
+          -6.679,
+          -9.861,
+          75.59,
+          7.736
+        ],
+        "comparison_bounds_m": [
+          4.0,
+          10.0,
+          86.269,
+          27.597
+        ],
+        "comparison_frame_id": "eindhoven_platform_shared_v1",
+        "comparison_polygon_sha256": "4aeb8557721c036386c5019822630921c2b5d8127eb57fbab5ea05301f48c1f4",
+        "shape": {
+          "bounds_m_rounded": [
+            "4.000000000",
+            "10.000000000",
+            "86.269000000",
+            "27.597000000"
+          ],
+          "width_m": "82.269000000",
+          "height_m": "17.597000000",
+          "area_m2": "1447.687593000"
+        },
+        "coordinate_transform": {
+          "id": "eindhoven_raw_translation_v1",
+          "translation_m": [
+            10.679,
+            19.861
+          ]
+        },
+        "source": "explicit",
+        "comparable": true
+      },
+      "config": {
+        "frame_rate_hz": 10.0,
+        "speed_window_seconds": 0.4,
+        "free_flow_density_max_p_m2": 0.3,
+        "walking_speed_min_m_s": 0.5,
+        "max_valid_speed_m_s": 3.0,
+        "measurement_bounds_m": [
+          -6.679,
+          -9.861,
+          75.59,
+          7.736
+        ],
+        "measurement_area_id": "eindhoven_platform_bbox_translation_v1",
+        "comparison_frame_id": "eindhoven_platform_shared_v1",
+        "coordinate_transform_id": "eindhoven_raw_translation_v1",
+        "coordinate_translation_m": [
+          10.679,
+          19.861
+        ],
+        "density_bin_edges": [
+          0.0,
+          0.1,
+          0.2,
+          0.3,
+          0.5,
+          0.75,
+          1.0,
+          1.5,
+          2.0,
+          3.0,
+          4.0,
+          6.0
+        ]
+      }
+    },
+    "low_global_density_walking_speed_proxy_m_s": {
+      "n": 102075,
+      "p5": 0.5869625200981746,
+      "p25": 0.903377343623959,
+      "p50": 1.169308021865924,
+      "p75": 1.380160769553839,
+      "p95": 1.6926469655533967,
+      "mean": 1.1511166122121927,
+      "std": 0.33991511816613446
+    },
+    "metric_support": {
+      "low_global_density_walking_speed_proxy_m_s": {
+        "point_n": 102075,
+        "agent_n": 806,
+        "frame_n": 4909,
+        "window_n": 5,
+        "source_canonical_row_n": 185234516,
+        "unit": "correlated_observed_metric_contributors"
+      },
+      "fundamental_diagram": {
+        "point_n": 199806,
+        "agent_n": 890,
+        "frame_n": 4909,
+        "window_n": 5,
+        "source_canonical_row_n": 185234516,
+        "unit": "correlated_observed_metric_contributors"
+      }
+    },
+    "fundamental_diagram": {
+      "method": "PedPy classic density + mean speed per frame",
+      "density_unit": "persons/m^2",
+      "speed_unit": "m/s",
+      "density_bin_edges": [
+        0.0,
+        0.1,
+        0.2,
+        0.3,
+        0.5,
+        0.75,
+        1.0,
+        1.5,
+        2.0,
+        3.0,
+        4.0,
+        6.0
+      ],
+      "bins": [
+        {
+          "density_low_p_m2": 0.0,
+          "density_high_p_m2": 0.1,
+          "density_p_m2": 0.026870009158106792,
+          "speed_p50": 0.5329210352528074,
+          "speed_p5": 0.20765842372983997,
+          "speed_p95": 1.1165743417005685,
+          "n": 4830
+        },
+        {
+          "density_low_p_m2": 0.1,
+          "density_high_p_m2": 0.2,
+          "density_p_m2": 0.10424306537872167,
+          "speed_p50": 1.0301992189274618,
+          "speed_p5": 0.9790106708488694,
+          "speed_p95": 1.1017632111588331,
+          "n": 79
+        }
+      ]
+    },
+    "fundamental_in_band_fraction": {
+      "value": null,
+      "status": "requires_observed_reference"
+    },
+    "quality": {
+      "status": "comparable",
+      "limitations": []
+    }
+  },
+  "metadata": {
+    "n": 199806,
+    "agent_count": 890,
+    "duration_s": 490.8,
+    "sampling": {
+      "strategy": "complete_contiguous_frame_windows",
+      "source_rows": 185234516,
+      "sampled_rows": 199806,
+      "window_count": 5,
+      "packed_frame_count": 4909,
+      "time_rebased": true,
+      "source_continuity_verified": true,
+      "seconds_per_frame": 0.1,
+      "time_basis": "explicit_frame_rate",
+      "selected_frame_ranges": [
+        [
+          1028635,
+          1029543
+        ],
+        [
+          2057270,
+          2057607
+        ],
+        [
+          3085905,
+          3086732
+        ],
+        [
+          4114540,
+          4116327
+        ],
+        [
+          5143175,
+          5144220
+        ]
+      ],
+      "packed_window_frame_ranges": [
+        [
+          0,
+          908
+        ],
+        [
+          909,
+          1246
+        ],
+        [
+          1247,
+          2074
+        ],
+        [
+          2075,
+          3862
+        ],
+        [
+          3863,
+          4908
+        ]
+      ],
+      "requested_max_rows": 200000,
+      "requested_window_count": 5
+    }
+  }
+}

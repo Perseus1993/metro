@@ -1,0 +1,29 @@
+{
+  "round": 18,
+  "agent": "industry_paper_methodology",
+  "status": "pass",
+  "method_sources": [
+    "https://pedpy.readthedocs.io/stable/user_guide.html",
+    "https://pedpy.readthedocs.io/stable/fundamental_diagram_at_measurement_line.html",
+    "https://arxiv.org/abs/2409.11857",
+    "https://doi.org/10.1016/j.trpro.2014.09.081",
+    "https://doi.org/10.1016/j.simpat.2017.05.002"
+  ],
+  "evidence": [
+    "eindhoven_platform_v1: canonical rows=185,234,516",
+    "eindhoven_platform_v1: walking-speed proxy n=102075, p50=1.169 m/s",
+    "eindhoven_platform_v1: complete-window sample rows=199806, packed_frames=4909"
+  ],
+  "findings": [
+    {
+      "severity": "P2",
+      "message": "speed evidence is a declared non-release proxy, not isolated free-flow speed",
+      "evidence": "{'semantics': 'low_global_density_speed_truncated_proxy', 'density_max_p_m2': 0.3, 'speed_min_m_s': 0.5, 'speed_max_m_s': 3.0, 'desired_speed_release_eligible': False}"
+    },
+    {
+      "severity": "P2",
+      "message": "observed sample does not cover a congested fundamental-diagram branch",
+      "evidence": "populated_bins=2, max_density_high=0.2"
+    }
+  ]
+}

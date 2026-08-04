@@ -1,0 +1,15 @@
+{
+  "round": 7,
+  "agent": "paper_methodology",
+  "status": "pass",
+  "checks": [
+    "found percentile field \"p5\"",
+    "found percentile field \"p25\"",
+    "found percentile field \"p50\"",
+    "found percentile field \"p75\"",
+    "found percentile field \"p95\"",
+    "fundamental_diagram field exists",
+    "canonical metadata exposes speed_p99_m_s"
+  ],
+  "issues": []
+}

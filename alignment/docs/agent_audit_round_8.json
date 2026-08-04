@@ -1,0 +1,68 @@
+{
+  "round": 8,
+  "agents": {
+    "paper_methodology": {
+      "round": 8,
+      "agent": "paper_methodology",
+      "status": "pass",
+      "checks": [
+        "found percentile field \"p5\"",
+        "found percentile field \"p25\"",
+        "found percentile field \"p50\"",
+        "found percentile field \"p75\"",
+        "found percentile field \"p95\"",
+        "fundamental_diagram field exists",
+        "canonical metadata exposes speed_p99_m_s",
+        "free-flow filter uses neighborhood exclusion logic",
+        "free-flow metric exports sample-size n",
+        "comparison pipeline carries free-flow speed key and error",
+        "observed metric pipeline invokes unified metric table and exposes n",
+        "observed pipeline includes pedpy compatibility check"
+      ],
+      "issues": []
+    },
+    "metro_integration": {
+      "round": 8,
+      "agent": "metro_compatibility",
+      "status": "pass",
+      "checks": [
+        "found: simulation_clock_mode=\"physical\"",
+        "found: movement_trace()",
+        "found: station_design=create_design",
+        "found: visual_only",
+        "found: passenger_id",
+        "found: movement_backend_name=\"jupedsim\"",
+        "run_alignment_scene uses movement_trace only",
+        "trace file output is persisted for post-mortem",
+        "scene config base class exists",
+        "corridor_unidirectional.py: has SceneConfig + build_scene_config",
+        "bottleneck.py: has SceneConfig + build_scene_config",
+        "platform_boarding.py: has SceneConfig + build_scene_config"
+      ],
+      "issues": []
+    },
+    "generality": {
+      "round": 8,
+      "agent": "generality",
+      "status": "pass",
+      "checks": [
+        "canonical schema version defined: alignment_trajectory.v1",
+        "canonical schema columns are defined and reusable",
+        "metrics helper chain is unified",
+        "report.py exports parameter table with unified structure",
+        "registry includes loader/canonical entry indirection fields",
+        "corridor_unidirectional.py: supports parameterized config",
+        "bottleneck.py: supports parameterized config",
+        "platform_boarding.py: supports parameterized config",
+        "build_canonical.py uses registry-driven loader and converter",
+        "build_canonical.py has no known dataset prefix split",
+        "pending stub datasets found: atc_osaka_stub, julich_corridor_stub",
+        "fundamental.py has no _tmp marker",
+        "comparison.py has no stale marker",
+        "build_canonical guards placeholder datasets with explicit pending signal"
+      ],
+      "issues": [],
+      "recommendation": "Generic path is reusable; continue iterative regression rounds"
+    }
+  }
+}

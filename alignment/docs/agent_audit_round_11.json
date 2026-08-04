@@ -1,0 +1,61 @@
+{
+  "round": 11,
+  "agents": {
+    "paper_methodology": {
+      "round": 11,
+      "agent": "paper_methodology",
+      "status": "pass",
+      "checks": [
+        "eindhoven_platform_v1: canonical rows=185234516",
+        "eindhoven_platform_v1: canonical has required columns",
+        "eindhoven_platform_v1: canonical validate passed",
+        "eindhoven_platform_v1: canonical meta file parseable",
+        "eindhoven_platform_v1: canonical meta speed_p99_m_s=2.622 <= 3.0",
+        "eindhoven_platform_v1: observed metrics file exists and parseable",
+        "eindhoven_platform_v1: observed metrics has free_flow_speed_m_s",
+        "eindhoven_platform_v1: free_flow sample n=103862",
+        "eindhoven_platform_v1: free_flow percentile order valid",
+        "eindhoven_platform_v1: free_flow p50=0.007 m/s",
+        "eindhoven_platform_v1: observed metrics has fundamental_diagram",
+        "eindhoven_platform_v1: observed metadata.n=200000"
+      ],
+      "issues": []
+    },
+    "metro_integration": {
+      "round": 11,
+      "agent": "metro_compatibility",
+      "status": "fail",
+      "checks": [
+        "run_alignment_scene calls movement_trace()",
+        "run_alignment_scene has no visual_tracks reference",
+        "run_alignment_scene sets simulation_clock_mode=physical (string check)",
+        "scenes package exposes SceneConfig",
+        "corridor_unidirectional.py: has SceneConfig and build_scene_config",
+        "bottleneck.py: has SceneConfig and build_scene_config",
+        "platform_boarding.py: has SceneConfig and build_scene_config"
+      ],
+      "issues": [
+        "no *_simulated.json generated yet"
+      ]
+    },
+    "generality": {
+      "round": 11,
+      "agent": "generality",
+      "status": "warn",
+      "checks": [
+        "canonical schema version defined: alignment_trajectory.v1",
+        "canonical schema columns are explicitly fixed",
+        "build_canonical uses registry-driven references",
+        "build_canonical no dataset-name branch logic",
+        "build_canonical explicit stub guard exists",
+        "eindhoven_platform_v1: canonical path exists",
+        "eindhoven_platform_v1: observed path exists",
+        "stub datasets are explicit: atc_osaka_stub, julich_corridor_stub"
+      ],
+      "issues": [
+        "generic solution is partial while stubs remain pending"
+      ],
+      "recommendation": "Stub datasets are marked explicitly, but this is not a fully generic completion until those paths are replaced with real data."
+    }
+  }
+}

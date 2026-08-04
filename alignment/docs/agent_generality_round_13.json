@@ -1,0 +1,19 @@
+{
+  "round": 13,
+  "agent": "generality",
+  "status": "warn",
+  "checks": [
+    "canonical schema version defined: alignment_trajectory.v1",
+    "canonical schema columns are explicitly fixed",
+    "build_canonical uses registry-driven references",
+    "build_canonical no dataset-name branch logic",
+    "build_canonical explicit stub guard exists",
+    "eindhoven_platform_v1: canonical path exists",
+    "eindhoven_platform_v1: observed path exists",
+    "stub datasets are explicit: atc_osaka_stub, julich_corridor_stub"
+  ],
+  "issues": [
+    "generic solution is partial while stubs remain pending"
+  ],
+  "recommendation": "Stub datasets are marked explicitly, but this is not a fully generic completion until those paths are replaced with real data."
+}

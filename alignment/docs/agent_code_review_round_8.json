@@ -1,0 +1,20 @@
+{
+  "round": 8,
+  "agent": "paper_methodology",
+  "status": "pass",
+  "checks": [
+    "found percentile field \"p5\"",
+    "found percentile field \"p25\"",
+    "found percentile field \"p50\"",
+    "found percentile field \"p75\"",
+    "found percentile field \"p95\"",
+    "fundamental_diagram field exists",
+    "canonical metadata exposes speed_p99_m_s",
+    "free-flow filter uses neighborhood exclusion logic",
+    "free-flow metric exports sample-size n",
+    "comparison pipeline carries free-flow speed key and error",
+    "observed metric pipeline invokes unified metric table and exposes n",
+    "observed pipeline includes pedpy compatibility check"
+  ],
+  "issues": []
+}

@@ -1,0 +1,69 @@
+{
+  "round": 20,
+  "status": "fail",
+  "agents": {
+    "paper_methodology": {
+      "round": 20,
+      "agent": "industry_paper_methodology",
+      "status": "pass",
+      "method_sources": [
+        "https://pedpy.readthedocs.io/stable/user_guide.html",
+        "https://pedpy.readthedocs.io/stable/fundamental_diagram_at_measurement_line.html",
+        "https://arxiv.org/abs/2409.11857",
+        "https://doi.org/10.1016/j.trpro.2014.09.081",
+        "https://doi.org/10.1016/j.simpat.2017.05.002"
+      ],
+      "evidence": [
+        "eindhoven_platform_v1: canonical rows=185,234,516",
+        "eindhoven_platform_v1: observed metrics exactly recomputed from canonical",
+        "eindhoven_platform_v1: walking-speed proxy n=102075, p50=1.169 m/s",
+        "eindhoven_platform_v1: complete-window sample rows=199806, packed_frames=4909"
+      ],
+      "findings": [
+        {
+          "severity": "P2",
+          "message": "speed evidence is a declared non-release proxy, not isolated free-flow speed",
+          "evidence": "{'semantics': 'low_global_density_speed_truncated_proxy', 'density_max_p_m2': 0.3, 'speed_min_m_s': 0.5, 'speed_max_m_s': 3.0, 'desired_speed_release_eligible': False}"
+        },
+        {
+          "severity": "P2",
+          "message": "observed sample does not cover a congested fundamental-diagram branch",
+          "evidence": "populated_bins=2, max_density_high=0.2"
+        }
+      ]
+    },
+    "metro_integration": {
+      "round": 20,
+      "agent": "metro_compatibility",
+      "status": "fail",
+      "evidence": [
+        "ready=['platform_boarding']; pending=['corridor_unidirectional', 'bottleneck']"
+      ],
+      "findings": [
+        {
+          "severity": "P1",
+          "message": "simulation manifest schema is stale",
+          "evidence": "D:\\metro\\alignment\\data\\metrics\\platform_boarding_simulated.json"
+        }
+      ]
+    },
+    "generality": {
+      "round": 20,
+      "agent": "generality_patch_vs_solution",
+      "status": "pass",
+      "evidence": [
+        "counterexample suite passed: ........................................................................ [ 52%]\n.................................................................        [100%]\n137 passed in 3.26s",
+        "src/metro_alignment/canonical.py: no registered dataset-ID coupling",
+        "src/metro_alignment/sampling.py: no registered dataset-ID coupling",
+        "src/metro_alignment/metro_trace.py: no registered dataset-ID coupling",
+        "src/metro_alignment/metrics/fundamental.py: no registered dataset-ID coupling",
+        "src/metro_alignment/metrics/comparison.py: no registered dataset-ID coupling",
+        "active=['eindhoven_platform_v1']; explicit pending=['julich_corridor_stub', 'atc_osaka_stub']",
+        "eindhoven_platform_v1: window evidence binned_frames=4909, packed_frames=4909",
+        "skip-tests is fail-closed and cannot create a passing acceptance"
+      ],
+      "findings": [],
+      "scope_statement": "Generic contracts are verified for registered sources and supported trace schemas; pending datasets/scenes remain explicitly unimplemented, not silently passed."
+    }
+  }
+}

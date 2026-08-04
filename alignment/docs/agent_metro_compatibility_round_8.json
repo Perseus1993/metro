@@ -1,0 +1,20 @@
+{
+  "round": 8,
+  "agent": "metro_compatibility",
+  "status": "pass",
+  "checks": [
+    "found: simulation_clock_mode=\"physical\"",
+    "found: movement_trace()",
+    "found: station_design=create_design",
+    "found: visual_only",
+    "found: passenger_id",
+    "found: movement_backend_name=\"jupedsim\"",
+    "run_alignment_scene uses movement_trace only",
+    "trace file output is persisted for post-mortem",
+    "scene config base class exists",
+    "corridor_unidirectional.py: has SceneConfig + build_scene_config",
+    "bottleneck.py: has SceneConfig + build_scene_config",
+    "platform_boarding.py: has SceneConfig + build_scene_config"
+  ],
+  "issues": []
+}

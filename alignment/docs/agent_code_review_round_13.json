@@ -1,0 +1,20 @@
+{
+  "round": 13,
+  "agent": "paper_methodology",
+  "status": "pass",
+  "checks": [
+    "eindhoven_platform_v1: canonical rows=185234516",
+    "eindhoven_platform_v1: canonical has required columns",
+    "eindhoven_platform_v1: canonical validate passed",
+    "eindhoven_platform_v1: canonical meta file parseable",
+    "eindhoven_platform_v1: canonical meta speed_p99_m_s=2.622 <= 3.0",
+    "eindhoven_platform_v1: observed metrics file exists and parseable",
+    "eindhoven_platform_v1: observed metrics has free_flow_speed_m_s",
+    "eindhoven_platform_v1: free_flow sample n=103862",
+    "eindhoven_platform_v1: free_flow percentile order valid",
+    "eindhoven_platform_v1: free_flow p50=0.007 m/s",
+    "eindhoven_platform_v1: observed metrics has fundamental_diagram",
+    "eindhoven_platform_v1: observed metadata.n=200000"
+  ],
+  "issues": []
+}
