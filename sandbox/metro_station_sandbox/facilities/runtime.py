@@ -1,41 +1,7 @@
-from __future__ import annotations
+"""Compatibility module; import from ``metro_station.adapters.simulation.facilities.runtime`` instead."""
 
-import mesa
+import sys as _sys
+from importlib import import_module as _import_module
 
-from ..planning.plan import FacilityStage
-from .process import FacilityKind, FacilitySpec
-from .runtime_base import BoardingDoorProcessAgent, FacilityProcessAgent, GateProcessAgent
-from .vertical_runtime import (
-    ElevatorProcessAgent,
-    EscalatorProcessAgent,
-    StairsProcessAgent,
-    VerticalTransportProcessAgent,
-)
-
-
-def facility_agent_for_spec(model: mesa.Model, spec: FacilitySpec) -> FacilityProcessAgent:
-    """Instantiate the concrete facility runtime class for a compiled spec."""
-
-    if spec.stage == FacilityStage.BOARDING_DOOR.value or spec.kind == FacilityKind.TRAIN_DOOR.value:
-        return BoardingDoorProcessAgent(model, spec=spec)
-    if spec.kind == FacilityKind.GATE.value:
-        return GateProcessAgent(model, spec=spec)
-    if spec.kind == FacilityKind.ELEVATOR.value:
-        return ElevatorProcessAgent(model, spec=spec)
-    if spec.kind == FacilityKind.STAIRS.value:
-        return StairsProcessAgent(model, spec=spec)
-    if spec.kind == FacilityKind.ESCALATOR.value:
-        return EscalatorProcessAgent(model, spec=spec)
-    raise ValueError(f"Unsupported facility kind {spec.kind!r} for {spec.facility_id!r}.")
-
-
-__all__ = [
-    "BoardingDoorProcessAgent",
-    "ElevatorProcessAgent",
-    "EscalatorProcessAgent",
-    "FacilityProcessAgent",
-    "GateProcessAgent",
-    "StairsProcessAgent",
-    "VerticalTransportProcessAgent",
-    "facility_agent_for_spec",
-]
+_target = _import_module("metro_station.adapters.simulation.facilities.runtime")
+_sys.modules[__name__] = _target

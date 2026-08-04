@@ -1,5 +1,14 @@
-from __future__ import annotations
+"""Compatibility package; import from ``metro_station_designer`` instead."""
 
-from .server import design_inspector_url, serve_design_inspector
+from importlib import import_module as _import_module
 
-__all__ = ["design_inspector_url", "serve_design_inspector"]
+_target = _import_module("metro_station_designer")
+__all__ = getattr(_target, "__all__", ())
+
+
+def __getattr__(name: str):
+    return getattr(_target, name)
+
+
+def __dir__() -> list[str]:
+    return sorted(set(globals()) | set(dir(_target)))

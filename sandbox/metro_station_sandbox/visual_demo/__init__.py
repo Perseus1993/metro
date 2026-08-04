@@ -1,1 +1,14 @@
-"""Visual metro-station demo assets, geometry, facilities, and track generation."""
+"""Compatibility package; import from ``metro_station_visualizer`` instead."""
+
+from importlib import import_module as _import_module
+
+_target = _import_module("metro_station_visualizer")
+__all__ = getattr(_target, "__all__", ())
+
+
+def __getattr__(name: str):
+    return getattr(_target, name)
+
+
+def __dir__() -> list[str]:
+    return sorted(set(globals()) | set(dir(_target)))

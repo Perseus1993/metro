@@ -1,41 +1,14 @@
-from .behavior import BehaviorActionKind, BehaviorStatus, RegionGoal
-from .factory import plan_for_station_graph
-from .plan import (
-    CROWD_INTERACTION_STATES,
-    PASSIVE_STATES,
-    SERVICE_STATES,
-    WALKING_STATES,
-    AgentGoal,
-    AgentIntent,
-    AgentPlan,
-    AgentState,
-    FacilityStage,
-    PlanAction,
-    PlanActionKind,
-    RouteKey,
-)
-from .progress import ExplicitReplanPolicy, ProgressMonitor
-from .selection import pick_least_loaded, pick_logit
+"""Compatibility package; import from ``metro_station.adapters.simulation.planning`` instead."""
 
-__all__ = [
-    "AgentGoal",
-    "AgentIntent",
-    "AgentPlan",
-    "AgentState",
-    "BehaviorActionKind",
-    "BehaviorStatus",
-    "CROWD_INTERACTION_STATES",
-    "ExplicitReplanPolicy",
-    "FacilityStage",
-    "PASSIVE_STATES",
-    "PlanAction",
-    "PlanActionKind",
-    "ProgressMonitor",
-    "RegionGoal",
-    "RouteKey",
-    "SERVICE_STATES",
-    "WALKING_STATES",
-    "pick_least_loaded",
-    "pick_logit",
-    "plan_for_station_graph",
-]
+from importlib import import_module as _import_module
+
+_target = _import_module("metro_station.adapters.simulation.planning")
+__all__ = getattr(_target, "__all__", ())
+
+
+def __getattr__(name: str):
+    return getattr(_target, name)
+
+
+def __dir__() -> list[str]:
+    return sorted(set(globals()) | set(dir(_target)))

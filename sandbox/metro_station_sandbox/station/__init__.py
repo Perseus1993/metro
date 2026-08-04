@@ -1,18 +1,14 @@
-from .compiler import DesignCompiler
-from .graph import GraphEdge, GraphNode, RouteSegment, StationGraph
-from .layout_graph import LayoutGraph
-from .runtime_layout import RouteCatalog, RuntimeStationLayout
-from .scenario import StationGeometry, StationSandboxScenario
+"""Compatibility package; import from ``metro_station.adapters.simulation.station`` instead."""
 
-__all__ = [
-    "DesignCompiler",
-    "GraphEdge",
-    "GraphNode",
-    "LayoutGraph",
-    "RouteCatalog",
-    "RouteSegment",
-    "RuntimeStationLayout",
-    "StationGeometry",
-    "StationGraph",
-    "StationSandboxScenario",
-]
+from importlib import import_module as _import_module
+
+_target = _import_module("metro_station.adapters.simulation.station")
+__all__ = getattr(_target, "__all__", ())
+
+
+def __getattr__(name: str):
+    return getattr(_target, name)
+
+
+def __dir__() -> list[str]:
+    return sorted(set(globals()) | set(dir(_target)))

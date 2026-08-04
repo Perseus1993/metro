@@ -1,42 +1,14 @@
-"""Editable station-design document model and browser editor prototype."""
+"""Compatibility package; import from ``metro_station.adapters.simulation.design`` instead."""
 
-from .schema import (
-    DesignConnection,
-    DesignConstraints,
-    DesignElement,
-    DesignPort,
-    ElementGeometry,
-    LevelSpec,
-    QueueSpec,
-    SCHEMA_VERSION,
-    StationDesignDocument,
-)
-from .react_flow_adapter import (
-    apply_react_flow_edges,
-    apply_react_flow_nodes,
-    apply_react_flow_positions,
-    to_react_flow,
-)
-from .templates import TopologyTemplate, create_design, topology_templates
-from .validation import ValidationIssue, validate_design
+from importlib import import_module as _import_module
 
-__all__ = [
-    "SCHEMA_VERSION",
-    "DesignConnection",
-    "DesignConstraints",
-    "DesignElement",
-    "DesignPort",
-    "ElementGeometry",
-    "LevelSpec",
-    "QueueSpec",
-    "StationDesignDocument",
-    "TopologyTemplate",
-    "ValidationIssue",
-    "apply_react_flow_edges",
-    "apply_react_flow_nodes",
-    "apply_react_flow_positions",
-    "create_design",
-    "to_react_flow",
-    "topology_templates",
-    "validate_design",
-]
+_target = _import_module("metro_station.adapters.simulation.design")
+__all__ = getattr(_target, "__all__", ())
+
+
+def __getattr__(name: str):
+    return getattr(_target, name)
+
+
+def __dir__() -> list[str]:
+    return sorted(set(globals()) | set(dir(_target)))

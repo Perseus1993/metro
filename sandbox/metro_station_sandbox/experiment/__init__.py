@@ -1,29 +1,14 @@
-"""Batch simulation experiments for station design alternatives."""
+"""Compatibility package; import from ``metro_station_experiments`` instead."""
 
-from typing import Any
+from importlib import import_module as _import_module
 
-__all__ = [
-    "CaseResult",
-    "ExperimentCase",
-    "ExperimentRunner",
-    "TrajectoryReport",
-    "TrajectoryThresholds",
-    "diagnose_tracks",
-    "write_experiment_report",
-]
+_target = _import_module("metro_station_experiments")
+__all__ = getattr(_target, "__all__", ())
 
 
-def __getattr__(name: str) -> Any:
-    if name in {"TrajectoryReport", "TrajectoryThresholds", "diagnose_tracks"}:
-        from . import diagnosis
+def __getattr__(name: str):
+    return getattr(_target, name)
 
-        return getattr(diagnosis, name)
-    if name == "write_experiment_report":
-        from . import report
 
-        return getattr(report, name)
-    if name in {"CaseResult", "ExperimentCase", "ExperimentRunner"}:
-        from . import runner
-
-        return getattr(runner, name)
-    raise AttributeError(name)
+def __dir__() -> list[str]:
+    return sorted(set(globals()) | set(dir(_target)))

@@ -1,24 +1,14 @@
-from .audit import AuditEvent, AuditLogger
-from .demand_scheduler import DemandScheduler
-from .mesa_model import MetroStationModel
-from .snapshots import (
-    AdminSnapshot,
-    FrameSnapshot,
-    MetricSnapshot,
-    PassengerSnapshot,
-    SnapshotBuilder,
-    TrainSnapshot,
-)
+"""Compatibility package; import from ``metro_station.adapters.simulation.runtime`` instead."""
 
-__all__ = [
-    "AdminSnapshot",
-    "AuditEvent",
-    "AuditLogger",
-    "DemandScheduler",
-    "FrameSnapshot",
-    "MetroStationModel",
-    "MetricSnapshot",
-    "PassengerSnapshot",
-    "SnapshotBuilder",
-    "TrainSnapshot",
-]
+from importlib import import_module as _import_module
+
+_target = _import_module("metro_station.adapters.simulation.runtime")
+__all__ = getattr(_target, "__all__", ())
+
+
+def __getattr__(name: str):
+    return getattr(_target, name)
+
+
+def __dir__() -> list[str]:
+    return sorted(set(globals()) | set(dir(_target)))

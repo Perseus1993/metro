@@ -1,51 +1,14 @@
-from .choice import DefaultFacilityChoicePolicy, FacilityChoicePolicy, StaffGuidedPolicy
-from .filters import (
-    filter_boarding_doors_for_platform,
-    filter_facilities_for_passenger,
-    filter_platforms_for_passenger,
-)
-from .process import FacilityKind, FacilitySpec, QueueLayout
-from .service_events import FacilityServiceEvent
-from .runtime import (
-    BoardingDoorProcessAgent,
-    ElevatorProcessAgent,
-    EscalatorProcessAgent,
-    FacilityProcessAgent,
-    GateProcessAgent,
-    StairsProcessAgent,
-    VerticalTransportProcessAgent,
-    facility_agent_for_spec,
-)
-from .vertical import (
-    ElevatorConfig,
-    EscalatorConfig,
-    EscalatorMode,
-    StairsConfig,
-    VerticalFacilityConfig,
-)
+"""Compatibility package; import from ``metro_station.adapters.simulation.facilities`` instead."""
 
-__all__ = [
-    "BoardingDoorProcessAgent",
-    "DefaultFacilityChoicePolicy",
-    "ElevatorConfig",
-    "ElevatorProcessAgent",
-    "EscalatorConfig",
-    "EscalatorMode",
-    "EscalatorProcessAgent",
-    "FacilityChoicePolicy",
-    "FacilityKind",
-    "FacilityProcessAgent",
-    "FacilityServiceEvent",
-    "FacilitySpec",
-    "GateProcessAgent",
-    "QueueLayout",
-    "StaffGuidedPolicy",
-    "StairsConfig",
-    "StairsProcessAgent",
-    "VerticalFacilityConfig",
-    "VerticalTransportProcessAgent",
-    "facility_agent_for_spec",
-    "filter_boarding_doors_for_platform",
-    "filter_facilities_for_passenger",
-    "filter_platforms_for_passenger",
-]
+from importlib import import_module as _import_module
+
+_target = _import_module("metro_station.adapters.simulation.facilities")
+__all__ = getattr(_target, "__all__", ())
+
+
+def __getattr__(name: str):
+    return getattr(_target, name)
+
+
+def __dir__() -> list[str]:
+    return sorted(set(globals()) | set(dir(_target)))

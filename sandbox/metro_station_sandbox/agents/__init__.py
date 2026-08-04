@@ -1,12 +1,14 @@
-"""Station agent public API."""
+"""Compatibility package; import from ``metro_station.adapters.simulation.agents`` instead."""
 
-from .passenger import PassengerAgent
-from .staff import AdminAgent
-from .transit import PlatformAgent, TrainAgent
+from importlib import import_module as _import_module
 
-__all__ = [
-    "AdminAgent",
-    "PassengerAgent",
-    "PlatformAgent",
-    "TrainAgent",
-]
+_target = _import_module("metro_station.adapters.simulation.agents")
+__all__ = getattr(_target, "__all__", ())
+
+
+def __getattr__(name: str):
+    return getattr(_target, name)
+
+
+def __dir__() -> list[str]:
+    return sorted(set(globals()) | set(dir(_target)))

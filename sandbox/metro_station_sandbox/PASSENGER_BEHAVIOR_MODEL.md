@@ -24,16 +24,31 @@ the station graph and process model.
 ```mermaid
 flowchart TD
     A["Intent"] --> B["Region goal"]
-    B --> C["Planner"]
-    C --> D["Behavior plan"]
+    B --> C["JourneyGraph + GoalStateMachine"]
+    C --> D["GoalCommand"]
     D --> E["Movement engine"]
     D --> F["Facility service"]
     E --> G["Progress monitor"]
     F --> G
     G -->|healthy| H["Continue plan"]
-    G -->|stalled| I["Replan or choose next option"]
+    G -->|stalled fact| I["GoalEvent: PROGRESS_STALLED"]
     I --> C
 ```
+
+### Goal Graph Authority
+
+In `active` mode, `JourneyGraph` and `GoalStateMachine` are the only strategic
+behavior authority. They own the current journey stage, candidate evaluation,
+facility commitment, queue/service state, replanning, and completion.
+
+`PassengerAgent` reports physical facts and receives commands. `FacilityProcessAgent`
+owns queue and service mechanics. The movement backend owns only physical movement
+results. `AgentPlan` remains a temporary physical-route compatibility object and
+must not execute `CHOOSE_*` actions for active passengers.
+
+Runtime adapters may emit `GoalEvent` values but may not mutate Goal state.
+Command executors may translate `GoalCommand` values into movement or facility
+operations but may not select an alternative facility themselves.
 
 ### Intent
 
@@ -55,12 +70,13 @@ Region goals define source and destination areas:
 
 The planner converts this into a route through the station graph.
 
-### Behavior Plan
+### Behavior Commands
 
-A behavior plan is a sequence of typed actions:
+In active mode, Goal Runtime emits typed commands:
 
 - `walk_to_region`
-- `choose_facility`
+- `observe_candidates`
+- `select_facility`
 - `walk_to_queue_tail`
 - `join_queue`
 - `wait_in_queue`
@@ -69,8 +85,9 @@ A behavior plan is a sequence of typed actions:
 - `board_train`
 - `depart`
 
-The important rule is that the target of walking is a region or queue capture
-area, not an arbitrary decorative point.
+`AgentPlan` is not this strategic sequence. It is only a temporary physical
+execution compatibility object and contains no `CHOOSE_*` actions. The target
+of walking is a region or queue capture area, not an arbitrary decorative point.
 
 ## Facility Decomposition
 
@@ -217,15 +234,19 @@ position alone.
 
 Current implementation:
 
-- `behavior.py` defines the shared `RegionGoal`, `BehaviorStatus`, and
-  `BehaviorActionKind` vocabulary.
+- `planning/goal_graph.py` and `planning/default_goal_state_machine.py` define
+  the framework-independent journey and transition authority.
+- `runtime/passenger_goal_coordinator.py` runs the production event/command loop,
+  while `passenger_goal_command_executor.py` translates commands to existing
+  physical routes and facility operations.
+- `runtime/goal_parity.py` keeps physical and Goal Graph evidence independent
+  for runtime diagnostics and clearance proof.
 - `MetroStationModel.snapshot()` emits a `behavior` object for every live
   passenger.
-- `progress_monitor.py` tracks no-progress windows and emits audited route or
+- `planning/progress.py` tracks no-progress windows and emits audited route or
   same-stage facility replans.
-- `facility_choice.py` ranks alternatives by generalized cost and samples them
-  with a multinomial logit choice model instead of pushing everyone to the
-  single shortest queue.
+- `planning/goal_choice.py` selects facilities only from Goal runtime
+  observations; facilities and `PassengerAgent` do not rank alternatives.
 - `visual_demo/generate_jps_tracks.py` emits `behavior_action`, `queue_mode`,
   `region_goal`, `current_region`, and `target_region` in each sampled agent
   record and stuck-window report.

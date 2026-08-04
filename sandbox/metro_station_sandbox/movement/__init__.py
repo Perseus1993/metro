@@ -1,17 +1,14 @@
-from .backend import (
-    BatchedJuPedSimMovementBackend,
-    JuPedSimMovementBackend,
-    MovementBackend,
-    MovementRequest,
-    MovementResult,
-)
-from .jps_adapter import JuPedSimAdapter
+"""Compatibility package; import from ``metro_station.adapters.simulation.movement`` instead."""
 
-__all__ = [
-    "JuPedSimAdapter",
-    "BatchedJuPedSimMovementBackend",
-    "JuPedSimMovementBackend",
-    "MovementBackend",
-    "MovementRequest",
-    "MovementResult",
-]
+from importlib import import_module as _import_module
+
+_target = _import_module("metro_station.adapters.simulation.movement")
+__all__ = getattr(_target, "__all__", ())
+
+
+def __getattr__(name: str):
+    return getattr(_target, name)
+
+
+def __dir__() -> list[str]:
+    return sorted(set(globals()) | set(dir(_target)))
