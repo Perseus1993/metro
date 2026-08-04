@@ -1,0 +1,2 @@
+id,year,authors,title,venue,doi_or_id,stable_url,full_text_url,status,accessed_at,file_path,sha256,notes
+17,2015,"Tordeux, Antoine; Chraibi, Mohcine; Seyfried, Armin","Collision-free speed model for pedestrian dynamics","TGF'15 contribution / arXiv preprint",arXiv:1512.05597,https://arxiv.org/abs/1512.05597,https://arxiv.org/pdf/1512.05597,full_text_verified,2026-08-02,theory/papers/17_2015_Tordeux_collision_free_speed.pdf,7E61AE42E71FE3712445DD8DDFC049D9C5DE77E0F4B51D2E8BD73756410E2678,"Added because production defaults to this model family"
