@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from math import isfinite
 
 from .base import SceneConfig
 
@@ -15,6 +16,7 @@ class PlatformBoardingConfig(SceneConfig):
     platform_length_m: float = 82.269
     platform_width_m: float = 17.597
     train_door_x_m: float = 18.0
+    alighting_source_lateral_offset_m: float = 10.0
     minutes: int = 10
     entry_count_hour: int = 2500
     exit_count_hour: int = 2200
@@ -42,6 +44,11 @@ class PlatformBoardingConfig(SceneConfig):
             raise ValueError("platform dimensions are too small for Metro's gate/queue contracts")
         if not 1.0 <= self.train_door_x_m <= self.platform_length_m - 12.0:
             raise ValueError("train_door_x_m must leave room for the boarding edge")
+        if (
+            not isfinite(float(self.alighting_source_lateral_offset_m))
+            or self.alighting_source_lateral_offset_m < 0.0
+        ):
+            raise ValueError("alighting_source_lateral_offset_m must be finite and non-negative")
         expected = (4.0, 10.0, 4.0 + self.platform_length_m, 10.0 + self.platform_width_m)
         if any(
             abs(actual - wanted) > 1e-9

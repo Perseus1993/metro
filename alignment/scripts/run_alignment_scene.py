@@ -47,6 +47,7 @@ from metro_alignment.simulation_evidence import (
 )
 
 SIMULATED_ARTIFACT_SCHEMA_VERSION = "alignment_simulation_metrics.v5"
+SOURCE_PREFLIGHT_ARTIFACT_SCHEMA_VERSION = "alignment_source_preflight_artifact.v2"
 
 
 @dataclass(frozen=True)
@@ -349,7 +350,7 @@ def _write_json(path: Path, payload: dict[str, Any]) -> None:
     write_json_atomic(path, payload)
 
 
-def _write_source_preflight_blocker(
+def _write_source_preflight_artifact(
     *,
     output: Path,
     config: SceneConfig,
@@ -357,10 +358,11 @@ def _write_source_preflight_blocker(
 ) -> Path:
     _, design_sha256 = build_metro_scenario(config)
     path = output.parent / f"{config.scene_id}_source_preflight.json"
+    passed = report.get("status") == "pass"
     _write_json(
         path,
         {
-            "schema_version": "alignment_source_preflight_artifact.v1",
+            "schema_version": SOURCE_PREFLIGHT_ARTIFACT_SCHEMA_VERSION,
             "scene_id": config.scene_id,
             "scene_config_schema_version": SCENE_CONFIG_SCHEMA_VERSION,
             "scene_config": scene_config_payload(config),
@@ -368,9 +370,9 @@ def _write_source_preflight_blocker(
             "design_sha256": design_sha256,
             "metro_runtime_fingerprint": metro_source_fingerprint(),
             "analysis_runtime_fingerprint": analysis_runtime_fingerprint(),
-            "runtime_status": "not_started",
-            "scientific_status": "model_invalid",
-            "blocker": "alighting_source_geometry_conflict",
+            "runtime_status": "ready" if passed else "not_started",
+            "scientific_status": "eligible" if passed else "model_invalid",
+            "blocker": None if passed else "alighting_source_geometry_conflict",
             "release_eligible": False,
             "preflight": report,
         },
@@ -378,11 +380,24 @@ def _write_source_preflight_blocker(
     return path
 
 
+def _write_source_preflight_blocker(
+    *,
+    output: Path,
+    config: SceneConfig,
+    report: dict[str, Any],
+) -> Path:
+    if report.get("status") != "fail":
+        raise ValueError("source preflight blocker requires a failed report")
+    return _write_source_preflight_artifact(output=output, config=config, report=report)
+
+
 def _retire_source_preflight_blocker(*, output: Path, config: SceneConfig) -> None:
     """Remove a superseded blocker only after a new bundle is fully published."""
 
     path = output.parent / f"{config.scene_id}_source_preflight.json"
-    if path.exists():
+    if path.exists() and json.loads(path.read_bytes()).get("preflight", {}).get(
+        "status"
+    ) == "fail":
         path.unlink()
 
 
@@ -482,6 +497,11 @@ def parse_args() -> argparse.Namespace:
         action="store_true",
         help="verify and reprocess an existing authoritative trace without rerunning Metro",
     )
+    parser.add_argument(
+        "--preflight-only",
+        action="store_true",
+        help="write a current-fingerprint source-geometry preflight artifact and stop",
+    )
     parser.add_argument("--list-scenes", action="store_true")
     return parser.parse_args()
 
@@ -541,6 +561,27 @@ def main() -> None:
         )
     except ValueError as exc:
         raise SystemExit(str(exc)) from exc
+    if args.preflight_only:
+        scenario, _ = build_metro_scenario(config)
+        report = alignment_source_geometry_preflight(scenario)
+        path = _write_source_preflight_artifact(
+            output=args.output,
+            config=config,
+            report=report,
+        )
+        print(
+            json.dumps(
+                {
+                    "status": report["status"],
+                    "scene_id": config.scene_id,
+                    "preflight": str(path),
+                },
+                ensure_ascii=False,
+            )
+        )
+        if report["status"] != "pass":
+            raise AlignmentSourceGeometryConflict(report)
+        return
     try:
         if args.reuse_existing_trace:
             (

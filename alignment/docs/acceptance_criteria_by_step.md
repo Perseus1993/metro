@@ -1,6 +1,6 @@
 # Alignment Step 1–8 可执行验收标准
 
-更新：2026-08-04。唯一聚合入口：
+更新：2026-08-05。唯一聚合入口：
 
 ```powershell
 uv run --project . python scripts/verify_acceptance.py `
@@ -73,10 +73,16 @@ uv run --project . python scripts/verify_acceptance.py `
 | 独立重建 | 从同一已哈希 movement-trace bytes 重新解析所得 canonical/provenance/metrics/support/summary 必须与落盘证据逐项完全一致；当前 DesignDocument 必须能由 Metro 编译 | verifier + Metro compatibility agent |
 | 场景几何 | platform 尺寸改变必须改变 DesignDocument hash，尺寸误差 `<=0.01m` | `tests/test_scenes.py` |
 | 源区预检 | 必须在 `build_model` 前，用 SceneConfig 生成的 DesignDocument、场景共享 `radius*clearance_multiplier`、DemandScheduler 峰值同 tick 下车批次和实际完整候选窗口检查 holding area、其净距缓冲区、门轴通道及候选唯一性；冲突还必须由 Metro 编译器复现为 `capacity.coactive_slot_conflict` | `alignment_source_geometry_preflight.v3` + tests |
-| 失败关闭 | 任一源区冲突必须输出当前 config/design/Metro/analysis 指纹绑定的结构化 artifact，标记 `runtime_status=not_started`、`scientific_status=model_invalid`、`release_eligible=false`；不得称为容量超限 | `platform_boarding_source_preflight.json` + verifier Step 5 |
+| 当前留痕 | preflight 无论通过或失败都必须输出 v2 artifact 并绑定当前 config/design/Metro/analysis 指纹；通过时记录 `runtime_status=ready`、`scientific_status=eligible`，但 preflight 本身不得授权 release | `run_alignment_scene.py --preflight-only` + verifier Step 5 |
+| 失败关闭 | 任一源区冲突必须在 v2 artifact 中标记 `runtime_status=not_started`、`scientific_status=model_invalid`、`release_eligible=false`；不得称为容量超限 | `platform_boarding_source_preflight.json` + verifier Step 5 |
+| 最终指纹阶梯 | 机制修复冻结后，`exit-only 350 -> entry-only 600 -> mixed 600` 必须按此顺序在同一 SceneConfig、Design、Metro source、analysis source 和依赖指纹下一次性重跑；任一中途源码/配置变化使整组证据 stale，必须从 exit-only 重新开始 | 版本化 ladder manifest + 每段 control artifact；禁止混用 `.codex_tmp` 或旧 round 诊断 |
+| 正式运行与发布边界 | 阶梯必须由 `scripts/run_alignment_scene.py` 的正式 control/profile 路径执行；只有通过全部前置门的 mixed 600 可调用内容寻址、原子 manifest 切换的发布器。临时脚本、手动 `model.step()`、trace replay 或诊断 JSON 不得成为发布 bundle | runner CLI、原子发布测试、runner provenance |
 | 需求与列车守恒 | 正式 600-step 必须 entry=417、exit=367、pending/dropped/native missing/degraded/active boarding/reserved boarding 全为 0，departed trains=3，请求量=计划量 | runner publication gate + replay-bypass tests |
+| 入口断面容量带检 | 与最终阶梯相同冻结指纹下，另跑预注册的 entry-tail 饱和断面 control；固定测量线、有效净宽、饱和判据和时间窗，稳定窗口比流量必须在 `1.2 <= q/(w*t) <= 1.5 persons/(m*s)`。低于下沿表示机制过紧，高于上沿表示回收/避碰过松，均阻断 Step 5。正式 417 人需求的 600 秒全程均值不作为容量带检，因为其最大可能值仅为 `417/(600*1.6)=0.434 persons/(m*s)` | 版本化 saturated-flow artifact + 双边反例；分母和窗口不得按结果后调 |
 
-当前场景边界：`platform_boarding` 为 Eindhoven bbox 尺寸代理；内部障碍/门位仍是 proxy。设计文档级预检测得共享净距 0.396 m、峰值同 tick 下车批次 4、候选窗口 67，其中 holding area 内 60、净距缓冲内 64、门轴冲突 4，故 Step 5 是 `model_invalid / source_geometry_conflict`，runtime 不启动。历史诊断中，修复第 327 步共享净距放置与第 558 步入口原子准入后，600-step 完成但 exit admitted/pending=195/172；840-step 尾部诊断仅改善为 197/170。840 不是新基线，也不能支持容量结论。通用修复需要 Metro core 提供 train-specific exchange manifest、同一 PTI 控制器、下车优先或已标定混合策略、共享通道预约及有界 deadlock/hold。`corridor_unidirectional` 与 `bottleneck` 仍因 Metro 主线最小 gate/queue 几何约束为 `pending`。
+最终指纹 ladder manifest、正式 control/profile 和 saturated-flow artifact 目前是 `proposed/pending`，不是已实现证据；在 runner、schema、双边反例和原子发布测试落地前，Step 5 不能因手工完成同名实验而通过。
+
+当前场景边界：`platform_boarding` 为 Eindhoven bbox 尺寸代理；内部障碍/门位仍是 proxy。Round 23 将下车源点阵横向错开 10.0 m；设计文档级预检保持共享净距 0.396 m、峰值同 tick 下车批次 4、候选窗口 67，并把 holding area、净距缓冲和门轴冲突全部降为 0。正式 600-step 已完成，但发布守恒门测得 entry admitted/pending=361/56、exit admitted/pending=170/197，故 Step 5 仍 fail，失败阶段已从构模前 `source_geometry_conflict` 推进到运行后 `admission_acceptance_failed`。随后同源诊断证明下车侧可清空，而当前源码指纹下 entry-only 仍为 319/417、98 pending；这些数字和比流量审计只用于定位，任何机制修复改变 Metro source fingerprint 后即全部 stale。840-step 历史诊断不是新基线，也不能支持容量结论。后续通用修复仍需要 train-specific exchange manifest、同一 PTI 控制器、下车优先或已标定混合策略、共享通道预约及有界 deadlock/hold。`corridor_unidirectional` 与 `bottleneck` 仍因 Metro 主线最小 gate/queue 几何约束为 `pending`。
 
 ## Step 6 观测—仿真对比（科学发布门）
 
@@ -89,9 +95,12 @@ uv run --project . python scripts/verify_acceptance.py `
 | 反例 | 明显带外=0，带内=1，5/5 混合=0.5 | `tests/test_metrics.py` |
 | 总门 | 速度代理、FD 支持覆盖、FD 条件落带三项均 `within_band` 且无发布 blocker，才 `overall_verdict=pass` | 否则 release=`hold` |
 | 几何资格 | 仿真场景必须 `geometry_evidence_status=observed_matched` | bbox/internal-layout proxy 即使数值过线也强制 release=`hold` |
+| 独立 holdout / 多种子 | 候选选择前冻结 calibration/holdout split、输入 SHA 和零重叠证明；固定至少 10 个种子，10/10 先过 Step 5，聚合 95% CI 相对半宽 `<=5%` 且 `converged=true` | 缺 split、逐种子内容寻址产物、收敛计算或任一种子失败均保持 `candidate_not_validated` |
 | 防伪重算 | 整份 comparison 必须与当前 observed、simulation、可信 SceneConfig 和输入 SHA-256 的确定性重建完全相等 | builder + verifier + forged-verdict test |
 
 Step 6 的 `hold` 表示软件闭环可执行但标定/验证没有成功，不能用“产物存在”替代门限。
+Step 5 的 mixed 600 与饱和断面 control 通过只允许生成新的 simulation v5；它不等于 release。当前 geometry=`proxy`、独立 holdout 和多种子收敛证据缺失时，Step 6 必须继续 `hold`。
+顺序固定为：先修机制并完成最终指纹阶梯，再用新 simulation 重建 comparison；只有误差仍存在时才重新讨论 `jupedsim_desired_speed_mps`。当前 1.22 不因旧 v2 的 1.130232 诊断而改变。seeds 41--50 的十个 600-step holdout 与 scale-soak 进入 nightly 档位，不作为每次提交门。
 
 ## Step 7 参数报告
 
@@ -111,7 +120,7 @@ Step 6 的 `hold` 表示软件闭环可执行但标定/验证没有成功，不�
 | 防伪执行 | `--skip-tests` 必须快速输出 hold/非零；正式验收前后 analysis、Metro、scripts/tests 指纹完全一致并写入 acceptance | verifier tests + acceptance JSON |
 | 代码质量 | `uv run --project . ruff check .` exit 0 | verifier Step 8 |
 | 回归 | `uv run --project . python -m pytest -q` 全过 | verifier Step 8 |
-| 写边界 | 本计划实现只写 `alignment/` | Git diff |
+| 写边界 | 对齐专属逻辑留在 `alignment/`；编译证书与 runtime 共用的几何参数只允许最小修改 `packages/metro_station/` 对应契约并补根回归 | Git diff + root targeted tests |
 
 ## Step 9 三方独立复审
 

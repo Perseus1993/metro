@@ -10,6 +10,7 @@ import pytest
 from metro_alignment.canonical import CANONICAL_SCHEMA_VERSION, canonicalize
 from metro_alignment.metrics.comparison import (
     build_comparison_payload,
+    build_preflight_blocked_comparison_payload,
     compare_metric_tables,
     geometry_release_blockers,
     relative_error,
@@ -433,6 +434,64 @@ def test_comparison_artifact_is_a_deterministic_trusted_input_rebuild() -> None:
             observed_input={"path": "observed.json", "sha256": "a" * 64},
             simulation_input={"path": "simulation.json", "sha256": "b" * 64},
         )
+
+
+def test_preflight_blocked_comparison_is_current_and_explicitly_unavailable() -> None:
+    base = compute_metric_table(_walking_trajectory(), config=_config())
+    observed = {
+        "schema_version": "alignment_observed_metrics.v5",
+        "canonical_schema_version": CANONICAL_SCHEMA_VERSION,
+        "metric_schema_version": METRIC_SCHEMA_VERSION,
+        "dataset_id": "observed-v1",
+        "metrics": _as_observed(base),
+        "metadata": {
+            "n": 10,
+            "agent_count": 2,
+            "sampling": {
+                "source_rows": 10,
+                "packed_frame_count": 5,
+                "window_count": 1,
+            },
+        },
+    }
+    preflight = {
+        "schema_version": "alignment_source_preflight_artifact.v2",
+        "scene_id": "scene-v1",
+        "scene_config_schema_version": SCENE_CONFIG_SCHEMA_VERSION,
+        "runtime_status": "ready",
+        "scientific_status": "eligible",
+        "blocker": None,
+        "release_eligible": False,
+        "preflight": {
+            "status": "pass",
+            "runtime_status": "ready",
+            "scientific_status": "eligible",
+            "outcome": "eligible",
+            "blockers": [],
+        },
+    }
+
+    payload = build_preflight_blocked_comparison_payload(
+        scene_id="scene-v1",
+        observed_artifact=observed,
+        preflight_artifact=preflight,
+        trusted_observed_dataset_id="observed-v1",
+        trusted_desired_speed_mps=1.22,
+        trusted_geometry_status="proxy",
+        observed_input={"path": "observed.json", "sha256": "a" * 64},
+        preflight_input={"path": "preflight.json", "sha256": "b" * 64},
+    )
+
+    assert payload["schema_version"] == "alignment_comparison.v5"
+    assert payload["simulation_evidence_status"] == "unavailable_after_preflight"
+    assert payload["overall_verdict"] == "hold"
+    assert {metric["verdict"] for metric in payload["metrics"].values()} == {
+        "unavailable"
+    }
+    speed = payload["metrics"][WALKING_SPEED_PROXY_KEY]
+    assert speed["observed"] == pytest.approx(1.0)
+    assert speed["simulated"] is None
+    assert speed["support"]["simulated"]["seed_n"] == 0
 
 
 @pytest.mark.parametrize("side", ["observed", "simulation"])

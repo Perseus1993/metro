@@ -1,0 +1,93 @@
+{
+  "schema_version": "alignment_parameter_report.v5",
+  "scene_id": "platform_boarding",
+  "generated_at": "2026-08-04T15:34:25.725478+00:00",
+  "release_decision": "hold",
+  "source_artifacts": {
+    "comparison": {
+      "path": "comparison_platform_boarding.json",
+      "sha256": "03ae1710b21813827575b2d6c629d297cef89c84f6f436bd552e860df63a67c1"
+    }
+  },
+  "parameter_table": [
+    {
+      "parameter": "jupedsim_desired_speed_mps",
+      "current_value": 1.22,
+      "observed_value": 1.169308021865924,
+      "sample_support": {
+        "observed": {
+          "point_n": 102075,
+          "agent_n": 806,
+          "frame_n": 4909,
+          "window_n": 5,
+          "source_canonical_row_n": 185234516,
+          "unit": "correlated_observed_metric_contributors"
+        },
+        "simulated": {
+          "point_n": 0,
+          "episode_n": 0,
+          "passenger_n": 0,
+          "frame_n": 0,
+          "seed_n": 0,
+          "seed_values": [],
+          "unit": "correlated_simulated_metric_contributors"
+        },
+        "independence_warning": "observed contributors are correlated; no current formal simulated contributors are available"
+      },
+      "source": "comparison_platform_boarding.json",
+      "suggestion": 1.22,
+      "status": "candidate_not_validated",
+      "uncertainty": {
+        "kind": "not_estimated",
+        "confidence_level": null,
+        "estimate": null,
+        "lower": null,
+        "upper": null,
+        "relative_half_width": null
+      },
+      "evidence": {
+        "comparison_verdict": "unavailable",
+        "overall_verdict": "hold",
+        "metric_semantics": "low_global_density_speed_truncated_proxy",
+        "desired_speed_release_eligible": false,
+        "diagnostic_candidate_value": 1.169308021865924,
+        "parameter_change_authorized": false,
+        "parameter_validation": {
+          "schema_version": "alignment_parameter_validation.v1",
+          "independent_holdout": {
+            "available": false,
+            "dataset_id": null
+          },
+          "multi_seed": {
+            "seed_n": 0,
+            "min_required": 10,
+            "converged": false
+          },
+          "uncertainty": {
+            "kind": "not_estimated",
+            "confidence_level": null,
+            "estimate": null,
+            "lower": null,
+            "upper": null,
+            "relative_half_width": null
+          }
+        },
+        "parameter_validation_errors": [
+          "independent holdout evidence is unavailable",
+          "multi-seed convergence evidence is insufficient",
+          "95% uncertainty interval is missing, inconsistent, or too wide"
+        ],
+        "comparison_input_hashes": {
+          "observed": {
+            "path": "eindhoven_platform_v1_observed.json",
+            "sha256": "aa4012e5cb5877be4035fcd0898d5ba1e6e4362e75db54d3633c200b064abe25"
+          },
+          "source_preflight": {
+            "path": "platform_boarding_source_preflight.json",
+            "sha256": "e475dd61e4ef17e0e32d65c4520520a35b7704b53a39ba0e66fa64cdd0ef94f4"
+          }
+        }
+      }
+    }
+  ]
+}

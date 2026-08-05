@@ -61,6 +61,8 @@
 
 进入条件：当前源码能对应到可恢复的 Git 提交；alignment 的编译期反例、60/64/4 几何证据和 `capacity.coactive_slot_conflict` 均绑定同一指纹；每项先给出独立合同与反例，不以延长 horizon、降低需求或运行期重试作为验收。
 
+当前解锁合同（2026-08-05）：先修 entry gate 的 slot-1 到 slot-0 压紧，再处理有物理依据的 release ownership/clearance 回收；任何时序参数改动必须在 PR 中注明人体过闸或让开动线的物理映射，不得以 417/417 反调。最终候选必须在同一冻结 SceneConfig/Design/Metro/analysis/dependency 指纹下，由正式 runner 连续完成 exit-only 350、entry-only 600、mixed 600，并另过固定断面/净宽/窗口的饱和比流量双边门 `1.2～1.5 人/(m·s)`；低于下沿和高于上沿均失败。只有 mixed 可原子发布 simulation v5，且只解锁 Alignment Step 5；geometry proxy 与独立多种子 holdout 未解除前 Step 6/release 继续 hold。seeds 41～50 和 scale-soak 属 nightly 预算，不进入每次提交门。
+
 ## 接口分层规则
 
 以下是四个独立产品边界，禁止出现统一 `AlgorithmPlugin`：

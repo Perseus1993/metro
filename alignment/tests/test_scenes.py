@@ -36,7 +36,12 @@ def test_pending_scene_cannot_masquerade_as_runnable() -> None:
 
 @pytest.mark.parametrize(
     ("field", "value"),
-    [("status", "future"), ("minutes", True), ("seed", 1.5)],
+    [
+        ("status", "future"),
+        ("minutes", True),
+        ("seed", 1.5),
+        ("alighting_source_lateral_offset_m", -0.1),
+    ],
 )
 def test_scene_contract_rejects_runtime_type_and_enum_errors(field, value) -> None:
     with pytest.raises(ValueError):
@@ -61,6 +66,7 @@ def test_scene_registry_key_must_match_scene_id(monkeypatch) -> None:
 
 def test_platform_dimensions_change_compiled_design() -> None:
     default = build_platform()
+    assert default.alighting_source_lateral_offset_m == pytest.approx(10.0)
     assert default.geometry_evidence_status == "proxy"
     assert "internal obstacles" in default.geometry_evidence
     wider = build_platform(platform_length_m=90.0, platform_width_m=18.0)

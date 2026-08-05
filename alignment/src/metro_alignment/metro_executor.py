@@ -15,6 +15,9 @@ from metro_station.adapters.simulation.movement.dynamic_body_clearance import (
 )
 from metro_station.adapters.simulation.planning.plan import AgentIntent
 from metro_station.adapters.simulation.runtime.mesa_model import MetroStationModel
+from metro_station.adapters.simulation.spatial_capacity_admission import (
+    SpatialCapacityAdmissionError,
+)
 from metro_station.adapters.simulation.station.alighting_demand import peak_alighting_batch
 from metro_station.adapters.simulation.station.alighting_source_geometry import (
     ALIGHTING_SOURCE_SEARCH_WINDOW,
@@ -111,6 +114,7 @@ def alignment_source_geometry_preflight(scenario: StationSandboxScenario) -> dic
                 (anchor_x, anchor_y),
                 index,
                 agent_radius_m=scenario.jupedsim_agent_radius_units,
+                lateral_offset_m=scenario.alighting_source_lateral_offset_m,
             )
             for index in range(candidate_count)
         ]
@@ -310,6 +314,11 @@ class AlignmentMetroStationModel(MetroStationModel):
                     initial_position=admission.position,
                     initial_level_id=admission.level_id,
                 )
+            except SpatialCapacityAdmissionError:
+                self.alignment_source_deferred_attempts += 1
+                blocked_source_ids.add(demand.source_id)
+                self.alignment_pending_source_demands.append(demand)
+                continue
             except BaseException:
                 self.alignment_pending_source_demands.append(demand)
                 self.alignment_pending_source_demands.extend(

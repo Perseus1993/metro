@@ -42,6 +42,9 @@ def build_metro_scenario(config: SceneConfig) -> tuple[StationSandboxScenario, s
         jupedsim_desired_speed_mps=float(config.jupedsim_desired_speed_mps),
         jupedsim_free_speed_min_mps=float(config.jupedsim_free_speed_min_mps),
         jupedsim_free_speed_max_mps=float(config.jupedsim_free_speed_max_mps),
+        alighting_source_lateral_offset_m=float(
+            config.alighting_source_lateral_offset_m
+        ),
         stairs_preference_share=float(config.stairs_preference_share),
         stair_fatigue_cost_up=float(config.stair_fatigue_cost_up),
         stair_fatigue_cost_down=float(config.stair_fatigue_cost_down),

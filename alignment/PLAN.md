@@ -4,10 +4,10 @@
 
 当前执行边界（2026-08-04）：Eindhoven + platform proxy 为 Now 薄切片；Jülich corridor、bottleneck 和 ATC 数据仍为 `pending`，不能计入完成度。逐步量化门以 `docs/acceptance_criteria_by_step.md` 和 `scripts/verify_acceptance.py` 为准。
 
-当前状态（2026-08-04 20:16 CST）：已在冻结的 Metro `d53bd721…` 与 analysis `151bed69…` 上完成正式 600-step 基线验收，拿到第一份有效的 current-fingerprint fail 证据。正式配置保持 10 分钟、1 秒/tick、`horizon_steps=demand_steps=600`、入口/出口 2500/2200 人/小时。runner 在构造模型前完成 v2 源区预检并正确拒绝启动：共享净距 0.396 m、runtime lattice spacing 0.4 m、峰值同 tick 下车批次 4、67 个候选中 holding area 内 60、净距缓冲内 64、门轴冲突 4，故 `runtime_status=not_started`、`model_invalid / source_geometry_conflict`，不是 `capacity_exceeded`。完整 verifier 确认 Step 1–4、8 通过，Step 5/6 失败，Step 7 pending，`175 passed`、Ruff 通过，implementation/release `hold`。这是有效正式 fail，而不是 stale artifact 或未完成运行。
+当前状态（2026-08-04 23:36 CST）：Round 23 已把 `platform_boarding` 下车源点阵横向错开 10.0 m，并让 SceneConfig、Metro 编译容量证书、preflight 与 runtime 共用该参数。正式配置保持 10 分钟、1 秒/tick、`horizon_steps=demand_steps=600`、入口/出口 2500/2200 人/小时。当前 preflight 为 67/67 唯一候选，holding polygon/净距缓冲/门轴冲突均为 0，Metro 编译 error 为 0；正式进程实际完成 600/600，卡点 1 已从 `runtime_status=not_started` 解锁。运行结束后的发布守恒门仍 fail：entry admitted/pending=361/56，exit admitted/pending=170/197，所以没有发布新 simulation v5。证据链已刷新到 alignment `d86f1720…` / Metro `27b15d94…`：Step 4 pass，Step 5 仅因当前正式 simulation 未发布而 fail，Step 6 为当前 `unavailable/hold`，Step 7 pass 且不授权改参；release 继续 `hold`。详见 `docs/reviews/round_23_geometry_unblocked_600_runtime.md` 与 `docs/acceptance_latest.json`。
 
 ## 全局验收规则（每步都需要）
-- 只改 `alignment/`，其余路径只读。
+- 对齐专属逻辑只改 `alignment/`；若编译证书与 runtime 必须共用同一几何参数，可最小修改 `packages/metro_station/` 的场景/几何契约，并必须补根仓库回归。Round 23 的 lateral offset 与网格精度修复属于该例外。
 - 不改仓库根 `pyproject.toml`。
 - `alignment/.gitignore` 生效，`data/raw`、`data/canonical`、`notebooks` 不入 git。
 - 输出交付文件仅限 `data/metrics/*.json` 与 `docs/*`（本步默认允许）。

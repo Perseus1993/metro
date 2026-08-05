@@ -329,8 +329,29 @@ def compile_react_flow_payload(payload: dict[str, Any]) -> dict[str, Any]:
         document = apply_react_flow_nodes(document, nodes)
     if edges is not None:
         document = apply_react_flow_edges(document, edges)
+    generation_issues: list[dict[str, str]] = []
     if payload.get("generate_station") is True:
-        document = generate_station(document)
+        try:
+            document = generate_station(document)
+        except ValueError as exc:
+            # A scratch layout may be syntactically valid while leaving no
+            # body-sized queue domain around one of its facilities.  This is a
+            # design validation result, not a malformed API request: keep the
+            # edited document available to the inspector and report the
+            # generation failure through the normal deterministic issue path.
+            raw_message = str(exc)
+            code, separator, detail = raw_message.partition(":")
+            if not separator or "." not in code:
+                code = "spatial_capacity.queue_domain_unavailable"
+                detail = raw_message
+            generation_issues.append(
+                {
+                    "severity": "error",
+                    "code": code,
+                    "path": "queues",
+                    "message": detail.strip(),
+                }
+            )
     demand_flows, demand_issues = compile_demand_flows(nodes or [], document)
     operations = normalize_operations(
         operations_with_demand_flows(
@@ -343,7 +364,7 @@ def compile_react_flow_payload(payload: dict[str, Any]) -> dict[str, Any]:
         document,
         operations=operations,
         demand_flows=demand_flows,
-        extra_validation_issues=demand_issues,
+        extra_validation_issues=[*generation_issues, *demand_issues],
     )
 
 

@@ -1,43 +1,193 @@
 {
-  "schema_version": "alignment_comparison.v2",
+  "schema_version": "alignment_comparison.v5",
   "scene_id": "platform_boarding",
   "observed_dataset_id": "eindhoven_platform_v1",
+  "simulation_evidence_status": "unavailable_after_preflight",
   "overall_verdict": "hold",
   "release_blockers": [
-    "simulation geometry is not observed-matched: Eindhoven days 01-10 trajectory bounding-box dimensions only; internal obstacles, access points, and train-door positions are not observed-matched"
+    "current formal simulation evidence is unavailable after source preflight",
+    "simulation geometry is not observed-matched: trusted status=proxy",
+    "desired-speed evidence is a low-global-density speed-truncated proxy"
   ],
+  "analysis_contract": {
+    "schema_version": "alignment_analysis_contract.v1",
+    "library": {
+      "name": "PedPy",
+      "version": "1.5.1"
+    },
+    "speed": {
+      "method": "compute_individual_speed:BORDER_SINGLE_SIDED",
+      "frame_mean_method": "compute_mean_speed_per_frame",
+      "physical_window_s": 0.4
+    },
+    "density": {
+      "method": "compute_classic_density"
+    },
+    "walking_speed_proxy": {
+      "semantics": "low_global_density_speed_truncated_proxy",
+      "density_max_p_m2": 0.3,
+      "speed_min_m_s": 0.5,
+      "speed_max_m_s": 3.0,
+      "desired_speed_release_eligible": false
+    },
+    "density_bin_edges": [
+      0.0,
+      0.1,
+      0.2,
+      0.3,
+      0.5,
+      0.75,
+      1.0,
+      1.5,
+      2.0,
+      3.0,
+      4.0,
+      6.0
+    ],
+    "fundamental_diagram": {
+      "method": "PedPy classic density + mean speed per frame"
+    },
+    "measurement": {
+      "area_id": "eindhoven_platform_bbox_translation_v1",
+      "comparison_frame_id": "eindhoven_platform_shared_v1",
+      "comparison_polygon_sha256": "4aeb8557721c036386c5019822630921c2b5d8127eb57fbab5ea05301f48c1f4",
+      "shape": {
+        "bounds_m_rounded": [
+          "4.000000000",
+          "10.000000000",
+          "86.269000000",
+          "27.597000000"
+        ],
+        "width_m": "82.269000000",
+        "height_m": "17.597000000",
+        "area_m2": "1447.687593000"
+      }
+    }
+  },
+  "trusted_parameters": {
+    "jupedsim_desired_speed_mps": 1.22
+  },
+  "parameter_validation": {
+    "schema_version": "alignment_parameter_validation.v1",
+    "independent_holdout": {
+      "available": false,
+      "dataset_id": null
+    },
+    "multi_seed": {
+      "seed_n": 0,
+      "min_required": 10,
+      "converged": false
+    },
+    "uncertainty": {
+      "kind": "not_estimated",
+      "confidence_level": null,
+      "estimate": null,
+      "lower": null,
+      "upper": null,
+      "relative_half_width": null
+    }
+  },
   "comparison_thresholds": {
-    "free_flow_speed_p50_rel_error_max": 0.15,
-    "fundamental_in_band_fraction_min": 0.8
+    "walking_speed_proxy_p50_rel_error_max": 0.15,
+    "fundamental_support_coverage_min": 0.8,
+    "fundamental_conditional_in_band_fraction_min": 0.8,
+    "fundamental_min_supported_bins": 3,
+    "fundamental_min_density_high_p_m2_exclusive": 0.3
   },
   "inputs": {
     "observed": {
       "path": "eindhoven_platform_v1_observed.json",
-      "sha256": "36d4b398a589d2ebb3ece621c562aced9072db90f73e45dcff3a7f920d42af94"
+      "sha256": "aa4012e5cb5877be4035fcd0898d5ba1e6e4362e75db54d3633c200b064abe25"
     },
-    "simulation": {
-      "path": "platform_boarding_simulated.json",
-      "sha256": "fe89ea86c78e5b2f2052b7ddac28ba39646ba2fdd961e66d439bc4f126b63c73"
+    "source_preflight": {
+      "path": "platform_boarding_source_preflight.json",
+      "sha256": "e475dd61e4ef17e0e32d65c4520520a35b7704b53a39ba0e66fa64cdd0ef94f4"
     }
   },
   "metrics": {
-    "free_flow_speed_m_s": {
-      "observed": 1.1302322770121225,
-      "simulated": 0.9130943229296973,
-      "rel_error": -0.19211799069873514,
-      "absolute_error": -0.2171379540824252,
-      "verdict": "outside_band",
-      "reason": "",
-      "evidence_n": 54117
+    "low_global_density_walking_speed_proxy_m_s": {
+      "observed": 1.169308021865924,
+      "simulated": null,
+      "rel_error": null,
+      "absolute_error": null,
+      "verdict": "unavailable",
+      "reason": "current formal simulation evidence is unavailable after source preflight",
+      "support": {
+        "observed": {
+          "point_n": 102075,
+          "agent_n": 806,
+          "frame_n": 4909,
+          "window_n": 5,
+          "source_canonical_row_n": 185234516,
+          "unit": "correlated_observed_metric_contributors"
+        },
+        "simulated": {
+          "point_n": 0,
+          "episode_n": 0,
+          "passenger_n": 0,
+          "frame_n": 0,
+          "seed_n": 0,
+          "seed_values": [],
+          "unit": "correlated_simulated_metric_contributors"
+        },
+        "independence_warning": "observed contributors are correlated; no current formal simulated contributors are available"
+      }
     },
-    "fundamental_in_band_fraction": {
-      "observed": 0.8,
-      "simulated": 0.0,
-      "rel_error": -1.0,
-      "absolute_error": -0.8,
-      "verdict": "outside_band",
-      "reason": "",
-      "evidence_n": 3001
+    "fundamental_support_coverage": {
+      "observed": null,
+      "simulated": null,
+      "rel_error": null,
+      "absolute_error": null,
+      "verdict": "unavailable",
+      "reason": "current formal simulation evidence is unavailable after source preflight",
+      "support": {
+        "observed": {
+          "point_n": 199806,
+          "agent_n": 890,
+          "frame_n": 4909,
+          "window_n": 5,
+          "source_canonical_row_n": 185234516,
+          "unit": "correlated_observed_metric_contributors"
+        },
+        "simulated": {
+          "point_n": 0,
+          "episode_n": 0,
+          "passenger_n": 0,
+          "frame_n": 0,
+          "seed_n": 0,
+          "seed_values": [],
+          "unit": "correlated_simulated_metric_contributors"
+        },
+        "independence_warning": "observed contributors are correlated; no current formal simulated contributors are available"
+      }
+    },
+    "fundamental_conditional_in_band_fraction": {
+      "observed": null,
+      "simulated": null,
+      "rel_error": null,
+      "absolute_error": null,
+      "verdict": "unavailable",
+      "reason": "current formal simulation evidence is unavailable after source preflight",
+      "support": {
+        "observed": {
+          "point_n": 199806,
+          "agent_n": 890,
+          "frame_n": 4909,
+          "window_n": 5,
+          "source_canonical_row_n": 185234516,
+          "unit": "correlated_observed_metric_contributors"
+        },
+        "simulated": {
+          "point_n": 0,
+          "episode_n": 0,
+          "passenger_n": 0,
+          "frame_n": 0,
+          "seed_n": 0,
+          "seed_values": [],
+          "unit": "correlated_simulated_metric_contributors"
+        },
+        "independence_warning": "observed contributors are correlated; no current formal simulated contributors are available"
+      }
     }
   }
 }

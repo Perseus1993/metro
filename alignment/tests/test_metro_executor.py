@@ -4,18 +4,26 @@ from collections import Counter, deque
 from dataclasses import replace
 from random import Random
 from types import SimpleNamespace
+from unittest.mock import patch
 
 import pytest
+from metro_station.adapters.simulation.agents.passenger import PassengerAgent
 from metro_station.adapters.simulation.compilation.validation import (
     validate_compiled_station_design,
 )
+from metro_station.adapters.simulation.planning.plan import AgentIntent
 from metro_station.adapters.simulation.runtime.mesa_model import MetroStationModel
-from shapely.geometry import Polygon
+from metro_station.adapters.simulation.runtime.passenger_goal_region_router import (
+    PassengerGoalRegionRouter,
+)
+from metro_station.adapters.simulation.runtime.platform_waiting_geometry import (
+    platform_waiting_slot_is_intent_eligible,
+)
+from shapely.geometry import LineString, Point as ShapelyPoint, Polygon
 
 from metro_alignment.metro_executor import (
     AlignmentMesaSimulationExecutor,
     AlignmentMetroStationModel,
-    AlignmentSourceGeometryConflict,
     PendingSourceDemand,
     SourceAdmission,
     alignment_source_geometry_preflight,
@@ -139,6 +147,7 @@ def _backpressure_model() -> tuple[AlignmentMetroStationModel, SimpleNamespace, 
     model = _model_with_neighbor(1.0)
     model.scenario.jupedsim_agent_radius_units = 0.18
     model.scenario.jupedsim_clearance_multiplier = 2.2
+    model.scenario.alighting_source_lateral_offset_m = 0.0
     model.step_index = 0
     model.pending_alighting_groups = 0
     model.max_pending_alighting_groups = 0
@@ -147,6 +156,15 @@ def _backpressure_model() -> tuple[AlignmentMetroStationModel, SimpleNamespace, 
         [(-5.0, 1.0), (5.0, 1.0), (5.0, -20.0), (-5.0, -20.0)]
     )
     model.clamp_position = lambda position: position
+    certified_slots = tuple(
+        ((candidate % 4 - 1.5) * 0.4, -(0.35 + candidate // 4 * 0.4))
+        for candidate in range(67)
+    )
+    model.layout_graph = SimpleNamespace(
+        spatial_capacity_certificate=lambda *args, **kwargs: SimpleNamespace(
+            slots=certified_slots
+        )
+    )
     door = SimpleNamespace(
         facility_id="door-a",
         spec=SimpleNamespace(
@@ -166,6 +184,9 @@ def _backpressure_model() -> tuple[AlignmentMetroStationModel, SimpleNamespace, 
     )
     model.trains = [train]
     model.boarding_doors_for_train = lambda selected_train: [door]
+    model._alighting_downstream_admission_evidence = lambda doors: {
+        "available": True,
+    }
     due = iter((1, 0))
     model.demand_scheduler = SimpleNamespace(due_alightings=lambda step: next(due))
     spawned: list[SimpleNamespace] = []
@@ -228,16 +249,267 @@ def test_formal_scene_keeps_registered_demand_contract() -> None:
     assert request.scenario.exit_count_hour == 2200
     assert request.scenario.demand_steps == 600
     assert request.scenario.horizon_steps == 600
+    assert request.scenario.alighting_source_lateral_offset_m == pytest.approx(10.0)
 
 
-def test_source_geometry_preflight_detects_queue_lattice_conflict() -> None:
+def test_formal_boarding_backpressure_stays_on_paid_side_after_gate() -> None:
+    request, _ = build_metro_request(build_scene_config("platform_boarding"))
+    model = AlignmentMetroStationModel(request.scenario, seed=request.seed)
+    gate = model.gates[0]
+    platform = model.platforms[0]
+    with patch.object(model.goal_coordinator, "initialize"):
+        passenger = PassengerAgent(
+            model,
+            group_size=1,
+            created_step=0,
+            intent=AgentIntent.ENTER_AND_BOARD,
+            initial_position=gate.portal_exit_position,
+            initial_level_id=gate.portal_exit_level_id,
+        )
+
+    target = model._reserve_platform_waiting_slot(passenger, platform)
+    router = PassengerGoalRegionRouter()
+    with patch.object(router, "_tactical_facility_selection", return_value=None):
+        route = router.route(model, passenger, "boarding_decision")
+
+    paid_side_y = max(item.portal_exit_position[1] for item in model.gates)
+    assert target[1] > paid_side_y
+    assert platform_waiting_slot_is_intent_eligible(
+        model,
+        target,
+        level_id=passenger.current_level_id,
+        passenger=passenger,
+    )
+    assert not platform_waiting_slot_is_intent_eligible(
+        model,
+        (target[0], paid_side_y - 1.0),
+        level_id=passenger.current_level_id,
+        passenger=passenger,
+    )
+    paid_egress = model.layout_graph.station_graph.nodes[
+        model.layout_graph.station_graph.primary_node_by_element_id["main_hall"]
+    ]
+    exit_queue_head_y = min(
+        point[1]
+        for gate_candidate in model.exit_gates
+        for point in gate_candidate.queue.layout.slots
+    )
+    assert paid_egress.position in route
+    assert paid_egress.position[1] < exit_queue_head_y
+    assert route[-1] == target
+    assert not passenger.decision_holding_target_by_region
+    assert not passenger.facility_approach_facility_ids_by_stage
+
+
+def test_formal_entry_gate_approach_uses_bank_tail_aisle() -> None:
+    request, _ = build_metro_request(build_scene_config("platform_boarding"))
+    model = AlignmentMetroStationModel(request.scenario, seed=request.seed)
+    gate = model.gates[-2]
+    with patch.object(model.goal_coordinator, "initialize"):
+        passenger = PassengerAgent(
+            model,
+            group_size=1,
+            created_step=0,
+            intent=AgentIntent.ENTER_AND_BOARD,
+            initial_position=(13.82, 15.65),
+            initial_level_id=gate.portal_entry_level_id,
+        )
+    selection = SimpleNamespace(facility_id=gate.facility_id)
+    executor = model.goal_coordinator.executor
+    with patch.object(
+        executor.region_router,
+        "_tactical_facility_selection",
+        return_value=selection,
+    ):
+        events = executor._walk_to_region(
+            model,
+            passenger,
+            SimpleNamespace(
+                target_region_id="entry_gate_decision",
+                stage=None,
+            ),
+        )
+    route = (passenger.target, *passenger.route)
+
+    slot_index = passenger.facility_approach_slots_by_stage["entry_gate"]
+    ingress = model._gate_queue_ingress_anchors(passenger, gate, slot_index)
+    assert ingress[0][0] == pytest.approx(passenger.pos[0])
+    assert passenger.route_waypoint_radius_override == pytest.approx(0.8)
+    assert events == ()
+    tactical_zone_positions = {
+        node.position
+        for node in model.layout_graph.station_graph.nodes.values()
+        if node.kind == "zone" and node.tactical_anchor
+    }
+    assert tactical_zone_positions.isdisjoint(route)
+    assert set(gate.queue.layout.slots).isdisjoint(route)
+    assert route[-1] == ingress[-1]
+    passenger.pos = (ingress[-1][0] + 0.6, ingress[-1][1])
+    assert executor.region_router.reached(passenger, route)
+    passenger.pos = ingress[-1]
+    assert executor._captures_queue_at_decision_boundary(
+        model,
+        passenger,
+        gate,
+    )
+
+
+def test_formal_entry_holding_preserves_entrance_to_gate_ingress() -> None:
+    request, _ = build_metro_request(build_scene_config("platform_boarding"))
+    model = AlignmentMetroStationModel(request.scenario, seed=request.seed)
+    graph = model.layout_graph.station_graph
+    entrance = graph.nodes_matching(kind="entrance")[0]
+    gate = model.gates[-2]
+    with patch.object(model.goal_coordinator, "initialize"):
+        passenger = PassengerAgent(
+            model,
+            group_size=1,
+            created_step=0,
+            intent=AgentIntent.ENTER_AND_BOARD,
+            initial_position=entrance.position,
+            initial_level_id=entrance.level_id,
+        )
+
+    ingress = model._gate_queue_ingress_anchors(passenger, gate, 0)
+    access_line = LineString((entrance.position, ingress[0]))
+    holding = next(
+        region
+        for region in model.layout_graph.decision_holding_regions
+        if region.region_id == "entry_gate_decision"
+        and region.level_id == entrance.level_id
+    )
+
+    assert holding.slots
+    assert all(
+        ShapelyPoint(slot).distance(access_line)
+        >= model.scenario.personal_space_units - 1e-6
+        for slot in holding.slots
+    )
+
+
+def test_formal_exit_route_uses_unpaid_egress_aisle() -> None:
+    request, _ = build_metro_request(build_scene_config("platform_boarding"))
+    model = AlignmentMetroStationModel(request.scenario, seed=request.seed)
+    gate = model.exit_gates[-2]
+    with patch.object(model.goal_coordinator, "initialize"):
+        passenger = PassengerAgent(
+            model,
+            group_size=1,
+            created_step=0,
+            intent=AgentIntent.EXIT_STATION,
+            initial_position=gate.portal_exit_position,
+            initial_level_id=gate.portal_exit_level_id,
+        )
+
+    route = model._station_graph_route_to_exit(passenger)
+    graph = model.layout_graph.station_graph
+    aisle = graph.nodes[graph.primary_node_by_element_id["exit_aisle"]]
+    entrance = graph.nodes_matching(kind="entrance")[0]
+
+    assert aisle.position in route
+    assert route[0] == aisle.position
+    assert route[-1] == entrance.position
+
+
+def test_formal_exit_gate_approach_omits_broad_hall_detour() -> None:
+    request, _ = build_metro_request(build_scene_config("platform_boarding"))
+    model = AlignmentMetroStationModel(request.scenario, seed=request.seed)
+    gate = model.exit_gates[-2]
+    with patch.object(model.goal_coordinator, "initialize"):
+        passenger = PassengerAgent(
+            model,
+            group_size=1,
+            created_step=0,
+            intent=AgentIntent.EXIT_STATION,
+            initial_position=(32.0, 25.8),
+            initial_level_id=gate.portal_entry_level_id,
+        )
+
+    route = model.route_to_facility_queue_slot(passenger, gate, 0)
+    tactical_zone_positions = {
+        node.position
+        for node in model.layout_graph.station_graph.nodes.values()
+        if node.kind == "zone" and node.tactical_anchor
+    }
+
+    assert route
+    assert tactical_zone_positions.isdisjoint(route)
+    assert route[-1] == model._facility_approach_slot_position(gate, 0)
+
+
+def test_formal_exit_decision_routes_around_boarding_fifo() -> None:
+    request, _ = build_metro_request(build_scene_config("platform_boarding"))
+    model = AlignmentMetroStationModel(request.scenario, seed=request.seed)
+    graph = model.layout_graph.station_graph
+    platform_node = graph.nodes[graph.primary_node_by_element_id["platform_edge_a"]]
+    gate = model.exit_gates[-2]
+    with patch.object(model.goal_coordinator, "initialize"):
+        passenger = PassengerAgent(
+            model,
+            group_size=1,
+            created_step=0,
+            intent=AgentIntent.EXIT_STATION,
+            initial_position=platform_node.position,
+            initial_level_id=platform_node.level_id,
+        )
+    router = PassengerGoalRegionRouter()
+    selection = SimpleNamespace(facility_id=gate.facility_id)
+    with patch.object(
+        router,
+        "_tactical_facility_selection",
+        return_value=selection,
+    ):
+        route = router.route(model, passenger, "exit_gate_decision")
+
+    cross = graph.nodes[
+        graph.primary_node_by_element_id["platform_exit_cross_aisle"]
+    ].position
+    down = graph.nodes[
+        graph.primary_node_by_element_id["platform_exit_down_aisle"]
+    ].position
+    hall = graph.nodes[graph.primary_node_by_element_id["main_hall"]].position
+
+    assert cross in route
+    assert down in route
+    assert hall in route
+    assert route.index(cross) < route.index(down) < route.index(hall)
+
+
+def test_formal_platform_waiting_preserves_exit_gate_tail_ingress() -> None:
+    request, _ = build_metro_request(build_scene_config("platform_boarding"))
+    model = AlignmentMetroStationModel(request.scenario, seed=request.seed)
+    gate = model.exit_gates[-1]
+    with patch.object(model.goal_coordinator, "initialize"):
+        passenger = PassengerAgent(
+            model,
+            group_size=1,
+            created_step=0,
+            intent=AgentIntent.EXIT_STATION,
+            initial_position=(32.0, 25.8),
+            initial_level_id=gate.portal_entry_level_id,
+        )
+
+    ingress = model._gate_queue_ingress_anchors(passenger, gate, 0)
+    ingress_line = LineString((passenger.pos, *ingress))
+    waiting_slots = model.layout_graph.platform_waiting_slots()
+
+    assert waiting_slots
+    assert all(
+        ShapelyPoint(slot).distance(ingress_line)
+        >= model.scenario.personal_space_units - 1e-6
+        for slot in waiting_slots
+    )
+
+
+def test_source_geometry_preflight_accepts_decoupled_queue_lattice() -> None:
     request, _ = build_metro_request(build_scene_config("platform_boarding"))
 
     report = alignment_source_geometry_preflight(request.scenario)
 
-    assert report["status"] == "fail"
-    assert report["scientific_status"] == "source_geometry_conflict"
-    assert report["outcome"] == "model_invalid"
+    assert report["status"] == "pass"
+    assert report["runtime_status"] == "ready"
+    assert report["scientific_status"] == "eligible"
+    assert report["outcome"] == "eligible"
     queue = report["queue_reports"][0]
     assert queue["minimum_body_clearance_m"] == pytest.approx(0.396)
     assert queue["runtime_candidate_spacing_m"] == pytest.approx(0.4)
@@ -245,22 +517,19 @@ def test_source_geometry_preflight_detects_queue_lattice_conflict() -> None:
     assert queue["source_candidate_count"] == 67
     assert queue["unique_source_candidate_count"] == 67
     assert queue["peak_scheduled_alighting_batch"] == 4
-    assert queue["holding_area_overlap_candidate_count"] == 60
-    assert queue["holding_clearance_overlap_candidate_count"] == 64
-    assert queue["boarding_door_axis_overlap_candidate_count"] == 4
+    assert queue["holding_area_overlap_candidate_count"] == 0
+    assert queue["holding_clearance_overlap_candidate_count"] == 0
+    assert queue["boarding_door_axis_overlap_candidate_count"] == 0
     assert queue["capacity_certificate"] is True
     assert queue["capacity_certificate_id"] == (
         "alighting_source:queue_platform_edge_a_down"
     )
-    assert queue["compiler_error_codes"] == ["capacity.coactive_slot_conflict"]
-    assert queue["compiler_rejection_reproduced"] is True
-    assert queue["blockers"] == [
-        "boarding_holding_area_overlaps_alighting_source_lattice",
-        "boarding_door_axis_overlaps_alighting_source_lattice",
-    ]
+    assert queue["compiler_error_codes"] == []
+    assert queue["compiler_rejection_reproduced"] is False
+    assert queue["blockers"] == []
 
 
-def test_metro_compiler_rejects_the_current_fingerprint_source_conflict() -> None:
+def test_metro_compiler_accepts_the_decoupled_source_lattice() -> None:
     request, _ = build_metro_request(build_scene_config("platform_boarding"))
 
     compiled = validate_compiled_station_design(
@@ -280,30 +549,46 @@ def test_metro_compiler_rejects_the_current_fingerprint_source_conflict() -> Non
     assert len(sources[0].slots) == 67
     assert sources[0].required_body_capacity == 4
     assert sources[0].certified_body_capacity == 4
-    conflicts = tuple(
+    errors = tuple(
         item
         for item in compiled.issues
-        if item.code == "capacity.coactive_slot_conflict"
+        if item.severity == "error"
     )
-    assert len(conflicts) == 1
-    assert "queue_platform_edge_a_down" in conflicts[0].message
+    assert errors == ()
 
 
-def test_executor_rejects_source_geometry_before_simulation_run(monkeypatch) -> None:
+def test_executor_starts_model_after_source_geometry_passes(monkeypatch) -> None:
     executor = AlignmentMesaSimulationExecutor()
     request, _ = build_metro_request(build_scene_config("platform_boarding"))
+    model = SimpleNamespace(run=lambda *, progress_callback=None: [{"step": 1}])
     monkeypatch.setattr(
         executor,
         "build_model",
-        lambda selected_request: (_ for _ in ()).throw(
-            AssertionError("model construction must not start")
-        ),
+        lambda selected_request: model,
     )
 
-    with pytest.raises(AlignmentSourceGeometryConflict) as caught:
-        executor.execute(request)
+    result = executor.execute(request)
 
-    assert caught.value.report["status"] == "fail"
+    assert result.runtime is model
+    assert result.frames == [{"step": 1}]
+
+
+def test_source_geometry_preflight_still_fails_closed_without_lateral_offset() -> None:
+    config = replace(
+        build_scene_config("platform_boarding"),
+        alighting_source_lateral_offset_m=0.0,
+    )
+    request, _ = build_metro_request(config)
+
+    report = alignment_source_geometry_preflight(request.scenario)
+
+    assert report["status"] == "fail"
+    assert report["runtime_status"] == "not_started"
+    assert report["outcome"] == "model_invalid"
+    assert report["queue_reports"][0]["blockers"] == [
+        "boarding_holding_area_overlaps_alighting_source_lattice",
+        "boarding_door_axis_overlaps_alighting_source_lattice",
+    ]
 
 
 def _source_policy_model() -> AlignmentMetroStationModel:

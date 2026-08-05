@@ -113,6 +113,27 @@ def _valid_source_preflight_artifact() -> dict:
     }
 
 
+def _valid_passed_source_preflight_artifact() -> dict:
+    return {
+        "runtime_status": "ready",
+        "scientific_status": "eligible",
+        "blocker": None,
+        "release_eligible": False,
+        "preflight": {
+            "schema_version": "alignment_source_geometry_preflight.v3",
+            "runtime_status": "ready",
+            "scientific_status": "eligible",
+            "outcome": "eligible",
+            "status": "pass",
+            "capacity_certificate": True,
+            "compiler_error_codes": [],
+            "compiler_rejection_reproduced": False,
+            "queue_reports": [{"queue_id": "queue-a", "status": "pass"}],
+            "blockers": [],
+        },
+    }
+
+
 @pytest.mark.parametrize(
     ("path", "bad_value"),
     [
@@ -134,6 +155,16 @@ def test_source_preflight_semantics_fail_closed(path, bad_value) -> None:
 
     with pytest.raises(ValueError, match="source preflight"):
         verifier._require_source_preflight_semantics(artifact)
+
+
+def test_source_preflight_semantics_accept_current_pass_state() -> None:
+    verifier = _load_verifier()
+
+    report = verifier._require_source_preflight_semantics(
+        _valid_passed_source_preflight_artifact()
+    )
+
+    assert report["status"] == "pass"
 
 
 def test_nested_wrong_shapes_become_structured_blockers(monkeypatch) -> None:

@@ -32,6 +32,7 @@ from metro_alignment.datasets.registry import (
 from metro_alignment.metrics.comparison import (
     COMPARISON_SCHEMA_VERSION,
     build_comparison_payload,
+    build_preflight_blocked_comparison_payload,
     metric_support_errors,
 )
 from metro_alignment.metrics.fundamental import (
@@ -439,29 +440,51 @@ def _step4() -> StepResult:
 
 
 def _require_source_preflight_semantics(preflight: dict) -> dict:
-    expected_outer = {
-        "runtime_status": "not_started",
-        "scientific_status": "model_invalid",
-        "blocker": "alighting_source_geometry_conflict",
-        "release_eligible": False,
-    }
+    report = preflight.get("preflight")
+    if not isinstance(report, dict):
+        raise TypeError("source preflight report must be an object")
+    passed = report.get("status") == "pass"
+    expected_outer = (
+        {
+            "runtime_status": "ready",
+            "scientific_status": "eligible",
+            "blocker": None,
+            "release_eligible": False,
+        }
+        if passed
+        else {
+            "runtime_status": "not_started",
+            "scientific_status": "model_invalid",
+            "blocker": "alighting_source_geometry_conflict",
+            "release_eligible": False,
+        }
+    )
     for key, expected in expected_outer.items():
         if preflight.get(key) != expected:
             raise ValueError(
                 f"source preflight {key}={preflight.get(key)!r}, expected {expected!r}"
             )
-    report = preflight.get("preflight")
-    if not isinstance(report, dict):
-        raise TypeError("source preflight report must be an object")
-    expected_inner = {
-        "schema_version": "alignment_source_geometry_preflight.v3",
-        "runtime_status": "not_started",
-        "scientific_status": "source_geometry_conflict",
-        "outcome": "model_invalid",
-        "status": "fail",
-        "capacity_certificate": True,
-        "compiler_rejection_reproduced": True,
-    }
+    expected_inner = (
+        {
+            "schema_version": "alignment_source_geometry_preflight.v3",
+            "runtime_status": "ready",
+            "scientific_status": "eligible",
+            "outcome": "eligible",
+            "status": "pass",
+            "capacity_certificate": True,
+            "compiler_rejection_reproduced": False,
+        }
+        if passed
+        else {
+            "schema_version": "alignment_source_geometry_preflight.v3",
+            "runtime_status": "not_started",
+            "scientific_status": "source_geometry_conflict",
+            "outcome": "model_invalid",
+            "status": "fail",
+            "capacity_certificate": True,
+            "compiler_rejection_reproduced": True,
+        }
+    )
     for key, expected in expected_inner.items():
         if report.get(key) != expected:
             raise ValueError(
@@ -470,28 +493,31 @@ def _require_source_preflight_semantics(preflight: dict) -> dict:
             )
     compiler_codes = report.get("compiler_error_codes")
     if not isinstance(compiler_codes, list) or (
-        "capacity.coactive_slot_conflict" not in compiler_codes
+        (passed and compiler_codes)
+        or (not passed and "capacity.coactive_slot_conflict" not in compiler_codes)
     ):
-        raise ValueError(
-            "source preflight must reproduce capacity.coactive_slot_conflict"
-        )
+        raise ValueError("source preflight compiler error codes contradict its status")
     blockers = report.get("blockers")
-    if not isinstance(blockers, list) or not blockers:
-        raise ValueError("source preflight report must contain nonempty blockers")
+    if not isinstance(blockers, list) or (passed and blockers) or (not passed and not blockers):
+        raise ValueError("source preflight report blockers contradict its status")
     queue_reports = report.get("queue_reports")
     if not isinstance(queue_reports, list) or not queue_reports:
         raise ValueError("source preflight report must contain nonempty queue_reports")
+    expected_queue_status = "pass" if passed else "conflict"
+    if any(row.get("status") != expected_queue_status for row in queue_reports):
+        raise ValueError("source preflight queue status contradicts its outcome")
     return report
 
 
 def _check_simulation_unchecked(scene_id: str) -> tuple[list[str], list[str]]:
+    preflight_evidence: list[str] = []
     preflight_path = ROOT / "data" / "metrics" / f"{scene_id}_source_preflight.json"
     if preflight_path.exists():
         try:
             preflight = _load_json(preflight_path)
             config = build_scene_config(scene_id)
             _, current_design_sha256 = build_metro_scenario(config)
-            if preflight.get("schema_version") != "alignment_source_preflight_artifact.v1":
+            if preflight.get("schema_version") != "alignment_source_preflight_artifact.v2":
                 raise ValueError("source preflight artifact schema is stale")
             verify_scene_config_record(preflight, config)
             if preflight.get("design_sha256") != current_design_sha256:
@@ -503,25 +529,27 @@ def _check_simulation_unchecked(scene_id: str) -> tuple[list[str], list[str]]:
             ) != analysis_runtime_fingerprint():
                 raise ValueError("source preflight analysis fingerprint is stale")
             report = _require_source_preflight_semantics(preflight)
-            blockers = report.get("blockers")
-            return (
-                [
-                    "current-fingerprint source geometry preflight completed",
-                    f"runtime_status={preflight.get('runtime_status')}",
-                    f"scientific_status={preflight.get('scientific_status')}",
-                ],
-                [
-                    (
-                        f"{scene_id}: blocker={preflight.get('blocker')}; "
-                        f"details={blockers}"
-                    )
-                ],
-            )
+            preflight_evidence = [
+                "current-fingerprint source geometry preflight completed",
+                f"runtime_status={preflight.get('runtime_status')}",
+                f"scientific_status={preflight.get('scientific_status')}",
+            ]
+            if report.get("status") == "fail":
+                blockers = report.get("blockers")
+                return (
+                    preflight_evidence,
+                    [
+                        (
+                            f"{scene_id}: blocker={preflight.get('blocker')}; "
+                            f"details={blockers}"
+                        )
+                    ],
+                )
         except (json.JSONDecodeError, OSError, TypeError, ValueError) as exc:
             return [], [f"{scene_id}: source preflight evidence is invalid: {exc}"]
     manifest = ROOT / "data" / "metrics" / f"{scene_id}_simulated.json"
     if not manifest.exists():
-        return [], [f"{scene_id}: simulation manifest missing"]
+        return preflight_evidence, [f"{scene_id}: simulation manifest missing"]
     try:
         payload = _load_json(manifest)
     except (json.JSONDecodeError, OSError, TypeError, ValueError) as exc:
@@ -529,8 +557,12 @@ def _check_simulation_unchecked(scene_id: str) -> tuple[list[str], list[str]]:
     evidence: list[str] = []
     blockers: list[str] = []
     if payload.get("schema_version") != "alignment_simulation_metrics.v5":
-        blockers.append("simulation manifest schema is stale")
-        return evidence, [f"{scene_id}: {item}" for item in blockers]
+        blockers.append(
+            "current formal simulation bundle is unavailable after source preflight"
+            if preflight_evidence
+            else "simulation manifest schema is stale"
+        )
+        return preflight_evidence, [f"{scene_id}: {item}" for item in blockers]
     if (
         payload.get("canonical_schema_version") != CANONICAL_SCHEMA_VERSION
         or payload.get("metric_schema_version") != METRIC_SCHEMA_VERSION
@@ -686,7 +718,7 @@ def _check_simulation_unchecked(scene_id: str) -> tuple[list[str], list[str]]:
             )
         except (AssertionError, KeyError, OSError, TypeError, ValueError) as exc:
             blockers.append(f"simulation deterministic reconstruction failed: {exc}")
-    return evidence, [f"{scene_id}: {item}" for item in blockers]
+    return [*preflight_evidence, *evidence], [f"{scene_id}: {item}" for item in blockers]
 
 
 def _check_simulation(scene_id: str) -> tuple[list[str], list[str]]:
@@ -761,25 +793,46 @@ def _comparison_integrity_errors(scene_id: str, payload: dict[str, Any]) -> list
         ROOT / "data" / "metrics" / f"{scene.observed_dataset_id}_observed.json"
     )
     simulation_path = ROOT / "data" / "metrics" / f"{scene_id}_simulated.json"
-    if not observed_path.exists() or not simulation_path.exists():
+    preflight_path = ROOT / "data" / "metrics" / f"{scene_id}_source_preflight.json"
+    blocked_after_preflight = (
+        payload.get("simulation_evidence_status") == "unavailable_after_preflight"
+    )
+    required_input = preflight_path if blocked_after_preflight else simulation_path
+    if not observed_path.exists() or not required_input.exists():
         return ["comparison inputs are missing"]
     try:
         observed, observed_sha256 = _load_json_snapshot(observed_path)
-        simulation, simulation_sha256 = _load_json_snapshot(simulation_path)
-        expected = build_comparison_payload(
-            scene_id=scene_id,
-            observed_artifact=observed,
-            simulation_artifact=simulation,
-            trusted_observed_dataset_id=scene.observed_dataset_id,
-            trusted_desired_speed_mps=scene.jupedsim_desired_speed_mps,
-            trusted_geometry_status=scene.geometry_evidence_status,
-            trusted_evidence_sha256=scene.geometry_evidence_sha256,
-            observed_input={"path": observed_path.name, "sha256": observed_sha256},
-            simulation_input={
-                "path": simulation_path.name,
-                "sha256": simulation_sha256,
-            },
-        )
+        if blocked_after_preflight:
+            preflight, preflight_sha256 = _load_json_snapshot(preflight_path)
+            expected = build_preflight_blocked_comparison_payload(
+                scene_id=scene_id,
+                observed_artifact=observed,
+                preflight_artifact=preflight,
+                trusted_observed_dataset_id=scene.observed_dataset_id,
+                trusted_desired_speed_mps=scene.jupedsim_desired_speed_mps,
+                trusted_geometry_status=scene.geometry_evidence_status,
+                observed_input={"path": observed_path.name, "sha256": observed_sha256},
+                preflight_input={
+                    "path": preflight_path.name,
+                    "sha256": preflight_sha256,
+                },
+            )
+        else:
+            simulation, simulation_sha256 = _load_json_snapshot(simulation_path)
+            expected = build_comparison_payload(
+                scene_id=scene_id,
+                observed_artifact=observed,
+                simulation_artifact=simulation,
+                trusted_observed_dataset_id=scene.observed_dataset_id,
+                trusted_desired_speed_mps=scene.jupedsim_desired_speed_mps,
+                trusted_geometry_status=scene.geometry_evidence_status,
+                trusted_evidence_sha256=scene.geometry_evidence_sha256,
+                observed_input={"path": observed_path.name, "sha256": observed_sha256},
+                simulation_input={
+                    "path": simulation_path.name,
+                    "sha256": simulation_sha256,
+                },
+            )
     except (json.JSONDecodeError, OSError, KeyError, TypeError, ValueError) as exc:
         return [f"comparison cannot be rebuilt from trusted inputs: {exc}"]
     if payload != expected:

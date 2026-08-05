@@ -5,6 +5,7 @@ import importlib.util
 import json
 import os
 import sys
+from dataclasses import replace
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -209,11 +210,15 @@ def test_trace_replay_cannot_bypass_admission_gate(
 
 def test_trace_replay_cannot_bypass_source_geometry_preflight(tmp_path: Path) -> None:
     runner = _load_runner()
+    invalid_config = replace(
+        build_scene_config("platform_boarding"),
+        alighting_source_lateral_offset_m=0.0,
+    )
 
     with pytest.raises(runner.AlignmentSourceGeometryConflict):
         runner._load_verified_trace_replay(
             output=tmp_path / "platform_boarding_simulated.parquet",
-            config=build_scene_config("platform_boarding"),
+            config=invalid_config,
         )
 
 
@@ -249,6 +254,7 @@ def test_source_preflight_blocker_is_persisted_as_fail_closed_evidence(
     )
 
     artifact = json.loads(path.read_bytes())
+    assert artifact["schema_version"] == "alignment_source_preflight_artifact.v2"
     assert artifact["runtime_status"] == "not_started"
     assert artifact["scientific_status"] == "model_invalid"
     assert artifact["blocker"] == "alighting_source_geometry_conflict"
@@ -256,11 +262,44 @@ def test_source_preflight_blocker_is_persisted_as_fail_closed_evidence(
     assert artifact["preflight"] == report
 
 
+def test_passed_source_preflight_is_persisted_with_current_scene_contract(
+    tmp_path: Path,
+) -> None:
+    runner = _load_runner()
+    config = build_scene_config("platform_boarding")
+    report = {
+        "schema_version": "alignment_source_geometry_preflight.v3",
+        "runtime_status": "ready",
+        "scientific_status": "eligible",
+        "outcome": "eligible",
+        "status": "pass",
+        "capacity_certificate": True,
+        "compiler_error_codes": [],
+        "compiler_rejection_reproduced": False,
+        "queue_reports": [{"queue_id": "queue-a", "status": "pass"}],
+        "blockers": [],
+    }
+
+    path = runner._write_source_preflight_artifact(
+        output=tmp_path / "platform_boarding_simulated.parquet",
+        config=config,
+        report=report,
+    )
+
+    artifact = json.loads(path.read_bytes())
+    assert artifact["schema_version"] == "alignment_source_preflight_artifact.v2"
+    assert artifact["scene_config"]["alighting_source_lateral_offset_m"] == 10.0
+    assert artifact["runtime_status"] == "ready"
+    assert artifact["scientific_status"] == "eligible"
+    assert artifact["blocker"] is None
+    assert artifact["release_eligible"] is False
+
+
 def test_successful_bundle_can_retire_a_superseded_source_blocker(tmp_path: Path) -> None:
     runner = _load_runner()
     config = build_scene_config("platform_boarding")
     blocker = tmp_path / "platform_boarding_source_preflight.json"
-    blocker.write_text('{"status":"fail"}', encoding="utf-8")
+    blocker.write_text('{"preflight":{"status":"fail"}}', encoding="utf-8")
 
     runner._retire_source_preflight_blocker(
         output=tmp_path / "platform_boarding_simulated.parquet",

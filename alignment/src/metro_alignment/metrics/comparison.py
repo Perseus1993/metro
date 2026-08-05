@@ -24,6 +24,7 @@ FUNDAMENTAL_MIN_DENSITY_HIGH_P_M2 = 0.3
 COMPARISON_SCHEMA_VERSION = "alignment_comparison.v5"
 OBSERVED_ARTIFACT_SCHEMA_VERSION = "alignment_observed_metrics.v5"
 SIMULATION_ARTIFACT_SCHEMA_VERSION = "alignment_simulation_metrics.v5"
+SOURCE_PREFLIGHT_ARTIFACT_SCHEMA_VERSION = "alignment_source_preflight_artifact.v2"
 OBSERVED_SUPPORT_KEYS = frozenset(
     {"point_n", "agent_n", "frame_n", "window_n", "source_canonical_row_n", "unit"}
 )
@@ -571,6 +572,182 @@ def build_comparison_payload(
         "inputs": {
             "observed": dict(observed_input),
             "simulation": dict(simulation_input),
+        },
+        "metrics": {name: asdict(result) for name, result in results.items()},
+    }
+
+
+def build_preflight_blocked_comparison_payload(
+    *,
+    scene_id: str,
+    observed_artifact: dict[str, Any],
+    preflight_artifact: dict[str, Any],
+    trusted_observed_dataset_id: str,
+    trusted_desired_speed_mps: float,
+    trusted_geometry_status: str,
+    observed_input: dict[str, str],
+    preflight_input: dict[str, str],
+) -> dict[str, Any]:
+    """Build an explicit hold when preflight is current but no formal simulation exists."""
+
+    if (
+        observed_artifact.get("schema_version") != OBSERVED_ARTIFACT_SCHEMA_VERSION
+        or observed_artifact.get("canonical_schema_version") != CANONICAL_SCHEMA_VERSION
+        or observed_artifact.get("metric_schema_version") != METRIC_SCHEMA_VERSION
+    ):
+        raise ValueError("observed artifact wrapper schema is stale or foreign")
+    report = preflight_artifact.get("preflight", {})
+    if (
+        preflight_artifact.get("schema_version")
+        != SOURCE_PREFLIGHT_ARTIFACT_SCHEMA_VERSION
+        or preflight_artifact.get("scene_id") != scene_id
+        or preflight_artifact.get("scene_config_schema_version")
+        != SCENE_CONFIG_SCHEMA_VERSION
+        or preflight_artifact.get("runtime_status") != "ready"
+        or preflight_artifact.get("scientific_status") != "eligible"
+        or preflight_artifact.get("blocker") is not None
+        or not isinstance(report, dict)
+        or report.get("status") != "pass"
+        or report.get("runtime_status") != "ready"
+        or report.get("scientific_status") != "eligible"
+        or report.get("outcome") != "eligible"
+        or report.get("blockers") != []
+    ):
+        raise ValueError("source preflight artifact is stale, failed, or foreign")
+    if observed_artifact.get("dataset_id") != trusted_observed_dataset_id:
+        raise ValueError("observed dataset does not match the trusted scene binding")
+    if not isfinite(trusted_desired_speed_mps) or trusted_desired_speed_mps <= 0.0:
+        raise ValueError("trusted desired speed must be finite and > 0")
+
+    observed_metrics = observed_artifact.get("metrics")
+    if not isinstance(observed_metrics, dict):
+        raise TypeError("observed metrics must be an object")
+    sampling = observed_artifact.get("metadata", {}).get("sampling", {})
+    observed_context = {
+        "source_canonical_row_n": sampling.get("source_rows"),
+        "max_point_n": observed_artifact.get("metadata", {}).get("n"),
+        "max_agent_n": observed_artifact.get("metadata", {}).get("agent_count"),
+        "max_frame_n": sampling.get("packed_frame_count"),
+        "max_window_n": sampling.get("window_count"),
+    }
+    observed_support: dict[str, dict[str, Any]] = {}
+    for metric_key in (WALKING_SPEED_PROXY_KEY, "fundamental_diagram"):
+        errors = metric_support_errors(
+            observed_metrics,
+            metric_key,
+            side="observed",
+            context=observed_context,
+        )
+        if errors:
+            raise ValueError(f"observed {metric_key} support is invalid: {errors}")
+        observed_support[metric_key] = dict(
+            observed_metrics["metric_support"][metric_key]
+        )
+
+    unavailable_simulated_support = {
+        "point_n": 0,
+        "episode_n": 0,
+        "passenger_n": 0,
+        "frame_n": 0,
+        "seed_n": 0,
+        "seed_values": [],
+        "unit": "correlated_simulated_metric_contributors",
+    }
+
+    def support(metric_key: str) -> dict[str, Any]:
+        return {
+            "observed": observed_support[metric_key],
+            "simulated": dict(unavailable_simulated_support),
+            "independence_warning": (
+                "observed contributors are correlated; no current formal simulated "
+                "contributors are available"
+            ),
+        }
+
+    observed_p50 = float(observed_metrics[WALKING_SPEED_PROXY_KEY]["p50"])
+    reason = "current formal simulation evidence is unavailable after source preflight"
+    results = {
+        WALKING_SPEED_PROXY_KEY: ComparisonResult(
+            observed=observed_p50,
+            simulated=None,
+            rel_error=None,
+            absolute_error=None,
+            verdict="unavailable",
+            reason=reason,
+            support=support(WALKING_SPEED_PROXY_KEY),
+        ),
+        "fundamental_support_coverage": ComparisonResult(
+            observed=None,
+            simulated=None,
+            rel_error=None,
+            absolute_error=None,
+            verdict="unavailable",
+            reason=reason,
+            support=support("fundamental_diagram"),
+        ),
+        "fundamental_conditional_in_band_fraction": ComparisonResult(
+            observed=None,
+            simulated=None,
+            rel_error=None,
+            absolute_error=None,
+            verdict="unavailable",
+            reason=reason,
+            support=support("fundamental_diagram"),
+        ),
+    }
+    analysis_contract = observed_metrics.get("analysis_contract", {})
+    release_blockers = [reason]
+    if trusted_geometry_status != "observed_matched":
+        release_blockers.append(
+            f"simulation geometry is not observed-matched: trusted status={trusted_geometry_status}"
+        )
+    if (
+        analysis_contract.get("walking_speed_proxy", {}).get(
+            "desired_speed_release_eligible"
+        )
+        is not True
+    ):
+        release_blockers.append(
+            "desired-speed evidence is a low-global-density speed-truncated proxy"
+        )
+    return {
+        "schema_version": COMPARISON_SCHEMA_VERSION,
+        "scene_id": scene_id,
+        "observed_dataset_id": trusted_observed_dataset_id,
+        "simulation_evidence_status": "unavailable_after_preflight",
+        "overall_verdict": "hold",
+        "release_blockers": release_blockers,
+        "analysis_contract": analysis_contract,
+        "trusted_parameters": {
+            "jupedsim_desired_speed_mps": float(trusted_desired_speed_mps),
+        },
+        "parameter_validation": {
+            "schema_version": "alignment_parameter_validation.v1",
+            "independent_holdout": {"available": False, "dataset_id": None},
+            "multi_seed": {"seed_n": 0, "min_required": 10, "converged": False},
+            "uncertainty": {
+                "kind": "not_estimated",
+                "confidence_level": None,
+                "estimate": None,
+                "lower": None,
+                "upper": None,
+                "relative_half_width": None,
+            },
+        },
+        "comparison_thresholds": {
+            "walking_speed_proxy_p50_rel_error_max": (
+                WALKING_SPEED_PROXY_RELATIVE_ERROR_THRESHOLD
+            ),
+            "fundamental_support_coverage_min": FUNDAMENTAL_SUPPORT_THRESHOLD,
+            "fundamental_conditional_in_band_fraction_min": FUNDAMENTAL_BAND_THRESHOLD,
+            "fundamental_min_supported_bins": FUNDAMENTAL_MIN_SUPPORTED_BINS,
+            "fundamental_min_density_high_p_m2_exclusive": (
+                FUNDAMENTAL_MIN_DENSITY_HIGH_P_M2
+            ),
+        },
+        "inputs": {
+            "observed": dict(observed_input),
+            "source_preflight": dict(preflight_input),
         },
         "metrics": {name: asdict(result) for name, result in results.items()},
     }
