@@ -51,7 +51,10 @@ def _round24_historical_baseline() -> dict[str, Any]:
         / "reviews"
         / "round_24_step5_conservation_handoff.md"
     )
-    source_sha256 = hashlib.sha256(source.read_bytes()).hexdigest()
+    normalized_source = (
+        source.read_bytes().replace(b"\r\n", b"\n").replace(b"\r", b"\n")
+    )
+    source_sha256 = hashlib.sha256(normalized_source).hexdigest()
     expected_sha256 = "bc634d85ffc6b0e7418dcba3b17ccd504629adb37c86a3984f3f631a0a3cf496"
     if source_sha256 != expected_sha256:
         raise RuntimeError("Round 24 handoff source changed; refusing historical T0 claim")
