@@ -6,6 +6,7 @@ from typing import Any
 from shapely.geometry import Point as ShapelyPoint
 from shapely.ops import nearest_points
 
+from .geometry import level_walkable_geometry
 from .helpers import vertical_direction
 from .schema import DesignElement, StationDesignDocument
 
@@ -19,10 +20,6 @@ def design_level_walkable_geometry(
     level_id: str,
 ):
     """Build the same level-specific walking domain used for landing projection."""
-
-    # Local import keeps the design primitives independent from the station
-    # graph while giving generation and compilation one geometry authority.
-    from ..station.geometry import level_walkable_geometry
 
     return level_walkable_geometry(document, level_id)
 

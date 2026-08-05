@@ -4,11 +4,12 @@ from random import Random
 from typing import Iterable
 
 from shapely import intersects_xy
-from shapely.geometry import LineString, Point as ShapelyPoint, Polygon, box
+from shapely.geometry import LineString, Point as ShapelyPoint, box
 from shapely.ops import nearest_points, unary_union
 from shapely.validation import make_valid
 
 from ..design.geometry import element_shape
+from ..design.geometry import level_walkable_geometry as level_walkable_geometry
 from ..design.schema import DesignElement, ElementGeometry, StationDesignDocument
 
 
@@ -48,55 +49,6 @@ def document_walkable_geometry(document: StationDesignDocument):
     if obstacles:
         walkable = walkable.difference(unary_union(obstacles))
     return make_valid(walkable)
-
-
-def level_walkable_geometry(
-    document: StationDesignDocument,
-    level_id: str,
-    walkable_geometry=None,
-):
-    """Return one level's walking domain without cross-floor geometry leakage.
-
-    A station document is a stack of 2-D domains.  Unioning every floor before
-    subtracting every obstacle makes an obstacle on B1 cut the navigation mesh
-    on B2 when both floors share XY coordinates.  Level geometry is therefore
-    compiled from level-local floor parts (or its declared footprint) and only
-    level-local blocking obstacles.  ``walkable_geometry`` remains a legacy
-    fallback for documents without either form of level geometry.
-    """
-
-    level_parts = [
-        element_shape(element.geometry)
-        for element in document.elements
-        if element.level_id == level_id
-        and (element.kind == "walkable_area" or element.role == "floor")
-    ]
-    if level_parts:
-        base = make_valid(unary_union(level_parts))
-    else:
-        level = document.level_by_id().get(level_id)
-        if level is not None and level.footprint:
-            base = make_valid(Polygon(level.footprint))
-        elif walkable_geometry is not None:
-            base = make_valid(walkable_geometry)
-        else:
-            base = box(
-                0.0,
-                0.0,
-                document.constraints.canvas_width_m,
-                document.constraints.canvas_height_m,
-            )
-
-    obstacles = [
-        element_shape(element.geometry)
-        for element in document.elements
-        if element.level_id == level_id
-        and (element.kind == "obstacle" or element.role == "obstacle")
-        and bool(element.metadata.get("blocking", True))
-    ]
-    if obstacles:
-        base = base.difference(unary_union(obstacles))
-    return make_valid(base)
 
 
 def element_walkable_domain(
