@@ -100,16 +100,16 @@ def test_opposite_gate_facades_share_one_fair_physical_lane() -> None:
     assert not exit_gate._can_start_service(first_exit, None)
     assert exit_gate._queue_layout_slot_index_offset() == 2
     # The direction that just entered the shared lane is also the yielding
-    # direction for its next follower. The opposing facade retracts through
-    # slot 2 while the active body claims its certified release cell; the
-    # yielding same-direction facade only needs slot 1 for turn-taking.
-    assert entry._queue_layout_slot_index_offset() == 1
+    # direction for its next follower. Both the opposing facade and the
+    # yielding same-direction facade retract through slot 2 so neither body
+    # overlaps the certified release cell.
+    assert entry._queue_layout_slot_index_offset() == 2
     exit_gate._layout_queue()
     assert first_exit.target == exit_gate.queue.layout.slot(2)
 
     second_entry = _queued_passenger(model, entry, AgentIntent.ENTER_AND_BOARD)
     entry._layout_queue()
-    assert second_entry.target == entry.queue.layout.slot(1)
+    assert second_entry.target == entry.queue.layout.slot(2)
     assert not entry._can_start_service(second_entry, None)
     assert (
         entry._service_start_block_reason(
@@ -133,6 +133,50 @@ def test_opposite_gate_facades_share_one_fair_physical_lane() -> None:
     assert exit_gate._passenger_ready_for_service(first_exit)
     assert exit_gate._can_start_service(first_exit, None)
     assert not entry._can_start_service(second_entry, None)
+
+
+def test_shared_lane_does_not_yield_to_an_unready_opposing_head() -> None:
+    model = _bidirectional_model()
+    entry = model.gates[-1]
+    exit_gate = next(
+        gate
+        for gate in model.exit_gates
+        if gate._physical_lane_key() == entry._physical_lane_key()
+    )
+    entry.state = "open"
+    exit_gate.state = "open"
+    entry_head = _queued_passenger(model, entry, AgentIntent.ENTER_AND_BOARD)
+    exit_head = _queued_passenger(model, exit_gate, AgentIntent.EXIT_STATION)
+    model._shared_gate_lane_last_started_direction = {
+        entry._physical_lane_key(): entry.portal_direction
+    }
+    exit_head.pos = exit_gate.queue.layout.slot(4)
+
+    assert not exit_gate._head_is_ready_for_shared_lane()
+    assert entry._passenger_ready_for_service(entry_head)
+    assert entry._can_start_service(entry_head, None)
+
+
+def test_shared_lane_does_not_yield_to_opposing_head_without_release_slot() -> None:
+    model = _bidirectional_model()
+    entry = model.gates[-1]
+    exit_gate = next(
+        gate
+        for gate in model.exit_gates
+        if gate._physical_lane_key() == entry._physical_lane_key()
+    )
+    entry.state = "open"
+    exit_gate.state = "open"
+    entry_head = _queued_passenger(model, entry, AgentIntent.ENTER_AND_BOARD)
+    _queued_passenger(model, exit_gate, AgentIntent.EXIT_STATION)
+    model._shared_gate_lane_last_started_direction = {
+        entry._physical_lane_key(): entry.portal_direction
+    }
+
+    assert exit_gate._head_is_ready_for_shared_lane()
+    with patch.object(exit_gate, "_release_slot_available", return_value=False):
+        assert not exit_gate._head_can_claim_shared_lane()
+        assert entry._can_start_service(entry_head, None)
 
 
 def test_gate_endpoint_preflight_failure_leaves_queue_and_semantics_unchanged() -> None:

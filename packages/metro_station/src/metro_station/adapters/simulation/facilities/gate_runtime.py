@@ -16,6 +16,10 @@ from .runtime_base import FacilityProcessAgent
 from .service_events import FacilityServiceEvent
 from ..movement.waypoint_policy import intermediate_waypoint_radius
 from ..planning.plan import FacilityStage
+from ..spatial_capacity_admission import (
+    CertifiedPlacementTemporarilyBlocked,
+    SpatialCapacityExhausted,
+)
 
 if TYPE_CHECKING:
     from ..agents.passenger import PassengerAgent
@@ -66,12 +70,6 @@ class GateProcessAgent(FacilityProcessAgent):
             if gate is not self and gate.portal_direction != self.portal_direction
         )
         if any(gate.active_passes for gate in opposing):
-            # Slot 1 clears the mechanical portal but not the certified
-            # downstream release cell: with 0.8 m queue spacing, the active
-            # body and an opposing head at slot 1 settle before the active
-            # body can reach/cross its release plane. Retract one additional
-            # slot while the lane is occupied so the pass can physically
-            # commit; ordinary turn-taking below still needs only slot 1.
             return 2
         if not any(gate.is_open and gate.queue for gate in opposing):
             return 0
@@ -81,9 +79,9 @@ class GateProcessAgent(FacilityProcessAgent):
             {},
         ).get(self._physical_lane_key())
         # With demand on both sides, the direction that just used the lane is
-        # the yielding side. Retract its FIFO head to slot 1 before the other
-        # direction attempts to reserve the shared release mouth.
-        return int(last_direction == self.portal_direction)
+        # the yielding side. Slot 1 does not clear the opposing release
+        # certificate in the formal layout, so retain the body-clear slot 2.
+        return 2 if last_direction == self.portal_direction else 0
 
     def step(self, train: TrainAgent | None = None) -> None:
         self._sync_state(train)
@@ -201,6 +199,18 @@ class GateProcessAgent(FacilityProcessAgent):
         if self.active_passes:
             return False
 
+        ready_opposing = tuple(
+            gate
+            for gate in waiting_opposing
+            if gate._head_can_claim_shared_lane()
+        )
+        if not ready_opposing:
+            # Fairness must remain work-conserving. A facade whose head has
+            # not reached the handoff cannot own the next turn merely because
+            # it has a queue record; let the ready direction use the otherwise
+            # idle lane while the opposing head continues to preposition.
+            return True
+
         last_direction = getattr(
             self.model,
             "_shared_gate_lane_last_started_direction",
@@ -220,14 +230,6 @@ class GateProcessAgent(FacilityProcessAgent):
                 gate.queue.is_settling(gate.queue[0])
                 for gate in waiting_opposing
             )
-
-        ready_opposing = tuple(
-            gate
-            for gate in waiting_opposing
-            if gate._head_is_ready_for_shared_lane()
-        )
-        if not ready_opposing:
-            return False
 
         contenders = (self, *ready_opposing)
         winner = min(
@@ -269,6 +271,8 @@ class GateProcessAgent(FacilityProcessAgent):
             )
         if not has_direct_boarding_admission(self, passenger):
             return "downstream_boarding_capacity_unavailable"
+        if not self._release_slot_available(passenger):
+            return "gate_release_slot_unavailable"
         return "shared_lane_opposing_flow"
 
     def _direct_boarding_candidates(
@@ -284,6 +288,22 @@ class GateProcessAgent(FacilityProcessAgent):
         return not self.queue.is_settling(
             passenger
         ) and self._passenger_ready_for_service(passenger)
+
+    def _head_can_claim_shared_lane(self) -> bool:
+        if not self._head_is_ready_for_shared_lane():
+            return False
+        passenger = self.queue[0]
+        return has_direct_boarding_admission(
+            self,
+            passenger,
+        ) and self._release_slot_available(passenger)
+
+    def _release_slot_available(self, passenger: PassengerAgent) -> bool:
+        try:
+            self._planned_gate_release_position(passenger, release_index=0)
+        except (CertifiedPlacementTemporarilyBlocked, SpatialCapacityExhausted):
+            return False
+        return True
 
     def _shared_physical_lane_facilities(self) -> tuple[GateProcessAgent, ...]:
         lane_key = self._physical_lane_key()

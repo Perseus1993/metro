@@ -9,6 +9,7 @@ from ..facilities.runtime_base import FacilityProcessAgent
 from ..planning.goal_commands import GoalCommand, GoalCommandKind
 from ..planning.goal_events import GoalEvent, GoalEventKind
 from ..planning.plan import AgentIntent, AgentState, FacilityStage
+from .decision_holding import PlatformWaitingCapacityError
 from .passenger_goal_observation import (
     ProductionGoalObservationAdapter,
     ProductionGoalObservationContext,
@@ -367,14 +368,21 @@ class ProductionGoalCommandExecutor:
             return
         platform = model.platform_for_passenger(passenger)
         if reservation is None and platform is not None:
-            target = model._reserve_platform_waiting_slot(passenger, platform)
-            if passenger not in platform.waiting:
-                platform.waiting.append(passenger)
-            crossing_waiters = getattr(
-                facility,
-                "_crossing_waiting_passenger_ids",
-                None,
-            )
+            try:
+                target = model._reserve_platform_waiting_slot(passenger, platform)
+            except PlatformWaitingCapacityError:
+                # The passenger still owns a certified door-approach cell.
+                # A failed queue join must not exchange that ownership for a
+                # platform cell that does not exist. Retain the concrete
+                # approach and retry when the crossing advances.
+                target = model._facility_approach_slot_position(
+                    facility,
+                    passenger.facility_approach_slots_by_stage[stage],
+                )
+            else:
+                if passenger not in platform.waiting:
+                    platform.waiting.append(passenger)
+            crossing_waiters = getattr(facility, "_crossing_waiting_passenger_ids", None)
             if crossing_waiters is not None:
                 crossing_waiters.add(int(passenger.unique_id))
         elif reservation is not None:
