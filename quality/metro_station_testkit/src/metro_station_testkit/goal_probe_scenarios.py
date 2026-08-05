@@ -121,7 +121,7 @@ def _gate_unavailable() -> GoalProbeResult:
     recorder = goal_probe_recorder(
         "gate_unavailable",
         "闸机无法通过",
-        "清除失效承诺；没有可用替代闸机时停留在评估状态",
+        "清除失效承诺；没有可用替代闸机时进入容量等待状态",
     )
     enter_decision(recorder)
     update_candidates(recorder, 2, (gate("gate_1", walking=2, waiting=1),), "选择gate_1")
@@ -145,7 +145,7 @@ def _gate_unavailable() -> GoalProbeResult:
         {
             "not_completed": recorder.state.current_node_id == "use_entry_gate",
             "no_invalid_commitment": recorder.state.commitment is None,
-            "waiting_for_candidates": recorder.state.interaction_state
-            == FacilityInteractionState.EVALUATE_CANDIDATES.value,
+            "waiting_for_capacity": recorder.state.interaction_state
+            == FacilityInteractionState.WAITING_CAPACITY.value,
         }
     )

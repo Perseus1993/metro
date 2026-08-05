@@ -8,6 +8,7 @@ from typing import Any
 class FacilityInteractionState(StrEnum):
     APPROACH_DECISION_REGION = "approach_decision_region"
     EVALUATE_CANDIDATES = "evaluate_candidates"
+    WAITING_CAPACITY = "waiting_capacity"
     COMMITTED = "committed"
     APPROACH_QUEUE = "approach_queue"
     CAPTURE_QUEUE = "capture_queue"

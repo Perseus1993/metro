@@ -120,9 +120,18 @@ class PassengerGoalCoordinator:
             passenger.last_completed_facility_event_id = event.event_id
             passenger.last_completed_facility_level_id = passenger.current_level_id
         self.handle(passenger, event)
+        event_was_processed = (
+            event.event_id in passenger.goal_runtime.state.processed_event_ids
+        )
         if (
             kind == GoalEventKind.SERVICE_COMPLETED
-            and event.event_id not in passenger.goal_runtime.state.processed_event_ids
+            and event_was_processed
+            and passenger.assigned_facility_id == facility_id
+        ):
+            passenger.assigned_facility_id = None
+        if (
+            kind == GoalEventKind.SERVICE_COMPLETED
+            and not event_was_processed
         ):
             (
                 passenger.last_completed_facility_id,
@@ -149,9 +158,11 @@ class PassengerGoalCoordinator:
         if (
             not changed
             and reason == "movement_stalled"
-            and self._reroute_stalled_region_approach(passenger, reason=reason)
         ):
-            changed = True
+            changed = self._restore_stalled_committed_work(
+                passenger,
+                reason=reason,
+            ) or self._reroute_stalled_region_approach(passenger, reason=reason)
         if event.event_id in passenger.goal_runtime.state.processed_event_ids:
             self.model.goal_parity.record(
                 passenger,
@@ -164,6 +175,37 @@ class PassengerGoalCoordinator:
                 reason=reason,
             )
         return changed
+
+    def _restore_stalled_committed_work(self, passenger, *, reason: str) -> bool:
+        """Reissue retained physical work after a no-switch reassessment."""
+
+        state = passenger.goal_runtime.state
+        if state.commitment is None:
+            return False
+        command_kind = {
+            FacilityInteractionState.APPROACH_QUEUE.value: (
+                GoalCommandKind.WALK_TO_QUEUE.value
+            ),
+            FacilityInteractionState.CAPTURE_QUEUE.value: (
+                GoalCommandKind.JOIN_QUEUE.value
+            ),
+        }.get(state.interaction_state)
+        if command_kind is None:
+            return False
+        self._execute(
+            passenger,
+            (
+                GoalCommand(
+                    kind=command_kind,
+                    goal_node_id=state.current_node_id,
+                    stage=state.current_stage,
+                    facility_id=state.commitment.facility_id,
+                    reason=reason,
+                ),
+            ),
+        )
+        passenger.last_replan_reason = reason
+        return True
 
     def _reroute_stalled_region_approach(self, passenger, *, reason: str) -> bool:
         """Recompute an uncommitted region route after a physical stall.
@@ -187,17 +229,21 @@ class PassengerGoalCoordinator:
         region_id, stage = active
         router = self.executor.region_router
         base_region = router._base_region(region_id)
-        # A decision-holding reservation is intentional backpressure, not a
-        # stale route.  Releasing it on every crowd-induced stall makes dense
-        # passengers synchronously reshuffle the finite holding grid and none
-        # of them keeps a stable route long enough to enter a newly freed
-        # facility.  Preserve the owned body target while recomputing the
-        # tactical path; ``route`` will atomically exchange it for an approach
-        # slot as soon as a facility becomes selectable.
+        # A finite holding or approach reservation is intentional
+        # backpressure, not a stale route.  Releasing it on every crowd-induced
+        # stall makes dense passengers synchronously reshuffle finite cells and
+        # none keeps a stable route long enough to enter a newly freed
+        # facility.  Preserve the owned target while recomputing the tactical
+        # path; ``route`` can atomically exchange holding for approach as soon
+        # as a facility becomes selectable.
         has_holding_reservation = (
             base_region in passenger.decision_holding_target_by_region
         )
-        if not has_holding_reservation:
+        has_approach_reservation = (
+            stage in passenger.facility_approach_slots_by_stage
+            and stage in passenger.facility_approach_facility_ids_by_stage
+        )
+        if not (has_holding_reservation or has_approach_reservation):
             self.model._clear_all_facility_targeting_reservations(passenger)
             router.clear_decision_context(
                 passenger,
@@ -276,10 +322,51 @@ class PassengerGoalCoordinator:
         decision_route = self._active_decision_route(passenger, node, state)
         if decision_route is not None:
             region_id, stage = decision_route
-            self._refresh_stale_decision_route(
+            refreshed = self._refresh_stale_decision_route(
                 passenger,
                 region_id,
                 stage,
+            )
+            if not refreshed and (
+                passenger.current_goal.kind != "goal_region"
+                or getattr(passenger, "goal_command_region_id", None) != region_id
+            ):
+                # A process-owned layout may replace the physical target
+                # after the graph has already advanced to an ENTER_REGION
+                # node. A still-valid decision context is not proof that its
+                # WALK_TO_REGION command remains physically active.
+                self._execute(
+                    passenger,
+                    (
+                        GoalCommand(
+                            kind=GoalCommandKind.WALK_TO_REGION.value,
+                            goal_node_id=state.current_node_id,
+                            stage=stage,
+                            target_region_id=region_id,
+                            reason="restore_missing_decision_route",
+                        ),
+                    ),
+                )
+            return
+        if (
+            state.interaction_state == FacilityInteractionState.APPROACH_QUEUE.value
+            and state.commitment is not None
+        ):
+            # Process-owned waiting can temporarily replace the physical walk
+            # target while the durable graph remains in APPROACH_QUEUE (for
+            # example, when an active train-door crossing moves the next FIFO
+            # owner to a safe platform cell). Reissue the idempotent approach
+            # command so clearing that resource restores physical progress.
+            self._execute(
+                passenger,
+                (
+                    GoalCommand(
+                        kind=GoalCommandKind.WALK_TO_QUEUE.value,
+                        goal_node_id=state.current_node_id,
+                        stage=state.current_stage,
+                        facility_id=state.commitment.facility_id,
+                    ),
+                ),
             )
             return
         if (
@@ -313,6 +400,7 @@ class PassengerGoalCoordinator:
             return
         if state.interaction_state in {
             FacilityInteractionState.EVALUATE_CANDIDATES.value,
+            FacilityInteractionState.WAITING_CAPACITY.value,
             FacilityInteractionState.REPLAN_PENDING.value,
         }:
             command = GoalCommand(
@@ -357,7 +445,7 @@ class PassengerGoalCoordinator:
         passenger,
         region_id: str,
         stage: str,
-    ) -> None:
+    ) -> bool:
         """Retarget an invalid tactical catchment before reaching its old portal."""
 
         if (
@@ -374,7 +462,7 @@ class PassengerGoalCoordinator:
             region_id,
             candidates,
         ):
-            return
+            return False
         router.clear_decision_context(
             passenger,
             region_id,
@@ -392,6 +480,7 @@ class PassengerGoalCoordinator:
                 ),
             ),
         )
+        return True
 
     def handle(self, passenger, event: GoalEvent) -> None:
         event = self._monotonic_event(passenger, event)

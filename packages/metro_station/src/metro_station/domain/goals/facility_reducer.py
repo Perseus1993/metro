@@ -34,6 +34,7 @@ class FacilityGoalReducer:
             return self._enter_decision_region(state, node, event)
         if interaction in {
             FacilityInteractionState.EVALUATE_CANDIDATES.value,
+            FacilityInteractionState.WAITING_CAPACITY.value,
             FacilityInteractionState.REPLAN_PENDING.value,
         }:
             return self._select_facility(state, node, event)
@@ -159,7 +160,7 @@ class FacilityGoalReducer:
             return GoalEngineResult(
                 state=replace(
                     state,
-                    interaction_state=FacilityInteractionState.EVALUATE_CANDIDATES.value,
+                    interaction_state=FacilityInteractionState.WAITING_CAPACITY.value,
                     commitment=None,
                     queued_facility_id=None,
                     replan_origin_interaction_state=None,

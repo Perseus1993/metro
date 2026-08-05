@@ -2,7 +2,10 @@
 
 from __future__ import annotations
 
-from metro_station.adapters.simulation.planning.goal_state import AgentGoalState, FacilityInteractionState
+from metro_station.adapters.simulation.planning.goal_state import (
+    AgentGoalState,
+    FacilityInteractionState,
+)
 from .goal_stairs_fixture import CONCOURSE_LEVEL, PLATFORM_LEVEL
 from .goal_stairs_micro_scene import GoalStairsMicroScene
 from .goal_stairs_trace import GoalStairsTraceStep
@@ -43,7 +46,7 @@ def stairs_probe_checks(
             "not_completed": not completed,
             "uncommitted": state.commitment is None,
             "waiting_for_candidates": state.interaction_state
-            == FacilityInteractionState.EVALUATE_CANDIDATES.value,
+            == FacilityInteractionState.WAITING_CAPACITY.value,
             "never_changed_level": scene.subject.current_level_id == CONCOURSE_LEVEL,
         }
     return {

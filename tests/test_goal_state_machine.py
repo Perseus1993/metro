@@ -237,7 +237,7 @@ class EntryGateGoalStateMachineTests(unittest.TestCase):
 
         self.assertIsNone(result.state.commitment)
         self.assertEqual(
-            FacilityInteractionState.EVALUATE_CANDIDATES.value,
+            FacilityInteractionState.WAITING_CAPACITY.value,
             result.state.interaction_state,
         )
         self.assertEqual("no_eligible_facility", result.commands[0].reason)

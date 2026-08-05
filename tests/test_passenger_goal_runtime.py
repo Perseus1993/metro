@@ -203,6 +203,7 @@ class PassengerGoalRuntimeTests(unittest.TestCase):
             demand_minutes=1,
             entry_count_hour=120,
             initial_train_offset_seconds=5,
+            train_dwell_seconds=60,
             goal_graph_mode="active",
         )
         model = MetroStationModel(scenario, movement_backend=InstantMovementBackend())
@@ -227,6 +228,10 @@ class PassengerGoalRuntimeTests(unittest.TestCase):
             exit_count_hour=120,
             transfer_count_hour=120,
             initial_train_offset_seconds=5,
+            # This test exercises goal-graph completion, not the default
+            # 35-second door-throughput limit.  A full minute gives the
+            # physically spaced boarding queue time to clear each train.
+            train_dwell_seconds=60,
             goal_graph_mode="active",
         )
         model = MetroStationModel(scenario, movement_backend=InstantMovementBackend())

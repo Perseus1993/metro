@@ -189,7 +189,7 @@ class MetroEmergencyMatrixTests(unittest.TestCase):
 
         self.assertGreater(slow["clearance_time_seconds"], fast["clearance_time_seconds"])
 
-    def test_density_slowdown_changes_physical_clearance(self) -> None:
+    def test_density_slowdown_changes_physical_evacuation_outcome(self) -> None:
         free_flow = emergency.run_case(
             self._args(
                 "--populations",
@@ -222,8 +222,8 @@ class MetroEmergencyMatrixTests(unittest.TestCase):
         # outcome.  This contract verifies that the density term reaches the
         # physical simulation without encoding the wrong directional law.
         self.assertNotEqual(
-            slowed["clearance_time_seconds"],
-            free_flow["clearance_time_seconds"],
+            slowed["mean_evacuation_duration_seconds"],
+            free_flow["mean_evacuation_duration_seconds"],
         )
 
     def test_resume_requires_matching_configuration_fingerprint(self) -> None:

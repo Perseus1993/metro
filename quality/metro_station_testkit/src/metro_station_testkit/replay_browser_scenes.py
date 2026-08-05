@@ -4,6 +4,7 @@ from copy import deepcopy
 from dataclasses import dataclass, replace
 from typing import Any
 
+from metro_station.adapters.simulation.design.geometry import element_shape
 from metro_station.adapters.simulation.design.schema import DesignElement, ElementGeometry
 from metro_station.adapters.simulation.design.station_generation import generate_station
 from metro_station.adapters.simulation.simulation_outputs.station_scene import (
@@ -176,20 +177,34 @@ def _with_mixed_geometry(document):
 
 
 def _with_rotated_rect(document):
-    candidate = next(
-        element
-        for element in document.elements
-        if element.geometry.shape == "rect" and element.role not in {"floor", "vertical_connector"}
-    )
-    rotated = replace(
-        candidate,
-        geometry=replace(candidate.geometry, rotation_deg=30.0),
-        metadata={**candidate.metadata, "browser_rotation_probe": True},
+    floor = next(element for element in document.elements if element.role == "floor")
+    center = element_shape(floor.geometry).centroid
+    rotated = DesignElement(
+        id="browser_rotated_rect",
+        kind="equipment",
+        level_id=floor.level_id,
+        geometry=ElementGeometry(
+            "rect",
+            x_m=float(center.x) - 1.0,
+            y_m=float(center.y) - 0.5,
+            width_m=2.0,
+            height_m=1.0,
+            rotation_deg=30.0,
+        ),
+        label="Browser rotated rectangle",
+        role="decoration",
+        movable=False,
+        resizable=False,
+        metadata={
+            "browser_rotation_probe": True,
+            "presentation_only": True,
+            "blocking": False,
+        },
     )
     return generate_station(
         replace(
             document,
-            elements=tuple(rotated if item.id == candidate.id else item for item in document.elements),
+            elements=(*document.elements, rotated),
         )
     )
 

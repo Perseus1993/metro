@@ -179,6 +179,5 @@ class GoalRuntimePortTests(unittest.TestCase):
 
         self.assertEqual("walking", passenger.state)
 
-
 if __name__ == "__main__":
     unittest.main()

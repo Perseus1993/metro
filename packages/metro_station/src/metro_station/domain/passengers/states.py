@@ -32,6 +32,7 @@ class AgentState(StrEnum):
     QUEUEING_VERTICAL = "queueing_vertical"
     RIDING_VERTICAL = "riding_vertical"
     WALKING_TO_PLATFORM = "walking_to_platform"
+    WAITING_CAPACITY = "waiting_capacity"
     WAITING_PLATFORM = "waiting_platform"
     QUEUEING_DOOR = "queueing_door"
     BOARDING_TRAIN = "boarding_train"
@@ -45,6 +46,7 @@ class AgentState(StrEnum):
 PASSIVE_STATES = {
     AgentState.QUEUEING_GATE.value,
     AgentState.QUEUEING_VERTICAL.value,
+    AgentState.WAITING_CAPACITY.value,
     AgentState.WAITING_PLATFORM.value,
     AgentState.QUEUEING_DOOR.value,
     AgentState.BOARDING_TRAIN.value,

@@ -142,7 +142,11 @@ def test_bulk_launch_has_one_strictly_increasing_track_per_passenger(
     # invariant of the finite entrance spawn reservoir.
     for position in launch_certificate.slots[:passenger_count]:
         model._spawn_passenger(
-            AgentIntent.ENTER_AND_BOARD,
+            # The certified launch cells are on the platform. Match the
+            # injected body's journey to that release side so production
+            # downstream-admission checks remain meaningful; this test is
+            # about timestamp boundaries, not impossible paid-area ingress.
+            AgentIntent.EXIT_STATION,
             initial_position=position,
             initial_level_id=launch_certificate.level_id,
         )

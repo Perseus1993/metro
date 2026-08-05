@@ -72,6 +72,25 @@ class GoalGateMicroPassenger:
             "stage": stage.value if isinstance(stage, FacilityStage) else stage,
         }
 
+    def set_passive_layout_target(
+        self,
+        target: tuple[float, float],
+        *,
+        goal_kind: str,
+        goal_label: str,
+        facility_id: str | None = None,
+        stage: str | FacilityStage | None = None,
+    ) -> None:
+        """Mirror the production passive-layout ownership contract."""
+
+        self.set_target(
+            target,
+            goal_kind=goal_kind,
+            goal_label=goal_label,
+            facility_id=facility_id,
+            stage=stage,
+        )
+
     def apply_movement_result(self, result: MovementResult) -> bool:
         tick_seconds = max(1e-9, float(self.model.scenario.tick_seconds))
         self.last_walk_velocity_mps = (

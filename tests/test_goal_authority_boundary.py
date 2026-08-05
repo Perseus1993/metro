@@ -79,12 +79,12 @@ class GoalAuthorityBoundaryTests(unittest.TestCase):
         passenger.route = []
         passenger.advance_after_movement(True)
         facility = model.facilities_by_id[passenger.current_goal.facility_id]
-        # Portal-local decision regions may legitimately coincide with the
-        # first queue slot and therefore capture immediately.  Reconstruct an
-        # authorized in-flight queue approach, then replay the stale reach fact
-        # after the body has moved away.
-        self.assertEqual("queued", passenger.current_goal.kind)
-        facility.queue.remove(passenger)
+        # A portal-local decision may either capture immediately or authorize
+        # a precise queue approach. Reconstruct the latter, then replay the
+        # stale reach fact after the body has moved away.
+        self.assertIn(passenger.current_goal.kind, {"queued", "queue_approach"})
+        if passenger in facility.queue:
+            facility.queue.remove(passenger)
         passenger.state = facility.spec.queue_state
         passenger.plan.set_goal(
             kind="queue_approach",
@@ -122,10 +122,10 @@ class GoalAuthorityBoundaryTests(unittest.TestCase):
 
     def test_transfer_population_has_explicit_target(self) -> None:
         model = MetroStationModel(scenario(), movement_backend=NoMovementBackend())
-        passenger = model._spawn_passenger(AgentIntent.TRANSFER)
+        target_line_id, target_direction = model._default_transfer_target()
 
-        self.assertIsNotNone(passenger.target_line_id)
-        self.assertIsNotNone(passenger.target_direction)
+        self.assertIsNotNone(target_line_id)
+        self.assertIsNotNone(target_direction)
 
     def test_evacuation_alarm_switches_existing_passenger_graph(self) -> None:
         evacuation = scenario(

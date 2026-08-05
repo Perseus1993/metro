@@ -48,7 +48,9 @@ class StationGraphRoutingMixin:
         *,
         invoke_evacuation_router: bool = True,
         final_target_override: tuple[float, float] | None = None,
+        final_approach_anchors: tuple[tuple[float, float], ...] = (),
         include_navigation_waypoints: bool = False,
+        preserve_gate_tactical_anchors: bool = False,
     ) -> tuple[tuple[float, float], ...]:
         station_graph = getattr(self.layout_graph, "station_graph", None)
         if station_graph is None:
@@ -56,14 +58,28 @@ class StationGraphRoutingMixin:
 
         element_id = self._facility_element_id(facility.facility_id)
         binding = self.facility_portal_binding(facility.facility_id)
-        target_nodes = [
-            node
-            for node_id in station_graph.node_ids_for_element(element_id)
-            if (node := station_graph.nodes.get(node_id)) is not None
-            and node.kind == "facility_entry"
-            and node.facility_stage == facility.spec.stage
-            and node.level_id == binding.entry_level_id
-        ]
+        if facility.spec.kind == FacilityKind.TRAIN_DOOR.value:
+            # Platform-edge train doors are represented by the platform node
+            # in the strategic graph rather than one facility-entry node per
+            # runtime door.  Treat that node as the tactical destination so
+            # a passenger coming from an entry gate retains paid-hall egress
+            # anchors instead of falling back to a direct cross-bank line.
+            target_nodes = [
+                node
+                for node_id in station_graph.node_ids_for_element(element_id)
+                if (node := station_graph.nodes.get(node_id)) is not None
+                and node.kind == "platform"
+                and node.level_id == binding.entry_level_id
+            ]
+        else:
+            target_nodes = [
+                node
+                for node_id in station_graph.node_ids_for_element(element_id)
+                if (node := station_graph.nodes.get(node_id)) is not None
+                and node.kind == "facility_entry"
+                and node.facility_stage == facility.spec.stage
+                and node.level_id == binding.entry_level_id
+            ]
         if not target_nodes:
             if facility.spec.kind == FacilityKind.TRAIN_DOOR.value:
                 return ()
@@ -107,7 +123,9 @@ class StationGraphRoutingMixin:
         if not node_ids:
             return self._physical_route_for_points(
                 passenger,
-                (final_target,),
+                self._dedupe_route_points(
+                    (*final_approach_anchors, final_target)
+                ),
                 level_id=level_id,
                 include_navigation_waypoints=include_navigation_waypoints,
             )
@@ -135,9 +153,21 @@ class StationGraphRoutingMixin:
                 raise PhysicalRouteUnreachableError(
                     f"walking route used non-walk edge {previous_node_id!r}->{node_id!r}"
                 )
-            if index < len(node_ids) - 1 and node.tactical_anchor:
+            if (
+                index < len(node_ids) - 1
+                and node.tactical_anchor
+                and (
+                    preserve_gate_tactical_anchors
+                    or facility.spec.stage
+                    not in {
+                        FacilityStage.ENTRY_GATE.value,
+                        FacilityStage.EXIT_GATE.value,
+                    }
+                )
+            ):
                 anchors.append(node.position)
             previous_node_id = node_id
+        anchors.extend(final_approach_anchors)
         anchors.append(final_target)
         return self._physical_route_for_points(
             passenger,
@@ -198,7 +228,19 @@ class StationGraphRoutingMixin:
             path.node_ids[1:],
             level_id,
         )
-        return self._physical_route_for_points(passenger, (target,), level_id=level_id)
+        tactical_anchors = tuple(
+            node.position
+            for node_id in path.node_ids[1:-1]
+            if (node := station_graph.nodes.get(node_id)) is not None
+            and node.tactical_anchor
+            and node.element_id != start_node.element_id
+        )
+        return self._physical_route_for_points(
+            passenger,
+            self._dedupe_route_points((*tactical_anchors, target)),
+            level_id=level_id,
+            include_navigation_waypoints=True,
+        )
 
     def _station_graph_route_start_candidates(
         self,

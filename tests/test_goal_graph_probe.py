@@ -55,7 +55,7 @@ class GoalGraphProbeTests(unittest.TestCase):
         scenario = self.scenarios["gate_unavailable"]
         final_state = scenario["final_state"]
         self.assertEqual("use_entry_gate", final_state["current_node_id"])
-        self.assertEqual("evaluate_candidates", final_state["interaction_state"])
+        self.assertEqual("waiting_capacity", final_state["interaction_state"])
         self.assertIsNone(final_state["commitment"])
 
     def test_markdown_contains_state_transition_tables(self) -> None:

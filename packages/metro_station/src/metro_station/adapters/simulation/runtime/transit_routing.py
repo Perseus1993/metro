@@ -9,7 +9,7 @@ from ..agents.passenger import PassengerAgent
 from ..agents.transit import PlatformAgent, TrainAgent
 from ..facilities.filters import filter_boarding_doors_for_platform
 from ..facilities.runtime import FacilityProcessAgent
-from ..planning.plan import RouteKey
+from ..planning.plan import FacilityStage, RouteKey
 from ..station.geometry import project_to_safe_point
 
 
@@ -21,6 +21,21 @@ class TransitRoutingMixin:
         if platform is None:
             return False
         platform.join_waiting(passenger)
+        if passenger in platform.waiting:
+            target = self._reserve_platform_waiting_slot(passenger, platform)
+            passenger.set_passive_layout_target(
+                target,
+                goal_kind="waiting",
+                goal_label="platform waiting slot",
+            )
+            # The durable platform cell now owns the body.  Release the
+            # temporary door-approach claim so upstream gates can admit the
+            # next passenger; a later train-available poll must reacquire an
+            # approach before this passenger leaves its waiting cell.
+            self._clear_facility_targeting_reservation(
+                passenger,
+                FacilityStage.BOARDING_DOOR.value,
+            )
         return True
 
     def leave_platform_waiting(self, passenger: PassengerAgent) -> None:

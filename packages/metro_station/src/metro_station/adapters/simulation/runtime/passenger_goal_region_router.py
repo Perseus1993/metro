@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from math import cos, hypot, pi, sin
+from math import hypot
 
 from shapely.geometry import Point as ShapelyPoint
 
@@ -9,7 +9,7 @@ from ..planning.goal_choice import MinimumPerceivedCostSelector
 from ..planning.goal_events import DecisionObservation
 from ..planning.plan import AgentIntent, AgentState, FacilityStage
 from ..station.geometry import project_to_safe_point
-from .decision_holding import DecisionHoldingCapacityError
+from .decision_holding import DecisionHoldingCapacityError, PlatformWaitingCapacityError
 from .evacuation_journey_rerouting import refresh_evacuation_facility_path
 from .passenger_goal_decision_geometry import PassengerGoalDecisionGeometryMixin
 from .passenger_goal_observation import build_goal_facility_observations
@@ -33,15 +33,43 @@ class PassengerGoalRegionRouter(PassengerGoalDecisionGeometryMixin):
     """Translate strategic region ids into existing physical station routes."""
 
     def route(self, model, passenger, region_id: str) -> tuple[tuple[float, float], ...]:
+        passenger.route_waypoint_radius_override = None
         region = self._base_region(region_id)
         self._apply_target_platform_constraints(model, passenger)
         if region in _DECISION_REGION_STAGES:
+            stage = _DECISION_REGION_STAGES[region]
             target = self._decision_region_target(
                 model,
                 passenger,
                 region,
-                _DECISION_REGION_STAGES[region],
+                stage,
             )
+            preferred_facility_id = (
+                passenger.decision_preferred_facility_id_by_region.get(region)
+            )
+            preferred_facility = model.facilities_by_id.get(
+                preferred_facility_id
+            )
+            if region in {"exit_gate_decision", "boarding_decision"}:
+                if preferred_facility is not None:
+                    # Crossing flows must follow the authored paid-side
+                    # access topology. A direct, navigation-mesh-valid line
+                    # either from a train to an exit gate or from an entry
+                    # gate to a remote boarding target can cut across a fully
+                    # occupied opposing FIFO because dynamic bodies are not
+                    # static JuPedSim obstacles. Preserve tactical Station
+                    # Graph anchors so both directions use certified aisles.
+                    route = model._station_graph_route_to_facility(
+                        passenger,
+                        preferred_facility,
+                        final_target_override=target,
+                        include_navigation_waypoints=True,
+                        preserve_gate_tactical_anchors=(
+                            region == "exit_gate_decision"
+                        ),
+                    )
+                    if route:
+                        return route
             return self._physical_region_route(model, passenger, target)
         if region in _MEMBERSHIP_REGION_STAGES:
             target = self._membership_region_target(model, passenger, region)
@@ -58,6 +86,18 @@ class PassengerGoalRegionRouter(PassengerGoalDecisionGeometryMixin):
             return True
         target = route[-1]
         radius = float(passenger.model.scenario.jupedsim_target_radius_units)
+        waypoint_override = getattr(
+            passenger,
+            "route_waypoint_radius_override",
+            None,
+        )
+        if waypoint_override is not None:
+            # The physical backend and Goal Region reducer must agree on the
+            # final tactical boundary. Gate approaches deliberately use the
+            # personal-space capture radius; retaining the default semantic
+            # radius after JuPedSim has stopped at that boundary leaves a
+            # permanently walking passenger just outside the reducer's view.
+            radius = max(radius, float(waypoint_override))
         return hypot(passenger.pos[0] - target[0], passenger.pos[1] - target[1]) <= radius
 
     def walking_state(
@@ -176,6 +216,11 @@ class PassengerGoalRegionRouter(PassengerGoalDecisionGeometryMixin):
 
         if selection is not None:
             model._clear_all_decision_holding_reservations(passenger)
+            if (
+                stage == FacilityStage.EXIT_GATE.value
+                and passenger.intent == AgentIntent.EXIT_STATION.value
+            ):
+                model.leave_platform_waiting(passenger)
             # A decision-region target is already a physical queue-side body
             # position.  Claim it before walking begins; otherwise every agent
             # can be routed to the same tail portal and only discover the
@@ -191,6 +236,78 @@ class PassengerGoalRegionRouter(PassengerGoalDecisionGeometryMixin):
         approaches = tuple(point for _facility, point in approach_records)
         area = model.jupedsim_walkable_area(level_id)
         if selection is None:
+            platform_reservation = model._platform_waiting_reservations.get(
+                int(passenger.unique_id)
+            )
+            uses_platform_storage = (
+                stage == FacilityStage.BOARDING_DOOR.value
+                or (
+                    stage == FacilityStage.EXIT_GATE.value
+                    and passenger.intent == AgentIntent.EXIT_STATION.value
+                )
+            )
+            if platform_reservation is None and uses_platform_storage:
+                platform = model.platform_for_passenger(passenger)
+                if platform is not None:
+                    try:
+                        model._reserve_platform_waiting_slot(passenger, platform)
+                    except PlatformWaitingCapacityError:
+                        if stage == FacilityStage.EXIT_GATE.value:
+                            # Alighting publication was licensed by this
+                            # finite source-side resource. Losing it here is a
+                            # model-invalid admission race, not permission to
+                            # leave the new body unowned.
+                            raise
+                    platform_reservation = (
+                        model._platform_waiting_reservations.get(
+                            int(passenger.unique_id)
+                        )
+                    )
+            if not uses_platform_storage:
+                platform_reservation = None
+            if platform_reservation is not None:
+                target = platform_reservation.point
+                model._clear_vacated_decision_holding_reservations(
+                    passenger,
+                    schedule=True,
+                )
+                self._record_decision_context(
+                    passenger,
+                    region_id,
+                    candidates,
+                    target,
+                    preferred_facility_id=preferred_facility_id,
+                )
+                return target
+            owned_facility_id = (
+                passenger.facility_approach_facility_ids_by_stage.get(stage)
+            )
+            owned_slot_index = passenger.facility_approach_slots_by_stage.get(stage)
+            owned_facility = next(
+                (
+                    facility
+                    for facility in candidates
+                    if facility.facility_id == owned_facility_id
+                ),
+                None,
+            )
+            if owned_facility is not None and owned_slot_index is not None:
+                target = model._facility_approach_slot_position(
+                    owned_facility,
+                    owned_slot_index,
+                )
+                model._clear_vacated_decision_holding_reservations(
+                    passenger,
+                    schedule=True,
+                )
+                self._record_decision_context(
+                    passenger,
+                    region_id,
+                    candidates,
+                    target,
+                    preferred_facility_id=owned_facility.facility_id,
+                )
+                return target
             if (
                 stage == FacilityStage.BOARDING_DOOR.value
                 and any(passenger in platform.waiting for platform in model.platforms)
@@ -203,7 +320,10 @@ class PassengerGoalRegionRouter(PassengerGoalDecisionGeometryMixin):
                     area,
                 )
                 if local:
-                    model._clear_all_decision_holding_reservations(passenger)
+                    model._clear_vacated_decision_holding_reservations(
+                        passenger,
+                        schedule=True,
+                    )
                     self._record_decision_context(
                         passenger,
                         region_id,
@@ -219,11 +339,11 @@ class PassengerGoalRegionRouter(PassengerGoalDecisionGeometryMixin):
                     approaches,
                 )
             except DecisionHoldingCapacityError:
-                # Finite holding capacity applies upstream backpressure.  The
-                # passenger is already a collision-managed physical body, so
-                # retaining the committed position is safer than aborting the
-                # run or manufacturing an overlapping overflow slot.
-                target = tuple(passenger.pos)
+                # A published body without a finite downstream owner is a
+                # model-invalid state, not backpressure.  Demand sources and
+                # upstream facilities must reserve ownership before release;
+                # fail closed here if that contract was violated.
+                raise
             self._record_decision_context(
                 passenger,
                 region_id,
@@ -572,42 +692,6 @@ class PassengerGoalRegionRouter(PassengerGoalDecisionGeometryMixin):
         if not preserve_preference:
             passenger.decision_preferred_facility_id_by_region.pop(region, None)
             passenger.decision_reconsider_after_seconds_by_region.pop(region, None)
-
-    def _dispersed_region_target(
-        self,
-        model,
-        passenger,
-        region_id: str,
-        center: tuple[float, float],
-        area,
-    ) -> tuple[float, float]:
-        target_radius = float(model.scenario.jupedsim_target_radius_units)
-        local_domain = area.intersection(
-            ShapelyPoint(center).buffer(max(1.0, target_radius * 2.5))
-        )
-        if local_domain.is_empty:
-            return center
-        passenger_id = int(getattr(passenger, "unique_id", 0) or 0)
-        region_seed = sum(
-            (index + 1) * ord(character)
-            for index, character in enumerate(region_id)
-        )
-        seed = passenger_id * 1_103_515_245 + region_seed * 12_345
-        angle = 2.0 * pi * ((seed % 65_521) / 65_521.0)
-        spread = max(0.25, min(0.75, target_radius * 1.35))
-        radius = spread * (0.35 + 0.65 * ((seed // 65_521) % 17) / 16.0)
-        candidate = (
-            center[0] + cos(angle) * radius,
-            center[1] + sin(angle) * radius,
-        )
-        if not local_domain.covers(ShapelyPoint(candidate)):
-            candidate = center
-        return project_to_safe_point(
-            local_domain,
-            candidate,
-            clearance=max(0.02, model.scenario.jupedsim_agent_radius_units * 1.05),
-            require_inside=False,
-        )
 
     def _membership_region_target(
         self,

@@ -2,7 +2,10 @@
 
 from __future__ import annotations
 
-from metro_station.adapters.simulation.planning.goal_state import AgentGoalState, FacilityInteractionState
+from metro_station.adapters.simulation.planning.goal_state import (
+    AgentGoalState,
+    FacilityInteractionState,
+)
 from .goal_stairs_fixture import CONCOURSE_LEVEL, PLATFORM_LEVEL
 from .goal_stairs_micro_scene import GoalStairsMicroScene
 
@@ -35,7 +38,7 @@ class GoalStairsScenarioEnvironment:
             self.scenario_id == "stairs_unavailable"
             and self.disabled_at is not None
             and scene.current_time_seconds >= self.disabled_at + 3.0
-            and state.interaction_state == FacilityInteractionState.EVALUATE_CANDIDATES.value
+            and state.interaction_state == FacilityInteractionState.WAITING_CAPACITY.value
             and state.commitment is None
         )
 

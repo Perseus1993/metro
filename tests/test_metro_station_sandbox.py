@@ -25,6 +25,11 @@ from sandbox.metro_station_sandbox.planning.behavior import (
     BehaviorActionKind,
     behavior_status_for_passenger,
 )
+from sandbox.metro_station_sandbox.planning.goal_commands import (
+    GoalCommand,
+    GoalCommandKind,
+)
+from sandbox.metro_station_sandbox.planning.goal_events import GoalEventKind
 from sandbox.metro_station_sandbox.design import (
     DesignConnection,
     DesignPort,
@@ -80,6 +85,10 @@ from sandbox.metro_station_sandbox.movement.backend import (
 )
 from sandbox.metro_station_sandbox.planning.selection import pick_least_loaded, pick_logit
 from sandbox.metro_station_sandbox.runtime.mesa_model import MetroStationModel
+from sandbox.metro_station_sandbox.runtime.passenger_goal_command_executor import (
+    ProductionGoalCommandContext,
+    ProductionGoalCommandExecutor,
+)
 from sandbox.metro_station_sandbox.runtime.demand_scheduler import DemandScheduler
 from sandbox.metro_station_sandbox.runtime.snapshots import FacilitySnapshot, PassengerSnapshot
 from sandbox.metro_station_sandbox.station.graph import StationGraph
@@ -2858,7 +2867,153 @@ class PassengerFlowTests(unittest.TestCase):
         self.assertEqual("goal_region", passenger.current_goal.kind)
         self.assertEqual("movement_stalled", passenger.last_replan_reason)
 
-    def test_movement_stall_on_use_stage_releases_provisional_slot_and_reroutes(
+    def test_train_door_captures_fifo_before_queue_tail_settling(self) -> None:
+        model = MetroStationModel(
+            scenario_for("visual_demo_station"),
+            seed=203,
+            movement_backend=InstantMovementBackend(),
+        )
+        model.spawn_schedule.clear()
+        passenger = PassengerAgent(
+            model,
+            group_size=1,
+            created_step=0,
+            intent=AgentIntent.ENTER_AND_BOARD,
+        )
+        model.passengers.append(passenger)
+        door = model.boarding_doors[0]
+        passenger.pos = tuple(model.facility_portal_binding(door.facility_id).entry_point)
+        model._reserve_facility_approach_slot(passenger, door)
+
+        with (
+            patch.object(
+                model.movement_backend,
+                "owns_passive_layout_motion",
+                return_value=True,
+            ),
+            patch.object(model, "route_to_facility_queue") as route,
+        ):
+            events = ProductionGoalCommandExecutor().execute(
+                ProductionGoalCommandContext(model=model, passenger=passenger),
+                (
+                    GoalCommand(
+                        kind=GoalCommandKind.WALK_TO_QUEUE.value,
+                        goal_node_id="use_boarding_door",
+                        stage=FacilityStage.BOARDING_DOOR.value,
+                        facility_id=door.facility_id,
+                    ),
+                ),
+            )
+
+            joined = ProductionGoalCommandExecutor().execute(
+                ProductionGoalCommandContext(model=model, passenger=passenger),
+                (
+                    GoalCommand(
+                        kind=GoalCommandKind.JOIN_QUEUE.value,
+                        goal_node_id="use_boarding_door",
+                        stage=FacilityStage.BOARDING_DOOR.value,
+                        facility_id=door.facility_id,
+                    ),
+                ),
+            )
+
+        route.assert_not_called()
+        self.assertEqual(1, len(events))
+        self.assertEqual(GoalEventKind.REACHED_QUEUE_CAPTURE.value, events[0].kind)
+        self.assertEqual(door.facility_id, events[0].facility_id)
+
+        self.assertEqual(1, len(joined))
+        self.assertEqual(GoalEventKind.QUEUE_JOINED.value, joined[0].kind)
+        self.assertIn(passenger, door.queue)
+
+    def test_train_door_join_retargets_remote_reserved_body_before_fifo_capture(
+        self,
+    ) -> None:
+        model = MetroStationModel(
+            scenario_for("visual_demo_station"),
+            seed=205,
+            movement_backend=InstantMovementBackend(),
+        )
+        model.spawn_schedule.clear()
+        passenger = PassengerAgent(
+            model,
+            group_size=1,
+            created_step=0,
+            intent=AgentIntent.ENTER_AND_BOARD,
+        )
+        model.passengers.append(passenger)
+        door = model.boarding_doors[0]
+        passenger.current_level_id = door.portal_entry_level_id
+        slot_index = model._reserve_facility_approach_slot(passenger, door)
+        slot = model._facility_approach_slot_position(door, slot_index)
+        passenger.pos = (slot[0] + 5.0, slot[1])
+
+        events = ProductionGoalCommandExecutor().execute(
+            ProductionGoalCommandContext(model=model, passenger=passenger),
+            (
+                GoalCommand(
+                    kind=GoalCommandKind.JOIN_QUEUE.value,
+                    goal_node_id="use_boarding_door",
+                    stage=FacilityStage.BOARDING_DOOR.value,
+                    facility_id=door.facility_id,
+                ),
+            ),
+        )
+
+        self.assertEqual((), events)
+        self.assertNotIn(passenger, door.queue)
+        self.assertEqual("queue_approach", passenger.current_goal.kind)
+        self.assertEqual(slot, passenger.route[-1] if passenger.route else passenger.target)
+
+    def test_full_train_door_restores_finite_platform_waiting_state(self) -> None:
+        model = MetroStationModel(
+            scenario_for("visual_demo_station"),
+            seed=204,
+            movement_backend=InstantMovementBackend(),
+        )
+        model.spawn_schedule.clear()
+        door = model.boarding_doors[0]
+        while not door.queue.is_full:
+            occupant = PassengerAgent(
+                model,
+                group_size=1,
+                created_step=0,
+                intent=AgentIntent.ENTER_AND_BOARD,
+            )
+            model.passengers.append(occupant)
+            self.assertTrue(door.join_queue(occupant, authority="goal_graph"))
+
+        passenger = PassengerAgent(
+            model,
+            group_size=1,
+            created_step=0,
+            intent=AgentIntent.ENTER_AND_BOARD,
+        )
+        model.passengers.append(passenger)
+        platform = model.platforms[0]
+        passenger.assigned_platform_id = platform.platform_id
+        target = model._reserve_platform_waiting_slot(passenger, platform)
+        passenger.pos = target
+        passenger.target = target
+
+        events = ProductionGoalCommandExecutor().execute(
+            ProductionGoalCommandContext(model=model, passenger=passenger),
+            (
+                GoalCommand(
+                    kind=GoalCommandKind.JOIN_QUEUE.value,
+                    goal_node_id="use_boarding_door",
+                    stage=FacilityStage.BOARDING_DOOR.value,
+                    facility_id=door.facility_id,
+                ),
+            ),
+        )
+
+        self.assertEqual((), events)
+        self.assertEqual(AgentState.WAITING_PLATFORM.value, passenger.state)
+        self.assertEqual("waiting", passenger.current_goal.kind)
+        self.assertIn(passenger, platform.waiting)
+
+    def test_movement_stall_on_use_stage_preserves_provisional_slot_and_reroutes(
         self,
     ) -> None:
         model = MetroStationModel(
@@ -2901,9 +3056,13 @@ class PassengerFlowTests(unittest.TestCase):
 
         self.assertTrue(changed)
         route.assert_called_once()
-        self.assertEqual({}, passenger.facility_approach_slots_by_stage)
-        self.assertIsNone(
-            gate.queue.approach_slot_reservation(int(passenger.unique_id))
+        self.assertEqual(
+            {FacilityStage.ENTRY_GATE.value: 0},
+            passenger.facility_approach_slots_by_stage,
+        )
+        self.assertEqual(
+            0,
+            gate.queue.approach_slot_reservation(int(passenger.unique_id)),
         )
         self.assertEqual(rerouted_target, passenger.target)
 
@@ -3136,7 +3295,13 @@ class IntegrationSurfaceTests(unittest.TestCase):
         self.assertGreaterEqual(min(scheduler.alighting_schedule), first_arrival_step)
 
     def test_alighting_spawn_cell_avoids_platform_passengers_and_same_batch(self) -> None:
-        model = MetroStationModel(scenario_for("single_level_terminal"), seed=42)
+        scenario = replace(
+            scenario_for("single_level_terminal"),
+            exit_count_hour=60,
+            initial_train_offset_seconds=0,
+            alighting_source_lateral_offset_m=10.0,
+        )
+        model = MetroStationModel(scenario, seed=42)
         door = model.boarding_doors[0]
         level_id = door.spec.exit_level_id or door.spec.entry_level_id
         self.assertIsNotNone(level_id)
@@ -3772,8 +3937,9 @@ class IntegrationSurfaceTests(unittest.TestCase):
         elevator.boarding_wait_remaining_steps = 0
         elevator.step()
 
-        self.assertEqual("boarding", elevator.cabin_state)
+        self.assertEqual("moving", elevator.cabin_state)
         self.assertEqual(2, elevator.cabin_load_persons)
+        self.assertEqual(2, elevator.last_departure_load_persons)
         self.assertEqual([], elevator.queue)
 
     def test_elevator_return_trip_blocks_next_boarding_cycle(self) -> None:
@@ -4490,22 +4656,29 @@ class VisualDemoGeometryTests(unittest.TestCase):
                     geometry.covers(Point(model.layout_graph.platform_waiting_position(index)))
                 )
 
-    def test_visual_demo_platform_waiting_slots_are_near_train_doors(self) -> None:
-        model = MetroStationModel(scenario_for("visual_demo_station"), seed=2)
-        document = create_design("visual_demo_station")
-        door_points = [
-            element.geometry.center()
-            for element in document.elements
-            if element.kind == "platform_edge"
+    def test_visual_demo_platform_waiting_slots_prioritize_train_door_access(self) -> None:
+        scenario = scenario_for("visual_demo_station")
+        model = MetroStationModel(scenario, seed=2)
+        approach_points = [
+            point
+            for binding in model.layout_graph.facility_portal_bindings
+            if binding.stage == FacilityStage.BOARDING_DOOR.value
+            for point in binding.approach_slots
         ]
-        train_edge_min_y = meters((0.0, 0.72))[1]
+        maximum_access_distance = (
+            scenario.personal_space_units + scenario.jupedsim_target_radius_units
+        )
 
-        for index in range(120):
-            slot = model.layout_graph.platform_waiting_position(index)
-            nearest_door_distance = min(abs(slot[0] - door[0]) for door in door_points)
-            with self.subTest(index=index, slot=slot):
-                self.assertGreaterEqual(slot[1], train_edge_min_y)
-                self.assertLessEqual(nearest_door_distance, 4.6)
+        distances = []
+        for slot in model.layout_graph.platform_waiting_slots():
+            distances.append(min(
+                hypot(slot[0] - point[0], slot[1] - point[1])
+                for point in approach_points
+            ))
+
+        self.assertTrue(distances)
+        self.assertLessEqual(distances[0], maximum_access_distance)
+        self.assertEqual(sorted(distances), distances)
 
     def test_visual_demo_platform_waiting_slots_do_not_repeat_under_load(self) -> None:
         model = MetroStationModel(scenario_for("visual_demo_station"), seed=2)

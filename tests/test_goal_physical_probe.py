@@ -75,7 +75,7 @@ class GoalPhysicalProbeTests(unittest.TestCase):
     def test_disabled_gates_never_false_complete(self) -> None:
         scenario = self.scenarios["gate_unavailable"]
         self.assertEqual("use_entry_gate", scenario["final_state"]["current_node_id"])
-        self.assertEqual("evaluate_candidates", scenario["final_state"]["interaction_state"])
+        self.assertEqual("waiting_capacity", scenario["final_state"]["interaction_state"])
         self.assertIsNone(scenario["final_state"]["commitment"])
 
     def test_markdown_reports_physical_and_graph_state_together(self) -> None:

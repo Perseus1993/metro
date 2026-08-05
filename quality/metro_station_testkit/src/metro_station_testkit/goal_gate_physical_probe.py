@@ -115,7 +115,7 @@ class GoalGatePhysicalProbe:
             and "gates_disabled" in self.environment_actions
             and self.scene.current_time_seconds >= self._disabled_at + 3.0
             and self.state.interaction_state
-            == FacilityInteractionState.EVALUATE_CANDIDATES.value
+            == FacilityInteractionState.WAITING_CAPACITY.value
             and self.state.commitment is None
         )
 
@@ -145,8 +145,8 @@ class GoalGatePhysicalProbe:
         return {
             "not_completed": not completed,
             "uncommitted": self.state.commitment is None,
-            "waiting_for_candidates": self.state.interaction_state
-            == FacilityInteractionState.EVALUATE_CANDIDATES.value,
+            "waiting_for_capacity": self.state.interaction_state
+            == FacilityInteractionState.WAITING_CAPACITY.value,
         }
 
     def _committed_to(self, facility_id: str) -> bool:

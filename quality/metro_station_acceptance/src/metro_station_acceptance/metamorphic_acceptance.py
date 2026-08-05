@@ -49,7 +49,9 @@ def run_metamorphic_acceptance() -> ExplorationSuiteReport:
         "sensitivity_count_is_50": len(sensitivity_results) == 50,
         "all_transforms_covered": {case.factors["transform"] for case in pair_cases}
         == set(TRANSFORMS),
-        "all_pairs_meet_declared_invariants": all(result.status == "ok" for result in pair_results),
+        "all_pairs_meet_declared_invariants": all(
+            result.status == "ok" for result in pair_results
+        ),
         "p0_sensitivity_is_100_percent": detected == len(sensitivity_results),
         "order_semantics_decided_by_canonical_projection": True,
         "decoration_semantics_use_explicit_metadata": True,
@@ -68,6 +70,58 @@ def run_metamorphic_acceptance() -> ExplorationSuiteReport:
             "pair_cases": 100,
             "sensitivity_cases": 50,
             "baseline_determinism_checked": 20,
+        },
+    )
+
+
+def run_metamorphic_acceptance_for_base(base_index: int) -> ExplorationSuiteReport:
+    """Run one independently shardable base while preserving baseline reuse."""
+
+    pair_cases = tuple(
+        case
+        for case in metamorphic_pair_cases()
+        if int(case.factors["base_index"]) == int(base_index)
+    )
+    sensitivity_cases = tuple(
+        case
+        for case in metamorphic_sensitivity_cases()
+        if int(case.factors["base_index"]) == int(base_index)
+    )
+    if not pair_cases:
+        raise ValueError(f"unknown metamorphic base index {base_index!r}")
+    baseline_cache = _build_baseline_cache(pair_cases, sensitivity_cases)
+    pair_results = tuple(_run_pair(case, baseline_cache) for case in pair_cases)
+    sensitivity_results = tuple(
+        _run_sensitivity(case, baseline_cache) for case in sensitivity_cases
+    )
+    results = (*pair_results, *sensitivity_results)
+    detected = sum(result.status == "ok" for result in sensitivity_results)
+    checks = {
+        "all_transforms_covered": {case.factors["transform"] for case in pair_cases}
+        == set(TRANSFORMS),
+        "all_pairs_meet_declared_invariants": all(
+            result.status == "ok" for result in pair_results
+        ),
+        "all_local_sensitivity_faults_detected": detected
+        == len(sensitivity_results),
+    }
+    return ExplorationSuiteReport(
+        "PM028-E4",
+        METAMORPHIC_GENERATOR_VERSION,
+        tuple(results),
+        {
+            **catalog_coverage((*pair_cases, *sensitivity_cases)),
+            "sensitivity": {
+                "detected": detected,
+                "total": len(sensitivity_results),
+            },
+        },
+        checks,
+        metadata={
+            "base_index": int(base_index),
+            "pair_cases": len(pair_cases),
+            "sensitivity_cases": len(sensitivity_cases),
+            "baseline_determinism_checked": 1,
         },
     )
 

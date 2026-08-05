@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+import json
 from math import hypot
 from typing import TYPE_CHECKING
 
@@ -11,6 +12,7 @@ from ..planning.plan import (
     WALKING_STATES as PLAN_WALKING_STATES,
     AgentState,
 )
+from ..planning.goal_state import FacilityInteractionState
 from .physical_waypoint_routing import PhysicalRouteUnreachableError
 
 if TYPE_CHECKING:
@@ -27,6 +29,17 @@ class PassengerProgressRecord:
     position: Point
     distance_to_target: float
     last_progress_step: int
+
+
+@dataclass
+class PassengerLivenessRecord:
+    position: Point
+    started_step: int
+    strategic_revision: tuple[object, ...]
+
+
+class PassengerLivenessViolation(RuntimeError):
+    """A candidate-evaluation passenger has no actionable physical owner."""
 
 
 class ExplicitReplanPolicy:
@@ -61,6 +74,7 @@ class ProgressMonitor:
 
     def __init__(self, replan_policy: ExplicitReplanPolicy | None = None) -> None:
         self.records: dict[int, PassengerProgressRecord] = {}
+        self.liveness_records: dict[int, PassengerLivenessRecord] = {}
         self.replan_policy = replan_policy or ExplicitReplanPolicy()
 
     def observe(
@@ -74,6 +88,7 @@ class ProgressMonitor:
         live_ids: set[int] = set()
         for passenger in passengers:
             live_ids.add(passenger.unique_id)
+            self._observe_liveness(model, passenger)
             if self._should_reset(model, passenger):
                 passenger.progress_age_seconds = 0.0
                 self.records.pop(passenger.unique_id, None)
@@ -83,6 +98,175 @@ class ProgressMonitor:
         for passenger_id in tuple(self.records):
             if passenger_id not in live_ids:
                 self.records.pop(passenger_id, None)
+        for passenger_id in tuple(self.liveness_records):
+            if passenger_id not in live_ids:
+                self.liveness_records.pop(passenger_id, None)
+
+    def _observe_liveness(
+        self,
+        model: MetroStationModel,
+        passenger: PassengerAgent,
+    ) -> None:
+        state = passenger.goal_runtime.state
+        evaluating = (
+            state.interaction_state
+            == FacilityInteractionState.EVALUATE_CANDIDATES.value
+        )
+        walking = passenger.state in self.WALKING_STATES
+        passenger_id = int(passenger.unique_id)
+        if not (walking or evaluating):
+            self.liveness_records.pop(passenger_id, None)
+            return
+        if (
+            not evaluating
+            and self._is_at_owned_decision_holding(model, passenger)
+        ):
+            # A closed facility bank may intentionally keep a passenger at a
+            # finite, compiler-certified holding cell until capacity or
+            # control state changes.  Remaining inside the tactical target
+            # radius is an owned wait, not an unowned movement deadlock.
+            self.liveness_records.pop(passenger_id, None)
+            return
+
+        structurally_unowned = evaluating and self._has_no_actionable_ownership(passenger)
+        record = self.liveness_records.get(passenger_id)
+        strategic_revision = self._strategic_revision(passenger)
+        if record is None:
+            self.liveness_records[passenger_id] = PassengerLivenessRecord(
+                position=tuple(passenger.pos),
+                started_step=int(model.step_index),
+                strategic_revision=strategic_revision,
+            )
+            return
+
+        displacement = hypot(
+            passenger.pos[0] - record.position[0],
+            passenger.pos[1] - record.position[1],
+        )
+        epsilon = float(model.scenario.liveness_min_displacement_units)
+        if not structurally_unowned and (
+            displacement >= epsilon
+            or strategic_revision != record.strategic_revision
+        ):
+            self.liveness_records[passenger_id] = PassengerLivenessRecord(
+                position=tuple(passenger.pos),
+                started_step=int(model.step_index),
+                strategic_revision=strategic_revision,
+            )
+            return
+
+        stalled_seconds = (
+            int(model.step_index) - int(record.started_step)
+        ) * float(model.scenario.tick_seconds)
+        threshold = float(model.scenario.liveness_fail_fast_seconds)
+        if stalled_seconds < threshold:
+            return
+
+        context = self._liveness_context(
+            passenger,
+            record,
+            stalled_seconds=stalled_seconds,
+            displacement=displacement,
+            epsilon=epsilon,
+            structurally_unowned=structurally_unowned,
+        )
+        model.audit.record(
+            "passenger_liveness_violation",
+            source="progress_monitor",
+            severity="error",
+            step=int(model.step_index),
+            context=context,
+        )
+        raise PassengerLivenessViolation(
+            "passenger liveness violation: "
+            + json.dumps(context, ensure_ascii=False, sort_keys=True, default=str)
+        )
+
+    @staticmethod
+    def _has_no_actionable_ownership(passenger: PassengerAgent) -> bool:
+        state = passenger.goal_runtime.state
+        return (
+            state.commitment is None
+            and passenger.assigned_facility_id is None
+            and not passenger.decision_holding_target_by_region
+            and not passenger.facility_approach_facility_ids_by_stage
+        )
+
+    @staticmethod
+    def _is_at_owned_decision_holding(
+        model: MetroStationModel,
+        passenger: PassengerAgent,
+    ) -> bool:
+        targets = tuple(passenger.decision_holding_target_by_region.values())
+        if not targets:
+            return False
+        active_target = passenger.current_goal.target
+        if active_target is not None:
+            targets = (*targets, active_target)
+        radius = float(model.scenario.jupedsim_target_radius_units)
+        return any(
+            hypot(passenger.pos[0] - target[0], passenger.pos[1] - target[1])
+            <= radius
+            for target in targets
+        )
+
+    @staticmethod
+    def _strategic_revision(passenger: PassengerAgent) -> tuple[object, ...]:
+        """Identify fresh Goal Runtime work without mistaking stale goals for ownership."""
+
+        state = passenger.goal_runtime.state
+        return (
+            float(state.last_event_time_seconds),
+            int(state.transition_count),
+            int(state.retry_count),
+            len(state.processed_event_ids),
+            state.current_node_id,
+            state.interaction_state,
+        )
+
+    @staticmethod
+    def _liveness_context(
+        passenger: PassengerAgent,
+        record: PassengerLivenessRecord,
+        *,
+        stalled_seconds: float,
+        displacement: float,
+        epsilon: float,
+        structurally_unowned: bool,
+    ) -> dict[str, object]:
+        state = passenger.goal_runtime.state
+        return {
+            "passenger_id": int(passenger.unique_id),
+            "intent": str(passenger.intent),
+            "passenger_state": str(passenger.state),
+            "position": [float(passenger.pos[0]), float(passenger.pos[1])],
+            "anchor_position": [float(record.position[0]), float(record.position[1])],
+            "displacement_units": float(displacement),
+            "minimum_displacement_units": float(epsilon),
+            "stalled_seconds": float(stalled_seconds),
+            "goal_kind": str(passenger.current_goal.kind),
+            "goal_label": str(passenger.current_goal.label),
+            "goal_target": None
+            if passenger.current_goal.target is None
+            else [
+                float(passenger.current_goal.target[0]),
+                float(passenger.current_goal.target[1]),
+            ],
+            "goal_node_id": state.current_node_id,
+            "goal_stage": state.current_stage,
+            "goal_interaction_state": state.interaction_state,
+            "committed_facility_id": None
+            if state.commitment is None
+            else state.commitment.facility_id,
+            "assigned_facility_id": passenger.assigned_facility_id,
+            "decision_holding_regions": sorted(
+                passenger.decision_holding_target_by_region
+            ),
+            "approach_facilities": dict(
+                sorted(passenger.facility_approach_facility_ids_by_stage.items())
+            ),
+            "structurally_unowned": bool(structurally_unowned),
+        }
 
     def _should_reset(
         self,
@@ -258,6 +442,8 @@ def _current_facility(
 
 __all__ = [
     "ExplicitReplanPolicy",
+    "PassengerLivenessRecord",
+    "PassengerLivenessViolation",
     "PassengerProgressRecord",
     "ProgressMonitor",
 ]
