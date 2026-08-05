@@ -42,3 +42,25 @@ V0.2 最小工程范围已经完成：七类管控措施、管控时间轴、一
 ## 后置项
 
 多因素实验、统计置信区间、完整时空诊断、教学作业流、案例库、自动优化、真实数据校准、协作、数字孪生和更多 3D 展示均不阻塞本轮工程收尾。
+
+## 单用户云跑批 pilot 附属评审（2026-08-05）
+
+当前决定：**hold**。
+
+| 轴 | 状态 | 证据 | 阻断 |
+|---|---|---|---|
+| 产品价值 | conditional | 本机 50-agent 真实 SDK→HTTP API→worker→pandas/Range 旅程通过 | 尚无目标用户通过 SSH 使用目标服务的任务证据 |
+| 仿真可信度 | conditional | 本机真实 runner 25/50/100/200 spike 与 10×50 soak 产物契约通过 | 未完成目标机 50 人真实 E2E；仍是未校准研究仿真 |
+| 工程就绪度 | conditional | 30 tests、Ruff/Pyright/锁文件检查/build、worker 重启恢复、本机 real HTTP E2E 和 10×50 soak、systemd 配置与部署脚本语法检查 | 缺目标 Linux 的进程组、cgroup/SIGKILL、网络、10×50 soak 与 25/50/100/200 spike |
+
+修复 stdout 反压后的本机真实 spike 已通过 25/50/100/200 四档及完整产物契约：50
+agent 为 39.265 秒/740,323,328 bytes，200 agent 为 249.906 秒/1,165,721,600 bytes。
+本机 implementation gate 支持到 200，但目标 ECS、Linux cgroup 和目标机连续 10 job 未验证，
+因此部署默认仍为 50，发布决定保持 hold。
+
+本机真实 10×50 soak 也已通过：10/10 succeeded，单 job 35.078～51.844 秒，最大 RSS
+769,847,296 bytes，SQLite、产物契约、SHA 和私有文件清理均通过。该证据提升本地工程
+门禁，不替代目标 Linux/ECS 的 cgroup、网络和 soak 证据。
+
+三轴完成后只能改为 `limited pilot`，不得改为 production ready。若 100/200 agent
+失败但 50 人门禁通过，可把上限降至 50 后发布，不应为追求 200 阻塞核心用户任务。

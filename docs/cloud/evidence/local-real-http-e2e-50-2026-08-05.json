@@ -1,0 +1,24 @@
+{
+  "evidence_version": "1.0",
+  "environment_scope": "local Windows development workstation; loopback HTTP",
+  "runner": "real",
+  "agents": 50,
+  "horizon_minutes": 15,
+  "demand_minutes": 10,
+  "wall_seconds": 49.594,
+  "checks": {
+    "sdk_submit_to_fastapi": true,
+    "sqlite_job_succeeded": true,
+    "worker_child_runner_matches": true,
+    "summary_succeeded": true,
+    "agent_count_matches": true,
+    "trajectory_rows_match": true,
+    "event_rows_match": true,
+    "six_public_artifacts": true,
+    "all_artifacts_have_sha256": true,
+    "sdk_pandas_read": true,
+    "http_range_206": true
+  },
+  "passed": true,
+  "decision": "Local real-runner HTTP journey passed; SSH and target ECS remain unverified."
+}

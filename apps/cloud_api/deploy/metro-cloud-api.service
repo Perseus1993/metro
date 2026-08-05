@@ -1,0 +1,21 @@
+[Unit]
+Description=Metro Cloud limited-pilot API
+After=network.target
+
+[Service]
+Type=simple
+User=metro-cloud
+Group=metro-cloud
+WorkingDirectory=/opt/metro
+EnvironmentFile=/etc/metro-cloud.env
+ExecStart=/opt/metro/.venv/bin/metro-cloud-api --host 127.0.0.1 --port 8000
+Restart=always
+RestartSec=3
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectHome=true
+ProtectSystem=strict
+ReadWritePaths=/var/lib/metro-cloud
+
+[Install]
+WantedBy=multi-user.target

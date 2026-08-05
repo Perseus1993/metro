@@ -1,0 +1,74 @@
+{
+  "evidence_version": "1.0",
+  "environment": {
+    "scope": "local development workstation; not target ECS",
+    "os": "Windows-11-10.0.26200-SP0",
+    "python": "3.12.13",
+    "cpu": "Intel Core i5-14600KF; 14 cores / 20 logical processors"
+  },
+  "workload": {
+    "runner": "real",
+    "horizon_seconds": 900,
+    "demand_seconds": 600,
+    "trajectory_sample_seconds": 10,
+    "seed": 42,
+    "group_size": 1
+  },
+  "cases": [
+    {
+      "target_agents": 25,
+      "wall_seconds": 26.719,
+      "peak_rss_bytes": 714063872,
+      "trajectory_rows": 465,
+      "event_rows": 100,
+      "clearance_seconds": 809.0,
+      "contract_valid": true
+    },
+    {
+      "target_agents": 50,
+      "wall_seconds": 39.265,
+      "peak_rss_bytes": 740323328,
+      "trajectory_rows": 1560,
+      "event_rows": 184,
+      "clearance_seconds": null,
+      "contract_valid": true
+    },
+    {
+      "target_agents": 100,
+      "wall_seconds": 98.5,
+      "peak_rss_bytes": 856666112,
+      "trajectory_rows": 3776,
+      "event_rows": 330,
+      "clearance_seconds": null,
+      "contract_valid": true
+    },
+    {
+      "target_agents": 200,
+      "wall_seconds": 249.906,
+      "peak_rss_bytes": 1165721600,
+      "trajectory_rows": 10071,
+      "event_rows": 516,
+      "clearance_seconds": null,
+      "contract_valid": true
+    }
+  ],
+  "contract_checks": [
+    "trajectory Arrow schema",
+    "event Arrow schema",
+    "artifact row counts",
+    "trajectory agent/time sort order",
+    "unique passenger-agent count",
+    "person count from unique group sizes"
+  ],
+  "invalidated_preflight": {
+    "observation": "An earlier 25-agent run stalled at progress 72/900.",
+    "cause": "The old harness connected stdout to an unread PIPE and blocked on progress output.",
+    "disposition": "Invalid performance evidence; superseded by the cases above."
+  },
+  "decision": {
+    "local_50_agent_gate": "pass",
+    "local_200_agent_implementation_gate": "pass",
+    "deployment_default": 50,
+    "reason": "Target ECS CPU, Linux cgroup behavior, and 10-job soak remain unverified."
+  }
+}

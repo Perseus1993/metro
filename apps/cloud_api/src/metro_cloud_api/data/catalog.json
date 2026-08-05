@@ -1,0 +1,6 @@
+{
+  "catalog_version": "0.1.0",
+  "spec_version": "0.1",
+  "stations": ["小寨", "钟楼", "北大街"],
+  "design_templates": ["visual_demo_station"]
+}

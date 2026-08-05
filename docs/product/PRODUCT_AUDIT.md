@@ -62,3 +62,20 @@ R0～R4 工程范围、全量回归、架构契约、正式站型 smoke、浏览
 - 按 `RELEASE_REVIEW.md` 执行 5 次目标用户任务和 2 名独立参与者插件接入。
 - 真实门禁通过前保持 `hold`；若失败，只修复观察到的任务阻塞，不扩产品范围。
 - 继续传播“未校准、仅限教学/研究”的安全边界。
+
+## 2026-08-05 单用户云跑批 limited pilot 增量
+
+`apps/cloud_api` 已实现独立的单用户薄后端：JobSpec/capacity、SQLite 串行队列、进程树
+隔离、Fake/真实 runner、Parquet、SDK、SSH-only 部署单元和 worker 重启恢复。当前自动化
+26 项通过，真实 runner 的本机 25/50/100/200 agent、900 秒 horizon 均通过完整产物
+契约；50 agent 为 39.265 秒/约 706 MiB，200 agent 为 249.906 秒/约 1.09 GiB。
+首次 stdout 反压结果已明确作废。
+本机随后完成真实 50-agent 连续 10 job soak：10/10 succeeded，总墙钟 421.547 秒，
+RSS 峰值范围约 674～734 MiB，SQLite/Parquet/SHA/私有文件清理全部通过。目标 ECS soak
+仍未验证。
+本机 50-agent 真实 HTTP 用户旅程也通过 SDK→API→SQLite→worker→real child→Range/
+pandas；SSH 隧道和目标用户任务仍未验证。
+
+该增量解决“用户不安装 Mesa/JuPedSim 即可提交一次受控实验并下载数据”的工程问题，
+不提供算法上传、多用户协作或生产运营能力，也不改变 V0.2 用户门禁 hold。目标 ECS 的
+50 人 spike、故障演练、连续 10 job 和网络验收完成前，云 pilot 自身也保持 hold。

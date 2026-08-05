@@ -103,3 +103,14 @@
 - 更完整的 3D 展示
 
 这些方向必须分别通过数据可得性、科研价值或部署约束验证，不因 V0.2 建立插件接口而自动进入承诺范围。
+
+## 并行验证：单用户云跑批 limited pilot
+
+该验证不改变 V0.2 主路线，只复用正式 runner 提供免安装、串行批跑和 Parquet 下载。
+
+- 已实现：API、SQLite worker、进程树资源闸门、Fake/真实 runner 接缝、SDK、systemd。
+- 首发承诺候选：单用户、50 人、一次一个 job、SSH 隧道。
+- 配置上限候选：200 total agents；必须由目标 ECS 的独立进程 spike 决定。
+- 退出门：50 人 spike、真实 E2E、cancel/timeout/SIGKILL 恢复、连续 10 job、SSH-only
+  网络验收全部通过。
+- 非目标：60 分钟真实高峰、80 job 压测、稳定无人运维、用户算法上传。

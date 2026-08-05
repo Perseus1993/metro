@@ -38,6 +38,15 @@
 
 ## P2 战略选项
 
+### PM-035 单用户云跑批 limited pilot
+
+| ID | 用户问题或结果 | 优先级 | 当前状态 | 最小范围 | 验收标准 |
+|---|---|---|---|---|---|
+| PM-035 | 单一研究用户不想在本地安装重型仿真环境，希望提交小规模实验并下载可分析轨迹 | P0（附属 pilot） | implemented / target-host evidence pending | 单用户、串行 worker、50 人、SSH 隧道、Parquet/summary、Python SDK | 目标 ECS 50 人真实 E2E；cancel/timeout/SIGKILL 恢复；连续 10 job；公网 8000 不可达；下载 SHA 一致 |
+
+200 total agents 是 spike 候选上限，不是 PM-035 发布承诺。60 分钟高峰、80 job、多用户、
+上传算法和生产运维明确不在范围。
+
 | ID | 方向 | 进入条件 | 当前决定 |
 |---|---|---|---|
 | PM-023 | 实测客流、轨迹和清场数据导入及校准 | 获得独立校准/验证数据与领域误差阈值 | 后置，不再定义为 V0.2 |

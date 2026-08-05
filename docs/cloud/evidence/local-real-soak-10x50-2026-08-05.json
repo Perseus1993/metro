@@ -1,0 +1,31 @@
+{
+  "evidence_version": "1.0",
+  "environment_scope": "local Windows development workstation; not target ECS",
+  "runner": "real",
+  "requested_jobs": 10,
+  "completed_jobs": 10,
+  "agents_per_job": 50,
+  "horizon_minutes": 15,
+  "demand_minutes": 10,
+  "trajectory_sample_seconds": 10,
+  "seed_range": [42, 51],
+  "wall_seconds": {
+    "total": 421.547,
+    "minimum_per_job": 35.078,
+    "maximum_per_job": 51.844,
+    "average_per_job": 42.077
+  },
+  "peak_rss_bytes": {
+    "minimum": 706318336,
+    "maximum": 769847296
+  },
+  "checks": {
+    "all_sqlite_statuses_succeeded": true,
+    "all_runner_artifact_contracts_valid": true,
+    "all_jobs_have_six_public_artifacts": true,
+    "all_public_artifacts_have_sha256": true,
+    "all_private_result_files_removed": true,
+    "failed_jobs": 0
+  },
+  "decision": "Local 10x50 real-runner soak passed; target Linux/ECS soak remains required."
+}

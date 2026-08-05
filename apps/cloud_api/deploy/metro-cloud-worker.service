@@ -1,0 +1,26 @@
+[Unit]
+Description=Metro Cloud serial simulation worker
+After=network.target metro-cloud-api.service
+
+[Service]
+Type=simple
+User=metro-cloud
+Group=metro-cloud
+WorkingDirectory=/opt/metro
+EnvironmentFile=/etc/metro-cloud.env
+ExecStart=/opt/metro/.venv/bin/metro-cloud-worker
+Restart=always
+RestartSec=3
+KillMode=control-group
+TimeoutStopSec=10
+MemoryAccounting=true
+MemoryMax=3G
+CPUAccounting=true
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectHome=true
+ProtectSystem=strict
+ReadWritePaths=/var/lib/metro-cloud
+
+[Install]
+WantedBy=multi-user.target

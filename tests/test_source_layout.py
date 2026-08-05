@@ -8,6 +8,7 @@ ROOT = Path(__file__).resolve().parents[1]
 OFFICIAL_SOURCE = ROOT / "packages" / "metro_station" / "src" / "metro_station"
 LEGACY_SOURCE = ROOT / "sandbox" / "metro_station_sandbox"
 WORKSPACE_MEMBERS = {
+    "apps/cloud_api",
     "apps/station_designer",
     "apps/station_visualizer",
     "experiments/metro_station_experiments",

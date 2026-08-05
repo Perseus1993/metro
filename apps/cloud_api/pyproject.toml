@@ -1,0 +1,39 @@
+[build-system]
+requires = ["setuptools>=77"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "metro-cloud"
+version = "0.1.0"
+description = "Single-user limited-pilot API and SDK for metro-station simulations."
+requires-python = ">=3.12"
+dependencies = [
+    "fastapi>=0.116,<1",
+    "httpx>=0.28,<1",
+    "pandas>=2.2,<4",
+    "psutil>=7,<8",
+    "pyarrow>=20,<24",
+    "pydantic>=2.11,<3",
+    "uvicorn>=0.35,<1",
+]
+
+[project.optional-dependencies]
+real = ["metro-station==0.1.0"]
+test = ["pytest>=8", "pytest-timeout>=2"]
+
+[project.scripts]
+metro-cloud-api = "metro_cloud_api.cli:api_main"
+metro-cloud-worker = "metro_cloud_api.cli:worker_main"
+metro-cloud-spike = "metro_cloud_api.capacity_spike:main"
+metro-cloud-soak = "metro_cloud_api.soak:main"
+metro-cloud-e2e = "metro_cloud_api.local_e2e:main"
+metro-cloud-remote-e2e = "metro_cloud_api.remote_e2e:main"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.setuptools.package-data]
+metro_cloud_api = ["data/*.json"]
+
+[tool.uv.sources]
+metro-station = { workspace = true }

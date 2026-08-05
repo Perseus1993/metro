@@ -41,6 +41,7 @@ include = ["metro_data_warehouse", "metro_data_warehouse.*"]
 
 [tool.uv.workspace]
 members = [
+    "apps/cloud_api",
     "apps/station_designer",
     "apps/station_visualizer",
     "experiments/metro_station_experiments",
