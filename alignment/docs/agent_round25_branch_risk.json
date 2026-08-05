@@ -1,0 +1,23 @@
+{
+  "schema_version": "alignment_agent_review.v2",
+  "round": 25,
+  "agent": "branch_risk",
+  "task_ref": "T7",
+  "status": "pass",
+  "checks": [
+    {"id": "F1", "question": "PR1 是否独立且聚焦", "verdict": "pass", "evidence": ["PR1 b7e11eb3, 24 formal ladder/publication/test/doc files", "PR1/PR2 bidirectional ancestor checks both exit 1"], "note": "PR1/PR2 均直接源于 55543e2b。"},
+    {"id": "F2", "question": "PR2 是否独立并完整进入 main", "verdict": "pass", "evidence": ["PR2 clean 6941dc98", "main merges ca2c1f14/de317b6f", "PR2 suite 140 passed, 7 skipped"], "note": "helper 将 gate_runtime 760→698。"},
+    {"id": "F3", "question": "PR1 是否新增全仓回归或隐藏依赖", "verdict": "pass", "evidence": ["PR1 full: 1526 passed, 1 skipped, 4 initial failed", "browser standalone passed", "3 stable failures touch no PR1 package/test files", "JuPedSim recovery and runtime_base 981>970 reproduce at 55543e2b", "PR1 affected 57 passed"], "note": "全仓基线不绿，但无 PR1 新增失败。"},
+    {"id": "F4", "question": "final 是否基于最新 main 且不重复 PR2", "verdict": "pass", "evidence": ["final 41fb0797", "main de317b6f and PR2 6941dc98 are ancestors", "duplicate PR2 stable patch IDs=0", "PR2/final production overlap=0"], "note": "新增 Git verifier 不改变 ownership 边界。"},
+    {"id": "F5", "question": "架构、证据锚与提交契约是否可审计", "verdict": "pass", "evidence": ["Import Linter main/pr2/final 12 kept, 0 broken", "final 776 files/3540 deps", "8 fix bodies compliant 8/8", "Git-anchored verify 10 artifacts", "evidence directed tests 3 passed"], "note": "Git anchor 阻止协调重写绕过内部 hash。"},
+    {"id": "F6", "question": "冲突与逆序回滚是否成立", "verdict": "pass", "evidence": ["merge-base(main,final)=de317b6f", "merge-tree conflicts=0", "final reverse-reverts to main", "revert de317b6f then ca2c1f14 removes PR2 while retaining PR1"], "note": "41fb 是 final 栈顶独立单元。"},
+    {"id": "F7", "question": "是否保护用户工作树边界", "verdict": "pass", "evidence": ["PR2 clean", "main retains 10 unrelated docs changes", "no pending production/evidence changes during final audit"], "note": "审计未触碰 review 中间态或用户修改。"}
+  ],
+  "issues": [
+    {"severity": "P2", "title": "全仓基线仍有稳定失败", "evidence": ["JuPedSim recovery baseline failure", "runtime_base.py baseline/current 981>970"], "repro": "在 55543e2b/PR1 运行对应 root tests。", "suggested_fix": "作为独立基线债务处理，不表述全仓绿色。"},
+    {"severity": "P2", "title": "origin/main tracking ref 落后", "evidence": ["main=de317b6f, origin/main=55543e2b"], "repro": "git rev-parse main origin/main", "suggested_fix": "获准集成远端时刷新后重算托管冲突面。"}
+  ],
+  "falsification_attempts": ["双向 merge-base。", "PR2/main..final stable patch-id。", "merge-tree 冲突扫描。", "PR2/final 生产交集。", "PR1 全量和失败项复跑。", "三分支 Import Linter。", "八个 fix 正文。", "显式 41fb Git anchor。"],
+  "metrics": {"p0": 0, "p1": 0, "p2": 2, "main_head": "de317b6f8323d02b3b68d8f039cc7e21792f0869", "pr2_head": "6941dc9899e8747a6a741d6663c867b84f92ef36", "final_head": "41fb0797be7d5d25c52459bd89c5d7573068d357", "merge_tree_conflict_markers": 0, "duplicate_pr2_patch_ids_in_final": 0, "pr2_final_production_file_overlap": 0, "fix_commits_compliant": "8/8", "git_anchored_artifacts_verified": 10, "import_contracts": {"main": "12/0", "pr2": "12/0", "final": "12/0"}, "pr1_full_suite": {"passed": 1526, "skipped": 1, "failed_initial": 4, "flaky_passed_on_rerun": 1, "stable_baseline_failures": 3}, "pr2_related_suite": {"passed": 140, "skipped": 7}, "final_combined_suite": {"passed": 261, "skipped": 7}, "main_unrelated_modified_files": 10},
+  "unverified_reason": ""
+}
