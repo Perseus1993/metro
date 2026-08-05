@@ -9,6 +9,7 @@ from pathlib import Path
 from typing import Any
 
 from metro_alignment.artifact_io import write_json_atomic
+from metro_alignment.formal_profiles import MULTI_SEED_NIGHTLY_PROFILE_ID
 from metro_alignment.metrics.fundamental import WALKING_SPEED_PROXY_KEY
 
 AGGREGATE_SCHEMA_VERSION = "alignment_multi_seed_aggregate.v1"
@@ -141,6 +142,27 @@ def _validate_content_addressed_artifacts(source: Path, payload: dict[str, Any])
             raise ValueError(f"artifacts.{key} is not content-address named: {artifact}")
 
 
+def _validate_formal_runner_provenance(payload: dict[str, Any]) -> None:
+    provenance = payload.get("runner_provenance")
+    expected = {
+        "mode": "formal_control_profile",
+        "profile_id": MULTI_SEED_NIGHTLY_PROFILE_ID,
+        "control_id": "mixed-600",
+        "publication_scope": "nightly_seed_bundle",
+        "trace_replay": False,
+        "manual_model_step": False,
+    }
+    if not isinstance(provenance, dict):
+        raise TypeError("formal multi-seed manifest lacks runner_provenance")
+    contradictions = {
+        key: (provenance.get(key), value)
+        for key, value in expected.items()
+        if provenance.get(key) != value
+    }
+    if contradictions:
+        raise ValueError(f"formal runner provenance mismatch: {contradictions}")
+
+
 def _cohort_record(payload: dict[str, Any]) -> dict[str, Any]:
     scene_config = dict(payload.get("scene_config", {}))
     scene_config.pop("seed", None)
@@ -153,6 +175,7 @@ def _cohort_record(payload: dict[str, Any]) -> dict[str, Any]:
         "design_sha256": payload.get("design_sha256"),
         "metro_runtime_fingerprint": payload.get("metro_runtime_fingerprint"),
         "analysis_runtime_fingerprint": payload.get("analysis_runtime_fingerprint"),
+        "formal_profile_id": payload.get("runner_provenance", {}).get("profile_id"),
     }
 
 
@@ -174,6 +197,7 @@ def aggregate_formal_manifests(
             raise ValueError(f"scene_config seed mismatch in {source}")
         _validate_step5(payload)
         _validate_content_addressed_artifacts(source, payload)
+        _validate_formal_runner_provenance(payload)
         support = payload.get("metrics", {}).get("metric_support", {}).get(metric_key, {})
         if support.get("seed_n") != 1 or support.get("seed_values") != [seed]:
             raise ValueError(f"metric support seed binding mismatch in {source}")

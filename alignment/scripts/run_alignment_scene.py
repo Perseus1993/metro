@@ -20,6 +20,17 @@ from metro_station.domain.time_boundaries import (
 from metro_alignment.analysis_runtime import analysis_runtime_fingerprint
 from metro_alignment.artifact_io import write_json_atomic
 from metro_alignment.canonical import CANONICAL_SCHEMA_VERSION, write_canonical
+from metro_alignment.formal_ladder import (
+    FormalControlExecution,
+    execute_final_ladder,
+)
+from metro_alignment.formal_profiles import (
+    FINAL_LADDER_PROFILE_ID,
+    MULTI_SEED_NIGHTLY_PROFILE_ID,
+    FormalControlSpec,
+    final_ladder_profile,
+    multi_seed_nightly_profile,
+)
 from metro_alignment.metrics.fundamental import METRIC_SCHEMA_VERSION
 from metro_alignment.metro_contract import (
     SCENE_CONFIG_SCHEMA_VERSION,
@@ -253,6 +264,10 @@ def _publish_staged_bundle(
 
 def _run_simulation(
     config: SceneConfig,
+    *,
+    formal_horizon_steps: int | None = None,
+    require_final_acceptance: bool = True,
+    expected_departed_trains: int | None = None,
 ) -> tuple[dict[str, Any], dict[str, Any], str, dict[str, Any], dict[str, Any]]:
     # Preserve structured audit events in Metro's runtime state without formatting
     # and printing thousands of diagnostic lines during long evidence runs.
@@ -262,24 +277,29 @@ def _run_simulation(
     request, design_sha256 = build_metro_request(config)
     execution = run_simulation(
         request,
-        AlignmentMesaSimulationExecutor(),
+        AlignmentMesaSimulationExecutor(formal_horizon_steps=formal_horizon_steps),
     )
     frames = execution.frames
     trace = execution.runtime.movement_backend.movement_trace()
     final_metrics = dict(frames[-1].get("metrics", {})) if frames else {}
     final_metrics.update(execution.runtime.alignment_source_admission_metrics())
-    _require_admission_acceptance(
-        final_metrics,
-        expected_entry_persons=int(
-            execution.runtime.scenario.entry_groups
-            * execution.runtime.scenario.group_size
-        ),
-        expected_exit_persons=int(
-            execution.runtime.scenario.exit_groups
-            * execution.runtime.scenario.group_size
-        ),
-        expected_departed_trains=_expected_departed_train_runs(execution.runtime.scenario),
-    )
+    if require_final_acceptance:
+        _require_admission_acceptance(
+            final_metrics,
+            expected_entry_persons=int(
+                execution.runtime.scenario.entry_groups
+                * execution.runtime.scenario.group_size
+            ),
+            expected_exit_persons=int(
+                execution.runtime.scenario.exit_groups
+                * execution.runtime.scenario.group_size
+            ),
+            expected_departed_trains=(
+                _expected_departed_train_runs(execution.runtime.scenario)
+                if expected_departed_trains is None
+                else expected_departed_trains
+            ),
+        )
     if metro_source_fingerprint() != runtime_fingerprint:
         raise RuntimeError("Metro source changed during the simulation; refusing stale evidence")
     if analysis_runtime_fingerprint() != analysis_fingerprint:
@@ -401,6 +421,15 @@ def _retire_source_preflight_blocker(*, output: Path, config: SceneConfig) -> No
         path.unlink()
 
 
+def _staged_output_paths(output: Path, token: str) -> tuple[Path, Path]:
+    # write_json_atomic adds its own UUID suffix. Short basenames keep nested
+    # formal-ladder paths below the legacy Windows MAX_PATH boundary.
+    return (
+        output.with_name(f".canonical-{token}.tmp"),
+        output.with_name(f".trace-{token}.tmp"),
+    )
+
+
 def _write_run_outputs(
     *,
     output: Path,
@@ -447,8 +476,7 @@ def _write_run_outputs(
     }
     output.parent.mkdir(parents=True, exist_ok=True)
     token = uuid4().hex
-    staged_canonical = output.with_name(f".{output.name}.{token}.staging.parquet")
-    staged_trace = output.with_name(f".{output.stem}.{token}.staging.movement_trace.json")
+    staged_canonical, staged_trace = _staged_output_paths(output, token)
     try:
         write_canonical(canonical_df, staged_canonical)
         _write_json(staged_trace, trace)
@@ -503,7 +531,142 @@ def parse_args() -> argparse.Namespace:
         help="write a current-fingerprint source-geometry preflight artifact and stop",
     )
     parser.add_argument("--list-scenes", action="store_true")
+    parser.add_argument(
+        "--profile",
+        choices=(FINAL_LADDER_PROFILE_ID, MULTI_SEED_NIGHTLY_PROFILE_ID),
+        help="run a preregistered formal control profile",
+    )
     return parser.parse_args()
+
+
+def _formal_control_config(
+    base: SceneConfig,
+    control: FormalControlSpec,
+) -> SceneConfig:
+    return replace(
+        base,
+        minutes=control.minutes,
+        demand_minutes=control.demand_minutes,
+        entry_count_hour=control.entry_count_hour,
+        exit_count_hour=control.exit_count_hour,
+        seed=control.seed,
+    )
+
+
+def _execute_formal_control(
+    *,
+    base: SceneConfig,
+    control: FormalControlSpec,
+    output: Path,
+) -> FormalControlExecution:
+    config = _formal_control_config(base, control)
+    trace, final_metrics, design_sha256, metro_fingerprint, analysis_fingerprint = (
+        _run_simulation(
+            config,
+            formal_horizon_steps=control.horizon_steps,
+            require_final_acceptance=control.require_final_acceptance,
+            expected_departed_trains=control.expected_departed_trains,
+        )
+    )
+    result = _write_run_outputs(
+        output=output,
+        config=config,
+        trace=trace,
+        final_metrics=final_metrics,
+        design_sha256=design_sha256,
+        metro_runtime_fingerprint=metro_fingerprint,
+        analysis_runtime_fingerprint_at_start=analysis_fingerprint,
+    )
+    return FormalControlExecution(
+        control=control,
+        canonical_path=result.canonical_path,
+        manifest_path=result.metrics_path,
+        trace_path=result.trace_path,
+        scene_config_sha256=scene_config_sha256(config),
+        design_sha256=design_sha256,
+        metro_runtime_fingerprint=metro_fingerprint,
+        analysis_runtime_fingerprint=analysis_fingerprint,
+    )
+
+
+def _run_formal_profile(*, args: argparse.Namespace, base: SceneConfig) -> None:
+    forbidden = []
+    if args.minutes is not None:
+        forbidden.append("--minutes")
+    if args.reuse_existing_trace:
+        forbidden.append("--reuse-existing-trace")
+    if args.preflight_only:
+        forbidden.append("--preflight-only")
+    if forbidden:
+        raise SystemExit("formal profiles do not support: " + ", ".join(forbidden))
+
+    if args.profile == FINAL_LADDER_PROFILE_ID:
+        if args.seed is not None:
+            raise SystemExit("the final ladder seed is frozen by its profile")
+        profile = final_ladder_profile()
+        _, design_sha256 = build_metro_scenario(base)
+        result = execute_final_ladder(
+            profile=profile,
+            output=args.output,
+            base_scene_config_sha256=scene_config_sha256(base),
+            design_sha256=design_sha256,
+            metro_runtime_fingerprint=metro_source_fingerprint(),
+            analysis_runtime_fingerprint=analysis_runtime_fingerprint(),
+            run_control=lambda control, output: _execute_formal_control(
+                base=base,
+                control=control,
+                output=output,
+            ),
+            current_fingerprints=lambda: (
+                metro_source_fingerprint(),
+                analysis_runtime_fingerprint(),
+            ),
+        )
+        print(
+            json.dumps(
+                {
+                    "status": "ok",
+                    "profile": profile.profile_id,
+                    "active_manifest": str(result.active_manifest_path),
+                    "ladder_manifest": str(result.ladder_manifest_path),
+                },
+                ensure_ascii=False,
+            )
+        )
+        return
+
+    if args.seed is None:
+        raise SystemExit("the multi-seed nightly profile requires --seed")
+    profile = multi_seed_nightly_profile(args.seed)
+    execution = _execute_formal_control(
+        base=base,
+        control=profile.controls[0],
+        output=args.output,
+    )
+    payload = json.loads(execution.manifest_path.read_bytes())
+    payload["runner_provenance"] = {
+        "mode": "formal_control_profile",
+        "runner": "scripts/run_alignment_scene.py",
+        "profile_id": profile.profile_id,
+        "profile_sha256": profile.sha256,
+        "control_id": execution.control.control_id,
+        "control_spec_sha256": execution.control.sha256,
+        "publication_scope": profile.publication_scope,
+        "trace_replay": False,
+        "manual_model_step": False,
+    }
+    _write_json(execution.manifest_path, payload)
+    print(
+        json.dumps(
+            {
+                "status": "ok",
+                "profile": profile.profile_id,
+                "seed": args.seed,
+                "manifest": str(execution.manifest_path),
+            },
+            ensure_ascii=False,
+        )
+    )
 
 
 def _apply_cli_overrides(
@@ -553,6 +716,11 @@ def main() -> None:
     config = build_scene_config(args.scene_id)
     if config.status != "ready":
         raise SystemExit(f"scene {config.scene_id} is pending: {config.pending_reason}")
+    if args.profile is not None:
+        if config.scene_id != "platform_boarding":
+            raise SystemExit("formal Step 5 profiles are registered only for platform_boarding")
+        _run_formal_profile(args=args, base=config)
+        return
     try:
         config = _apply_cli_overrides(
             config,

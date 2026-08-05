@@ -253,8 +253,13 @@ class AlignmentMetroStationModel(MetroStationModel):
     admission and passenger publication are atomic in Metro itself.
     """
 
-    def __init__(self, *args, **kwargs) -> None:
+    def __init__(self, *args, formal_horizon_steps: int | None = None, **kwargs) -> None:
         super().__init__(*args, **kwargs)
+        if formal_horizon_steps is not None and not (
+            1 <= formal_horizon_steps <= self.scenario.horizon_steps
+        ):
+            raise ValueError("formal horizon must be within the scenario horizon")
+        self.formal_horizon_steps = formal_horizon_steps
         self.alignment_pending_source_demands: deque[PendingSourceDemand] = deque()
         self.alignment_next_source_sequence_id = 0
         self.alignment_requested_source_persons_by_intent: Counter[str] = Counter()
@@ -497,7 +502,8 @@ class AlignmentMetroStationModel(MetroStationModel):
         )
 
     def _should_stop(self) -> bool:
-        if self.step_index >= self.scenario.horizon_steps:
+        horizon = self.formal_horizon_steps or self.scenario.horizon_steps
+        if self.step_index >= horizon:
             return True
         return super()._should_stop() and not self.alignment_pending_source_demands
 
@@ -602,6 +608,10 @@ class AlignmentMetroStationModel(MetroStationModel):
 class AlignmentMesaSimulationExecutor(MesaSimulationExecutor):
     """Build the alignment-scoped Metro model without changing Metro sources."""
 
+    def __init__(self, *args, formal_horizon_steps: int | None = None, **kwargs) -> None:
+        super().__init__(*args, **kwargs)
+        self.formal_horizon_steps = formal_horizon_steps
+
     def build_model(
         self,
         request: SimulationRequest[StationSandboxScenario],
@@ -611,6 +621,7 @@ class AlignmentMesaSimulationExecutor(MesaSimulationExecutor):
             seed=request.seed,
             routing_algorithm=self.routing_algorithm,
             routing_parameters=self.routing_parameters,
+            formal_horizon_steps=self.formal_horizon_steps,
         )
 
     def execute(

@@ -72,6 +72,14 @@ def _write_formal(path: Path, seed: int, value: float) -> None:
         },
         "final_frame_metrics": _final_metrics(),
         "artifacts": artifact_records,
+        "runner_provenance": {
+            "mode": "formal_control_profile",
+            "profile_id": "alignment_step5_multiseed_nightly.v1",
+            "control_id": "mixed-600",
+            "publication_scope": "nightly_seed_bundle",
+            "trace_replay": False,
+            "manual_model_step": False,
+        },
     }
     path.write_text(json.dumps(payload), encoding="utf-8")
 
@@ -114,6 +122,19 @@ def test_formal_aggregate_rejects_failed_step5(tmp_path: Path) -> None:
     payload["final_frame_metrics"]["jupedsim_missing_agents"] = 1
     paths[0].write_text(json.dumps(payload), encoding="utf-8")
     with pytest.raises(ValueError, match="Step 5 final metrics failed"):
+        aggregate_formal_manifests(paths)
+
+
+def test_formal_aggregate_rejects_nonformal_runner_provenance(tmp_path: Path) -> None:
+    paths = []
+    for seed in REQUIRED_SEEDS:
+        path = tmp_path / f"seed-{seed}_simulated.json"
+        _write_formal(path, seed, 1.0)
+        paths.append(path)
+    payload = json.loads(paths[0].read_text(encoding="utf-8"))
+    payload["runner_provenance"]["trace_replay"] = True
+    paths[0].write_text(json.dumps(payload), encoding="utf-8")
+    with pytest.raises(ValueError, match="runner provenance"):
         aggregate_formal_manifests(paths)
 
 

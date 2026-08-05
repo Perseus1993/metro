@@ -104,6 +104,12 @@ notes = "Default parameters have not been calibrated against station observation
 - 2026-08-04 22:53 CST 的 Round 23 正式运行在 Metro `7c6f1b7f…` / alignment `0e102c03…` 上通过 preflight 与 Metro 编译并完成 600/600；耗时 807.5 秒。几何卡点已关闭，新的最前置 blocker 是运行后 entry/alighting pending 守恒。完整证据见 `docs/reviews/round_23_geometry_unblocked_600_runtime.md`。
 - 2026-08-04 23:36 CST 已按依赖顺序刷新 observed v5、source-preflight v2、comparison v5 与 parameter report v5。完整 verifier 记录 alignment `d86f1720…` / Metro `27b15d94…`，Step 4、7 通过，Step 5 只剩“当前正式 simulation 未发布”，Step 6 因 simulation unavailable、proxy 几何和速度代理资格不足保持科学 `hold`；验收中不再出现 stale/missing。
 - 当前信任模型可防偶然损坏、串档和中途源码变化；raw trace 与 manifest 尚无外部签名/append-only evidence root，主动对抗性重标记属于明确 P2 边界。
+- Step 5 正式阶梯基础设施已实现并经合成/故障注入测试：
+  `alignment_ladder_manifest.v1` 严格 schema、注册的 final/nightly control profiles、固定
+  entry-tail 断面/1.6 m 净宽/120--300 s 窗口、`1.2--1.5 persons/(m*s)` 双边门，以及只由
+  final mixed control 切换 active simulation v5 的原子发布器。当前真实 Metro 机制修复尚未
+  合流并跑完阶梯，因此状态是 `implemented/tested`，不是 `demonstrated`，Step 5 仍保持
+  hold。
 - 最新数值、正式 10 分钟运行规模和聚合状态以 `docs/acceptance_latest.json` 为唯一当前证据；旧 round 只保留为历史，不得引用为当前通过。
 - 逐步证据入口：`uv run --project . python scripts/verify_acceptance.py --out docs/acceptance_latest.json`。
 

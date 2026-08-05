@@ -29,8 +29,15 @@ from metro_alignment.datasets.registry import (
     is_portable_basename,
     list_dataset_specs,
 )
+from metro_alignment.formal_contract import (
+    ArtifactRecord,
+    ControlRunArtifact,
+    LadderManifest,
+)
+from metro_alignment.formal_profiles import final_ladder_profile
 from metro_alignment.metrics.comparison import (
     COMPARISON_SCHEMA_VERSION,
+    SIMULATION_ARTIFACT_SCHEMA_VERSION,
     build_comparison_payload,
     build_preflight_blocked_comparison_payload,
     metric_support_errors,
@@ -42,6 +49,7 @@ from metro_alignment.metrics.fundamental import (
 )
 from metro_alignment.metro_contract import (
     SCENE_CONFIG_SCHEMA_VERSION,
+    scene_config_sha256,
     verify_scene_config_record,
 )
 from metro_alignment.metro_runtime import metro_source_fingerprint
@@ -49,6 +57,7 @@ from metro_alignment.metro_scene import build_metro_scenario
 from metro_alignment.metro_trace import movement_trace_to_canonical
 from metro_alignment.observed_evidence import compute_observed_evidence
 from metro_alignment.report import REPORT_SCHEMA_VERSION, validate_report_payload
+from metro_alignment.saturated_flow import SaturatedFlowArtifact
 from metro_alignment.scenes import build_scene_config, list_scene_configs
 from metro_alignment.simulation_evidence import (
     compute_simulated_metrics,
@@ -509,6 +518,140 @@ def _require_source_preflight_semantics(preflight: dict) -> dict:
     return report
 
 
+def _load_formal_artifact(
+    parent: Path,
+    raw_record: Any,
+) -> tuple[ArtifactRecord, Path, bytes]:
+    record = ArtifactRecord.model_validate(raw_record)
+    root = parent.resolve()
+    path = (root / record.path).resolve()
+    if not path.is_relative_to(root) or not path.is_file():
+        raise ValueError(f"formal artifact is missing: {record.path}")
+    content = path.read_bytes()
+    if len(content) != record.size_bytes or hashlib.sha256(content).hexdigest() != record.sha256:
+        raise ValueError(f"formal artifact size/hash mismatch: {record.path}")
+    return record, path, content
+
+
+def _require_formal_ladder(
+    *,
+    active_manifest: Path,
+    active_payload: dict[str, Any],
+    scene_id: str,
+    current_design_sha256: str,
+) -> list[str]:
+    profile = final_ladder_profile()
+    provenance = active_payload.get("runner_provenance")
+    expected_provenance = {
+        "mode": "formal_control_profile",
+        "profile_id": profile.profile_id,
+        "profile_sha256": profile.sha256,
+        "trace_replay": False,
+        "manual_model_step": False,
+        "diagnostic_input_reused": False,
+    }
+    if not isinstance(provenance, dict):
+        raise TypeError("active simulation lacks formal runner provenance")
+    contradictions = {
+        key: (provenance.get(key), expected)
+        for key, expected in expected_provenance.items()
+        if provenance.get(key) != expected
+    }
+    if contradictions:
+        raise ValueError(f"active simulation formal runner provenance mismatch: {contradictions}")
+    if active_payload.get("formal_control_id") != profile.publication_control_id:
+        raise ValueError("active simulation was not published by the mixed control")
+
+    ladder_record, _, ladder_bytes = _load_formal_artifact(
+        active_manifest.parent,
+        active_payload.get("ladder_manifest"),
+    )
+    ladder = LadderManifest.model_validate_json(ladder_bytes)
+    if ladder.scene_id != scene_id:
+        raise ValueError("ladder scene does not match the active simulation")
+    if ladder.profile_id != profile.profile_id or ladder.profile_sha256 != profile.sha256:
+        raise ValueError("ladder profile is missing or stale")
+    if tuple(control.control_id for control in ladder.controls) != tuple(
+        control.control_id for control in profile.controls
+    ):
+        raise ValueError("ladder controls differ from the frozen profile")
+    cohort = ladder.runtime_cohort
+    base_scene = build_scene_config(scene_id)
+    if cohort.base_scene_config_sha256 != scene_config_sha256(base_scene):
+        raise ValueError("ladder base SceneConfig fingerprint is stale")
+    if cohort.design_sha256 != current_design_sha256:
+        raise ValueError("ladder station design fingerprint is stale")
+    if cohort.metro_runtime_fingerprint != metro_source_fingerprint():
+        raise ValueError("ladder Metro runtime fingerprint is stale")
+    if cohort.analysis_runtime_fingerprint != analysis_runtime_fingerprint():
+        raise ValueError("ladder analysis runtime fingerprint is stale")
+
+    active_saturated = ArtifactRecord.model_validate(
+        active_payload.get("saturated_flow_artifact")
+    )
+    qualifier_seen = False
+    for expected_spec, evidence in zip(profile.controls, ladder.controls, strict=True):
+        control_record, _, control_bytes = _load_formal_artifact(
+            active_manifest.parent,
+            evidence.control_artifact,
+        )
+        control = ControlRunArtifact.model_validate_json(control_bytes)
+        if (
+            control.control_id != expected_spec.control_id
+            or control.control_spec_sha256 != expected_spec.sha256
+            or control.profile_sha256 != profile.sha256
+            or control.runtime_cohort != cohort
+            or control.simulation_manifest != evidence.simulation_manifest
+            or control.saturated_flow_artifact != evidence.saturated_flow_artifact
+        ):
+            raise ValueError(f"formal control artifact mismatch: {expected_spec.control_id}")
+        if control_record != evidence.control_artifact:
+            raise ValueError(f"formal control record changed: {expected_spec.control_id}")
+        _, _, simulation_bytes = _load_formal_artifact(
+            active_manifest.parent,
+            evidence.simulation_manifest,
+        )
+        simulation = json.loads(simulation_bytes)
+        expected_simulation_fields = {
+            "schema_version": SIMULATION_ARTIFACT_SCHEMA_VERSION,
+            "scene_id": scene_id,
+            "simulation_seed": expected_spec.seed,
+            "scene_config_sha256": evidence.scene_config_sha256,
+            "design_sha256": cohort.design_sha256,
+            "metro_runtime_fingerprint": cohort.metro_runtime_fingerprint,
+            "analysis_runtime_fingerprint": cohort.analysis_runtime_fingerprint,
+        }
+        simulation_contradictions = {
+            key: (simulation.get(key), expected)
+            for key, expected in expected_simulation_fields.items()
+            if simulation.get(key) != expected
+        }
+        if simulation_contradictions:
+            raise ValueError(
+                f"control simulation manifest mismatch: {expected_spec.control_id}: "
+                f"{simulation_contradictions}"
+            )
+        if expected_spec.saturated_flow is None:
+            continue
+        qualifier_seen = True
+        if evidence.saturated_flow_artifact != active_saturated:
+            raise ValueError("active saturated-flow record differs from the ladder qualifier")
+        _, _, saturated_bytes = _load_formal_artifact(
+            active_manifest.parent,
+            evidence.saturated_flow_artifact,
+        )
+        saturated = SaturatedFlowArtifact.model_validate_json(saturated_bytes)
+        if saturated.gate_status != "pass" or saturated.runtime_cohort != cohort:
+            raise ValueError("saturated-flow qualifier is not a current-cohort pass")
+    if not qualifier_seen:
+        raise ValueError("ladder lacks the preregistered saturated-flow qualifier")
+    return [
+        f"formal ladder manifest hash={ladder_record.sha256}",
+        f"formal controls={','.join(control.control_id for control in ladder.controls)}",
+        "preregistered saturated-flow qualifier=pass",
+    ]
+
+
 def _check_simulation_unchecked(scene_id: str) -> tuple[list[str], list[str]]:
     preflight_evidence: list[str] = []
     preflight_path = ROOT / "data" / "metrics" / f"{scene_id}_source_preflight.json"
@@ -614,6 +757,7 @@ def _check_simulation_unchecked(scene_id: str) -> tuple[list[str], list[str]]:
     else:
         blockers.append("run seed and manifest seed differ")
     trusted_scene = None
+    current_design_sha256 = None
     try:
         trusted_scene = build_scene_config(scene_id)
         verify_scene_config_record(payload, trusted_scene)
@@ -623,6 +767,18 @@ def _check_simulation_unchecked(scene_id: str) -> tuple[list[str], list[str]]:
         evidence.append("exact scene config and current station design hash verified")
     except (KeyError, TypeError, ValueError) as exc:
         blockers.append(f"scene replay contract failed: {exc}")
+    if current_design_sha256 is not None:
+        try:
+            evidence.extend(
+                _require_formal_ladder(
+                    active_manifest=manifest,
+                    active_payload=payload,
+                    scene_id=scene_id,
+                    current_design_sha256=current_design_sha256,
+                )
+            )
+        except (json.JSONDecodeError, OSError, TypeError, ValueError) as exc:
+            blockers.append(f"formal ladder evidence failed: {exc}")
     if (
         provenance.get("authority") in {"jupedsim", "jupedsim_committed_walk"}
         and provenance.get("included_phases") == ["walking"]

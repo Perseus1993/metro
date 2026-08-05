@@ -63,6 +63,44 @@ def test_runner_seed_default_defers_to_scene_registry(monkeypatch) -> None:
     assert runner.parse_args().seed is None
 
 
+def test_runner_parses_only_registered_formal_profiles(monkeypatch) -> None:
+    runner = _load_runner()
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        [
+            "run_alignment_scene.py",
+            "--scene-id",
+            "platform_boarding",
+            "--output",
+            "unused.parquet",
+            "--profile",
+            "alignment_step5_final.v1",
+        ],
+    )
+    assert runner.parse_args().profile == "alignment_step5_final.v1"
+
+
+def test_formal_control_config_uses_only_preregistered_demand_and_horizon() -> None:
+    runner = _load_runner()
+    base = build_scene_config("platform_boarding")
+    control = runner.final_ladder_profile().controls[0]
+    config = runner._formal_control_config(base, control)
+    assert config.entry_count_hour == 0
+    assert config.exit_count_hour == 4404
+    assert config.minutes == 6
+    assert control.horizon_steps == 350
+
+
+def test_formal_output_staging_names_fit_nested_windows_paths() -> None:
+    runner = _load_runner()
+    output = Path("ladder") / ("r" * 32) / "02-entry-tail-saturated-flow" / "run.parquet"
+    staged_canonical, staged_trace = runner._staged_output_paths(output, "f" * 32)
+
+    assert len(staged_canonical.name) < 64
+    assert len(staged_trace.name) < 64
+
+
 def test_formal_runner_uses_alignment_compatibility_executor(monkeypatch) -> None:
     runner = _load_runner()
     captured = {}

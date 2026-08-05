@@ -80,7 +80,23 @@ uv run --project . python scripts/verify_acceptance.py `
 | 需求与列车守恒 | 正式 600-step 必须 entry=417、exit=367、pending/dropped/native missing/degraded/active boarding/reserved boarding 全为 0，departed trains=3，请求量=计划量 | runner publication gate + replay-bypass tests |
 | 入口断面容量带检 | 与最终阶梯相同冻结指纹下，另跑预注册的 entry-tail 饱和断面 control；固定测量线、有效净宽、饱和判据和时间窗，稳定窗口比流量必须在 `1.2 <= q/(w*t) <= 1.5 persons/(m*s)`。低于下沿表示机制过紧，高于上沿表示回收/避碰过松，均阻断 Step 5。正式 417 人需求的 600 秒全程均值不作为容量带检，因为其最大可能值仅为 `417/(600*1.6)=0.434 persons/(m*s)` | 版本化 saturated-flow artifact + 双边反例；分母和窗口不得按结果后调 |
 
-最终指纹 ladder manifest、正式 control/profile 和 saturated-flow artifact 目前是 `proposed/pending`，不是已实现证据；在 runner、schema、双边反例和原子发布测试落地前，Step 5 不能因手工完成同名实验而通过。
+最终指纹 ladder manifest、正式 control/profile 和 saturated-flow artifact 现已达到
+`implemented/tested`：严格的 `alignment_ladder_manifest.v1` schema、正式 profile runner、
+预注册 entry-tail 测量合同、`1.2～1.5` 双边反例、阶梯级原子 pointer 切换与故障回滚均有
+自动化测试。它们尚未在学弟 2 的最终 Metro 机制修复指纹上完成真实阶梯，因此仍不是
+`demonstrated` 证据；Step 5 在新的 ladder/saturated artifact 真正发布前继续 fail-closed。
+
+正式入口：
+
+```powershell
+uv run --project . python scripts/run_alignment_scene.py `
+  --scene-id platform_boarding `
+  --profile alignment_step5_final.v1 `
+  --output data/metrics/platform_boarding_simulated.parquet
+```
+
+该 profile 内部顺序固定为 `exit-only-350 -> entry-only-600 ->
+entry-tail-saturated-flow -> mixed-600`；前三段不得切换正式 simulation v5 pointer。
 
 当前场景边界：`platform_boarding` 为 Eindhoven bbox 尺寸代理；内部障碍/门位仍是 proxy。Round 23 将下车源点阵横向错开 10.0 m；设计文档级预检保持共享净距 0.396 m、峰值同 tick 下车批次 4、候选窗口 67，并把 holding area、净距缓冲和门轴冲突全部降为 0。正式 600-step 已完成，但发布守恒门测得 entry admitted/pending=361/56、exit admitted/pending=170/197，故 Step 5 仍 fail，失败阶段已从构模前 `source_geometry_conflict` 推进到运行后 `admission_acceptance_failed`。随后同源诊断证明下车侧可清空，而当前源码指纹下 entry-only 仍为 319/417、98 pending；这些数字和比流量审计只用于定位，任何机制修复改变 Metro source fingerprint 后即全部 stale。840-step 历史诊断不是新基线，也不能支持容量结论。后续通用修复仍需要 train-specific exchange manifest、同一 PTI 控制器、下车优先或已标定混合策略、共享通道预约及有界 deadlock/hold。`corridor_unidirectional` 与 `bottleneck` 仍因 Metro 主线最小 gate/queue 几何约束为 `pending`。
 
@@ -105,6 +121,11 @@ Step 5 的 mixed 600 与饱和断面 control 通过只允许生成新的 simulat
 2026-08-05 已冻结数据 split：calibration=`days 01-10`，holdout=`days 11-20`。全量扫描发现原始文件在时间上完全分离，但有一个跨边界 ID `4523217`；因此有效 holdout 合同明确排除所有 calibration ID，并在 `calibration_holdout_split_eindhoven_platform_v1.json` 中同时保留原始交集、排除清单、两份输入 SHA-256 与有效零重叠证明。holdout outcome 在候选冻结前不得计算。
 
 多种子聚合器固定接受且只接受 seeds 41--50 的 simulation v5 内容寻址 manifest；十个运行必须共享去除 seed 后的 SceneConfig、Design、Metro runtime 与 analysis 指纹并逐个满足 Step 5 最终计数。收敛统计使用 df=9 的 Student-t 95% CI，`half_width / abs(mean) <= 0.05` 才置 `converged=true`。`legacy_single_run_replay_smoke` 仅调通序列化与计算路径，即使重复值给出零半宽也必须保持 `converged=false`、`gate_status=smoke_only`。
+
+seeds 41--50 与四类重场景 scale-soak 已进入
+`.github/workflows/scientific-nightly.yml` 的 schedule/workflow_dispatch 长任务档位；PR/push
+smoke 不承担该预算。nightly seed manifest 还必须声明正式 profile provenance，trace replay 或
+手工 `model.step()` 产物不能进入聚合。
 
 ```powershell
 uv run --project . python scripts/freeze_calibration_holdout_split.py

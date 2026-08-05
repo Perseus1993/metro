@@ -74,6 +74,11 @@ def build_parser() -> argparse.ArgumentParser:
         help="completed generated smoke/nightly/release report to include in E6 evidence",
     )
     parser.add_argument("--skip-e6-soak", action="store_true")
+    parser.add_argument(
+        "--skip-e6-scale-summary",
+        action="store_true",
+        help="run the preregistered scale-soak workload without requiring a scale report",
+    )
     return parser
 
 
@@ -96,7 +101,8 @@ def main(argv: Sequence[str] | None = None) -> int:
                 run_replay_browser_acceptance(args.output_dir / "e5_browser")
             )
         elif suite == "e6":
-            reports.append(_scale_report_summary(args.e6_scale_report))
+            if not args.skip_e6_scale_summary:
+                reports.append(_scale_report_summary(args.e6_scale_report))
             if not args.skip_e6_soak:
                 reports.append(run_scale_soak_acceptance())
     write_exploration_evidence(
