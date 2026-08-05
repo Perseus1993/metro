@@ -200,8 +200,10 @@ def _publish_staged_bundle(
     """
 
     token = uuid4().hex
-    staged_manifest = manifest_path.with_name(f".{manifest_path.name}.{token}.staging.json")
-    manifest_backup = manifest_path.with_name(f".{manifest_path.name}.{token}.previous.json")
+    # ``write_json_atomic`` adds its own staging suffix. Keep these transaction
+    # names short so nested ladder controls remain below legacy Windows MAX_PATH.
+    staged_manifest = manifest_path.with_name(f".m-{token}.json")
+    manifest_backup = manifest_path.with_name(f".b-{token}.json")
     created: list[Path] = []
     published_manifest = False
     had_manifest = manifest_path.exists()

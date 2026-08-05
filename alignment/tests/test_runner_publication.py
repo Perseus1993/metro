@@ -431,3 +431,35 @@ def test_bundle_publication_switches_only_manifest_to_immutable_content(
     assert manifest["artifacts"]["movement_trace"]["path"] == paths["trace"].name
     assert _sha256(paths["old_canonical"]) == old_canonical_hash
     assert _sha256(paths["old_trace"]) == old_trace_hash
+
+
+def test_bundle_publication_supports_fresh_nested_ladder_directory(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    runner = _load_runner()
+    parent = tmp_path / "ladder" / ("r" * 32) / "00-exit-only-350"
+    parent.mkdir(parents=True)
+    staged_canonical = parent / ".c.parquet"
+    staged_trace = parent / ".t.json"
+    staged_canonical.write_bytes(b"canonical")
+    staged_trace.write_bytes(b"trace")
+    canonical = parent / "platform_boarding_simulated.sha256-new.parquet"
+    trace = parent / "platform_boarding_simulated.sha256-new.movement_trace.json"
+    manifest = parent / "platform_boarding_simulated.json"
+    monkeypatch.setattr(runner, "_runtime_fingerprints_match", lambda *_: True)
+
+    runner._publish_staged_bundle(
+        staged_canonical=staged_canonical,
+        staged_trace=staged_trace,
+        canonical_path=canonical,
+        trace_path=trace,
+        manifest_path=manifest,
+        payload={"schema_version": "test"},
+        expected_metro_fingerprint={"metro": "stable"},
+        expected_analysis_fingerprint={"analysis": "stable"},
+    )
+
+    assert manifest.exists()
+    assert canonical.exists()
+    assert trace.exists()
+    assert not tuple(parent.glob(".*.staging*"))
