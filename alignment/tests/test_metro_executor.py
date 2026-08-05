@@ -261,6 +261,46 @@ def test_formal_scene_keeps_registered_demand_contract() -> None:
     assert request.scenario.alighting_source_lateral_offset_m == pytest.approx(10.0)
 
 
+def test_post_entry_route_starts_from_completed_paid_portal_not_opposing_facade() -> None:
+    request, _ = build_metro_request(build_scene_config("platform_boarding"))
+    model = AlignmentMetroStationModel(request.scenario, seed=request.seed)
+    entry_gate = model.gates[3]
+    boarding_door = model.boarding_doors[0]
+    with patch.object(model.goal_coordinator, "initialize"):
+        passenger = PassengerAgent(
+            model,
+            group_size=1,
+            created_step=0,
+            intent=AgentIntent.ENTER_AND_BOARD,
+            initial_position=entry_gate.portal_exit_position,
+            initial_level_id=entry_gate.portal_exit_level_id,
+        )
+    passenger.last_completed_facility_id = entry_gate.facility_id
+    passenger.last_completed_facility_position = passenger.pos
+    passenger.last_completed_facility_event_id = "accepted-entry-gate-completion"
+    passenger.last_completed_facility_level_id = passenger.current_level_id
+    graph = model.layout_graph.station_graph
+    binding = model.facility_portal_binding(boarding_door.facility_id)
+
+    candidates = model._station_graph_route_start_candidates(
+        passenger,
+        boarding_door,
+        graph,
+        binding.entry_level_id,
+    )
+
+    assert [node.node_id for node in candidates] == ["gate:gate_bank_a:paid"]
+    route = model._station_graph_route_to_facility(
+        passenger,
+        boarding_door,
+        final_target_override=boarding_door.portal_entry_position,
+        include_navigation_waypoints=True,
+    )
+    opposing_entry = graph.nodes["gate:gate_bank_a:exit"].position
+    assert route
+    assert opposing_entry not in route
+
+
 @FA2555_GEOMETRY_QUARANTINE
 def test_formal_boarding_backpressure_stays_on_paid_side_after_gate() -> None:
     request, _ = build_metro_request(build_scene_config("platform_boarding"))

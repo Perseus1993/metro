@@ -14,6 +14,9 @@ from metro_station.adapters.simulation.runtime import (
 from metro_station.adapters.simulation.runtime.approach_slot_assignment import (
     rebalance_current_step_approach_slots,
 )
+from metro_station.adapters.simulation.runtime.decision_holding import (
+    PlatformWaitingCapacityError,
+)
 
 from metro_station.adapters.simulation.agents.passenger import PassengerAgent
 from metro_station.adapters.simulation.design.templates import create_design
@@ -684,6 +687,47 @@ def test_boarding_join_block_registers_late_approach_for_platform_retry() -> Non
     passenger_id = int(passenger.unique_id)
     assert passenger in platform.waiting
     assert passenger_id in model._platform_waiting_reservations
+    assert passenger_id in door._crossing_waiting_passenger_ids
+    assert passenger.state == AgentState.WAITING_PLATFORM.value
+
+
+def test_boarding_join_block_retains_approach_when_platform_waiting_is_full(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    model = _model()
+    door = model.boarding_doors[0]
+    passenger = PassengerAgent(
+        model,
+        group_size=1,
+        created_step=0,
+        intent=AgentIntent.ENTER_AND_BOARD,
+    )
+    model.passengers.append(passenger)
+    platform = model.platforms_by_id[door.spec.platform_id]
+    passenger.current_level_id = door.spec.entry_level_id
+    passenger.assigned_platform_id = platform.platform_id
+    passenger.assigned_line_id = platform.line_id
+    passenger.assigned_direction = platform.direction
+    approach_index = model._reserve_facility_approach_slot(passenger, door)
+    monkeypatch.setattr(
+        model,
+        "_reserve_platform_waiting_slot",
+        lambda *_args, **_kwargs: (_ for _ in ()).throw(
+            PlatformWaitingCapacityError("full")
+        ),
+    )
+
+    model.goal_coordinator.executor._restore_boarding_wait_after_join_block(
+        model,
+        passenger,
+        door,
+    )
+
+    passenger_id = int(passenger.unique_id)
+    assert passenger not in platform.waiting
+    assert passenger_id not in model._platform_waiting_reservations
+    assert passenger.facility_approach_slots_by_stage[door.spec.stage] == approach_index
+    assert passenger.target == model._facility_approach_slot_position(door, approach_index)
     assert passenger_id in door._crossing_waiting_passenger_ids
     assert passenger.state == AgentState.WAITING_PLATFORM.value
 

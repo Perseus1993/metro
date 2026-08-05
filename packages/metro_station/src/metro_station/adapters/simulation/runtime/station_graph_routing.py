@@ -267,6 +267,14 @@ class StationGraphRoutingMixin:
         ]
         if routable_candidates:
             level_candidates = routable_candidates
+        completed_gate_exit_candidates = self._completed_entry_gate_exit_candidates(
+            passenger,
+            station_graph,
+            level_candidates,
+            level_id,
+        )
+        if completed_gate_exit_candidates:
+            return completed_gate_exit_candidates
         if not self._should_start_vertical_route_from_entry_gate_exit(passenger, facility):
             return level_candidates
 
@@ -294,6 +302,50 @@ class StationGraphRoutingMixin:
         if distance_to_gate_exit <= self._post_entry_gate_graph_start_radius():
             return gate_exit_candidates
         return level_candidates
+
+    def _completed_entry_gate_exit_candidates(
+        self,
+        passenger: PassengerAgent,
+        station_graph: Any,
+        level_candidates: list[Any],
+        level_id: str | None,
+    ) -> list[Any]:
+        """Anchor an immediate post-gate route to the portal just crossed.
+
+        A bidirectional gate has co-located entry/exit graph nodes.  Selecting
+        the route start by Euclidean proximity can therefore classify a body
+        released on the paid side as standing at the opposing facade and send
+        it back through the shared release apron.  The accepted service event
+        is stronger evidence than proximity, but only while the body remains
+        at that completion boundary.
+        """
+
+        completed_facility_id = getattr(passenger, "last_completed_facility_id", None)
+        completed_position = getattr(passenger, "last_completed_facility_position", None)
+        if (
+            completed_facility_id is None
+            or completed_position is None
+            or getattr(passenger, "last_completed_facility_event_id", None) is None
+            or getattr(passenger, "last_completed_facility_level_id", None) != level_id
+            or hypot(
+                passenger.pos[0] - completed_position[0],
+                passenger.pos[1] - completed_position[1],
+            )
+            > max(1e-6, float(self.scenario.jupedsim_target_radius_units))
+        ):
+            return []
+        completed = self.facilities_by_id.get(completed_facility_id)
+        if completed is None or completed.spec.stage != FacilityStage.ENTRY_GATE.value:
+            return []
+        completed_element_id = self._facility_element_id(completed_facility_id)
+        return [
+            node
+            for node in level_candidates
+            if node.element_id == completed_element_id
+            and node.kind == "facility_exit"
+            and node.facility_stage == FacilityStage.ENTRY_GATE.value
+            and node.node_id in station_graph.nodes
+        ]
 
     def _should_start_vertical_route_from_entry_gate_exit(
         self,
