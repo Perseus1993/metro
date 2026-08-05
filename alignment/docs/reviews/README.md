@@ -7,10 +7,11 @@ retained as history only and must not be cited as current acceptance evidence.
 Current evidence order:
 
 1. `../acceptance_latest.json` — executable Step 1–8 gate;
-2. `round_24_step5_conservation_handoff.md` — current Step 5 scope, short-probe evidence, and the finite-admission blocker;
-3. `round_22_formal_600_acceptance.md` — first current-fingerprint formal 600-step baseline evidence, with a valid fail result;
-4. `round_20_automated_all.json` — reproducible behavior/artifact checks for all three views;
-5. `round_21_independent_agents.md` — independent method, Metro, and generality review of the fail-closed source contract.
+2. `round_25_admission_resource_review.md` — current Step 5 admission-resource, source-integrity, evidence-chain, branch, and debt review;
+3. `round_24_step5_conservation_handoff.md` — prior Step 5 scope, short-probe evidence, and the finite-admission blocker;
+4. `round_22_formal_600_acceptance.md` — first current-fingerprint formal 600-step baseline evidence, with a valid fail result;
+5. `round_20_automated_all.json` — reproducible behavior/artifact checks for all three views;
+6. `round_21_independent_agents.md` — independent method, Metro, and generality review of the fail-closed source contract.
 
 `round_20_independent_agents.md` is retained as the historical step-327 diagnosis. Its runtime
 status and test count are superseded by Round 21 and must not be cited as current evidence.
