@@ -7,14 +7,10 @@ from ..agents.passenger import PassengerAgent
 from ..agents.transit import TrainAgent
 from ..facilities.runtime import FacilityProcessAgent
 from ..planning.goal_events import GoalEventKind
+from ..planning.goal_graph import GoalNodeKind
 from ..planning.plan import AgentIntent, FacilityStage
-from ..station.alighting_source_geometry import (
-    ALIGHTING_SOURCE_SEARCH_WINDOW,
-    alighting_source_projection_clearance_m,
-    alighting_source_raw_candidate,
-)
+from ..station.alighting_source_geometry import ALIGHTING_SOURCE_SEARCH_WINDOW
 from ..station.evacuation import EVACUATION_MODE
-from ..station.geometry import project_to_safe_point
 from ..spatial_capacity_admission import (
     CertifiedPlacementTemporarilyBlocked,
     SpatialCapacityAdmissionError,
@@ -84,13 +80,56 @@ class PassengerDemandMixin:
     ) -> PassengerAgent:
         spawn_certificate = None
         spawn_node = None
+        intent_value = intent.value if isinstance(intent, AgentIntent) else str(intent)
         if initial_position is None:
             initial_position, initial_level_id, spawn_certificate, spawn_node = (
                 self._certified_spawn_location(intent)
             )
+        if initial_level_id is not None:
+            downstream = self._downstream_admission_evidence(
+                intent_value,
+                release_levels={str(initial_level_id)},
+            )
+            if not downstream["available"]:
+                evidence = SpatialCapacityEvidence(
+                    certificate_id=(
+                        f"downstream_admission:{intent_value}:"
+                        f"{downstream['decision_region_id']}"
+                    ),
+                    resource_kind="stage_storage",
+                    owner_id=str(
+                        downstream["decision_region_id"]
+                        or downstream["downstream_stage"]
+                        or intent_value
+                    ),
+                    certified_body_capacity=int(
+                        downstream["certified_downstream_slots"]
+                    ),
+                    current_occupancy_bodies=int(
+                        downstream["occupied_downstream_slots"]
+                    ),
+                    requested_bodies=1,
+                    passenger_id=None,
+                )
+                record_spatial_capacity_event(
+                    self,
+                    "passenger_demand_deferred_without_downstream_admission",
+                    evidence,
+                )
+                # The stage-specific code explains *where* admission was
+                # exhausted; the generic code preserves the repository-wide
+                # capacity contract used by dashboards and acceptance tests.
+                record_spatial_capacity_event(
+                    self,
+                    "capacity.admission_exhausted",
+                    evidence,
+                )
+                raise SpatialCapacityExhausted(
+                    f"{intent_value} demand has no downstream ownership before spawn",
+                    evidence,
+                )
         target_line_id = None
         target_direction = None
-        intent_value = intent.value if isinstance(intent, AgentIntent) else str(intent)
         if intent_value == AgentIntent.TRANSFER.value:
             target_line_id, target_direction = self._default_transfer_target()
         passenger = PassengerAgent(
@@ -411,6 +450,29 @@ class PassengerDemandMixin:
         door_spawn_counts: Counter[str] = Counter()
         reserved_positions: list[tuple[tuple[float, float], str]] = []
         for index in range(count):
+            downstream = self._alighting_downstream_admission_evidence(doors)
+            if not downstream["available"]:
+                deferred = count - index
+                self.pending_alighting_groups += deferred
+                self.max_pending_alighting_groups = max(
+                    self.max_pending_alighting_groups,
+                    self.pending_alighting_groups,
+                )
+                self.audit.record(
+                    "alighting_demand_deferred_without_downstream_admission",
+                    source="demand_scheduler",
+                    severity="warning",
+                    count=deferred,
+                    step=self.step_index,
+                    context={
+                        "train_id": train.unique_id,
+                        "platform_id": train.platform_id,
+                        "deferred_groups": deferred,
+                        "pending_groups": self.pending_alighting_groups,
+                        **downstream,
+                    },
+                )
+                break
             preferred_door_index = (
                 index + self.step_index + train.departed_trains
             ) % len(doors)
@@ -459,6 +521,171 @@ class PassengerDemandMixin:
             passenger.assigned_line_id = train.line_id
             passenger.assigned_direction = train.direction
 
+    def _alighting_downstream_admission_evidence(
+        self,
+        doors: list[FacilityProcessAgent],
+    ) -> dict[str, object]:
+        """Prove downstream ownership before publishing an alighting body.
+
+        A clear source cell is necessary but not sufficient admission.  The
+        release level must also have either a free first-stage approach or a
+        free compiler-certified platform staging cell. Decision holding is
+        recovery storage for bodies already admitted to the station and does
+        not license publication behind an occupied holding cross-section.
+        Without either owned resource, demand stays train-side pending.
+        """
+
+        release_levels = {
+            str(level_id)
+            for door in doors
+            if (level_id := door.spec.exit_level_id or door.spec.entry_level_id)
+            is not None
+        }
+        return self._downstream_admission_evidence(
+            AgentIntent.EXIT_STATION.value,
+            release_levels=release_levels,
+        )
+
+    def _downstream_admission_evidence(
+        self,
+        intent: str,
+        *,
+        release_levels: set[str],
+    ) -> dict[str, object]:
+        graph = self.goal_graph_catalog.graph_for_intent(str(intent))
+        first_facility_node = next(
+            (
+                node
+                for node in graph.nodes
+                if node.kind == GoalNodeKind.USE_FACILITY_STAGE.value
+                and node.facility_stage is not None
+            ),
+            None,
+        )
+        stage = (
+            None
+            if first_facility_node is None
+            else first_facility_node.facility_stage
+        )
+        decision_region_id = (
+            None
+            if first_facility_node is None
+            else first_facility_node.decision_region_id
+        )
+        facilities = [] if stage is None else self._facilities_for_stage(stage)
+        physical = [
+            facility
+            for facility in facilities
+            if self.facility_portal_binding(facility.facility_id).entry_level_id
+            in release_levels
+        ]
+        enabled = [
+            facility
+            for facility in physical
+            if not bool(getattr(facility, "is_forced_disabled", False))
+        ]
+        # Existing station bodies may wait at a physical decision anchor
+        # during a temporary total closure.  Train-side demand is stricter:
+        # do not publish a new body unless at least one enabled downstream
+        # facility can ultimately consume that holding/approach ownership.
+        eligible = enabled
+        available_slots = sum(
+            len(self._available_facility_approach_slot_indices(facility))
+            for facility in eligible
+            if facility.is_available_for_choice
+        )
+        certified_approach_slots = sum(
+            len(self._facility_approach_slot_indices(facility))
+            for facility in eligible
+        )
+        anchors_by_level: dict[str, list[tuple[float, float]]] = {
+            level_id: [] for level_id in release_levels
+        }
+        for facility in eligible:
+            binding = self.facility_portal_binding(facility.facility_id)
+            if binding.entry_level_id in anchors_by_level:
+                anchors_by_level[binding.entry_level_id].extend(
+                    self._facility_approach_positions(facility)
+                )
+        available_holding_points: tuple[tuple[float, float], ...] = ()
+        available_holding_slots = 0
+        certified_holding_slots = 0
+        additional_region_ids = self._decision_holding_upstream_region_ids(
+            str(intent),
+            str(decision_region_id),
+        )
+        if decision_region_id is not None:
+            available_holding_points = tuple(
+                point
+                for level_id, anchors in anchors_by_level.items()
+                if anchors
+                for point in self._available_decision_holding_slots(
+                        level_id=level_id,
+                        region_id=decision_region_id,
+                        anchors=tuple(anchors),
+                        additional_region_ids=additional_region_ids,
+                    )
+            )
+            available_holding_slots = len(available_holding_points)
+        available_platform_staging_slots = 0
+        certified_platform_staging_slots = 0
+        if eligible:
+            certified_holding_slots = sum(
+                len(
+                    self._decision_holding_candidates(
+                        level_id,
+                        region_id=decision_region_id,
+                        anchors=tuple(anchors),
+                        additional_region_ids=additional_region_ids,
+                    )
+                )
+                for level_id, anchors in anchors_by_level.items()
+                if anchors
+            )
+        if eligible and str(intent) == AgentIntent.EXIT_STATION.value:
+            available_platform_staging_slots = sum(
+                self._available_platform_waiting_slot_count(
+                    level_id=level_id,
+                    limit=1,
+                )
+                for level_id in release_levels
+            )
+            certified_platform_staging_slots = len(
+                tuple(self.layout_graph.platform_waiting_slots())
+            )
+        # Source admission is intentionally stricter than in-system recovery.
+        # Entry demand must own a first-stage approach; a remote holding cell
+        # can lie behind the occupied holding lattice and is not a publication
+        # licence. Alighting is different: a compiler-certified platform cell
+        # is the finite source-side storage that lets a train unload before a
+        # fare-gate approach opens. In both cases every published body owns a
+        # concrete downstream cell; no current-position fallback is allowed.
+        if str(intent) == AgentIntent.EXIT_STATION.value:
+            available_total = available_slots + available_platform_staging_slots
+            certified_total = (
+                certified_approach_slots + certified_platform_staging_slots
+            )
+        else:
+            available_total = available_slots
+            certified_total = certified_approach_slots
+        return {
+            "available": available_total > 0,
+            "downstream_stage": stage,
+            "decision_region_id": decision_region_id,
+            "release_level_ids": sorted(release_levels),
+            "eligible_facility_count": len(eligible),
+            "available_approach_slots": available_slots,
+            "available_holding_slots": available_holding_slots,
+            "available_holding_position": (
+                available_holding_points[0] if available_holding_points else None
+            ),
+            "certified_holding_slots": certified_holding_slots,
+            "available_platform_staging_slots": available_platform_staging_slots,
+            "certified_platform_staging_slots": certified_platform_staging_slots,
+            "certified_downstream_slots": certified_total,
+            "occupied_downstream_slots": max(0, certified_total - available_total),
+        }
+
     def _alighting_spawn_position(
         self,
         door: FacilityProcessAgent,
@@ -466,38 +693,26 @@ class PassengerDemandMixin:
         *,
         reserved_positions: list[tuple[tuple[float, float], str]] | None = None,
     ) -> tuple[float, float] | None:
-        base = door.spec.exit_position
-        queue_anchor = door.spec.queue_anchor
         level_id = door.spec.exit_level_id or door.spec.entry_level_id
         if level_id is None:
             return None
-        walkable = self.jupedsim_walkable_area(level_id)
         reserved = reserved_positions or []
-        # Search the door-local source lattice instead of placing a newly
-        # alighted body on top of a platform waiter.  If no cell is available,
-        # the demand remains pending for a later train rather than fabricating
-        # an overlapping initial condition.
-        for candidate_index in range(
-            local_index,
-            local_index + ALIGHTING_SOURCE_SEARCH_WINDOW,
-        ):
-            raw = alighting_source_raw_candidate(
-                base,
-                queue_anchor,
-                candidate_index,
-                agent_radius_m=self.scenario.jupedsim_agent_radius_units,
+        try:
+            certificate = self.layout_graph.spatial_capacity_certificate(
+                "alighting_source",
+                f"alighting_source:{door.facility_id}",
+                level_id=level_id,
             )
-            try:
-                candidate = project_to_safe_point(
-                    walkable,
-                    self.clamp_position(raw),
-                    clearance=alighting_source_projection_clearance_m(
-                        self.scenario.jupedsim_agent_radius_units
-                    ),
-                    require_inside=False,
-                )
-            except Exception:
-                continue
+        except KeyError:
+            return None
+        # Runtime consumes the exact compiler-certified pool.  This keeps
+        # fallback placement aligned with the co-active queue/holding proof;
+        # recomputing the raw lattice here could reintroduce rejected cells.
+        candidates = certificate.slots
+        if not candidates:
+            return None
+        for candidate_offset in range(min(ALIGHTING_SOURCE_SEARCH_WINDOW, len(candidates))):
+            candidate = candidates[(local_index + candidate_offset) % len(candidates)]
             if self._alighting_spawn_cell_is_clear(
                 candidate,
                 level_id,

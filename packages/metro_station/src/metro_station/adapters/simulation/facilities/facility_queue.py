@@ -4,6 +4,8 @@ from dataclasses import dataclass
 from math import hypot
 from typing import TYPE_CHECKING, Protocol, overload
 
+from .facility_queue_order import reconcile_settled_physical_fifo
+
 if TYPE_CHECKING:
     from ..agents.passenger import PassengerAgent
 
@@ -106,6 +108,13 @@ class FacilityQueue(list):
             )
         return True
 
+    def align_assigned_slots_with_fifo(self, *, slot_index_offset: int = 0) -> None:
+        """Align finite slots to FIFO; normal layout still moves every body."""
+
+        offset = max(0, int(slot_index_offset))
+        for index, passenger in enumerate(self):
+            self._assigned_slot_index_by_passenger_id[id(passenger)] = index + offset
+
     def pop_ready(self) -> PassengerAgent | None:
         if not self:
             return None
@@ -135,7 +144,10 @@ class FacilityQueue(list):
         stage: str,
         external_occupied_positions: tuple[Point, ...] = (),
         slot_index_offset: int = 0,
+        strict_fifo_assignment: bool = False,
+        reverse_processing_order: bool = False,
     ) -> None:
+        reconcile_settled_physical_fifo(self)
         # Queue compaction shares physical space with bodies that may already
         # be inside a facility (for example, a rider paused at a connector
         # entry).  Keeping those bodies in the same collision set prevents the
@@ -143,6 +155,15 @@ class FacilityQueue(list):
         occupied_positions: list[Point] = list(external_occupied_positions)
         reserved_motion_positions: list[Point] = []
         processed_passenger_ids: set[int] = set()
+        owns_passive_motion = getattr(
+            getattr(self[0], "model", None).movement_backend,
+            "owns_passive_layout_motion",
+            None,
+        ) if self else None
+        direct_layout = not (
+            callable(owns_passive_motion) and owns_passive_motion()
+        )
+        direct_prefix_blocked = False
         # Admission and tactical slot reservation must prevent co-location.
         # A continuous swept-clear solver cannot legitimately move two bodies
         # apart from distance zero, so fail closed instead of inventing a
@@ -150,6 +171,8 @@ class FacilityQueue(list):
         if self._has_current_overlap():
             raise RuntimeError("queue layout input contains co-located bodies")
         indexed_passengers = list(enumerate(self))
+        if reverse_processing_order:
+            indexed_passengers.reverse()
         for index, passenger in indexed_passengers:
             committed_motion = getattr(
                 passenger,
@@ -174,9 +197,13 @@ class FacilityQueue(list):
                 *unprocessed_positions,
             ]
             desired_index = index + max(0, int(slot_index_offset))
-            assigned_index = self._next_assigned_slot_index(passenger, desired_index)
+            assigned_index = self._next_assigned_slot_index(
+                passenger,
+                desired_index,
+                reconcile_nearest=not strict_fifo_assignment,
+            )
             slot = self._safe_slot_for(passenger, assigned_index)
-            passenger.set_target(
+            passenger.set_passive_layout_target(
                 slot,
                 goal_kind="queued",
                 goal_label=goal_label,
@@ -185,6 +212,8 @@ class FacilityQueue(list):
             )
             min_clearance = _passenger_layout_min_clearance(passenger)
             motion_fraction = self.settling_motion_fraction(passenger)
+            if direct_layout and direct_prefix_blocked:
+                motion_fraction = 0.0
             if motion_fraction <= 0.0:
                 # A person who has just reached a queue needs one complete
                 # reaction interval before reversing into a serpentine tail
@@ -201,6 +230,11 @@ class FacilityQueue(list):
                     )
                 )
                 processed_passenger_ids.add(id(passenger))
+                if hypot(
+                    passenger.pos[0] - slot[0],
+                    passenger.pos[1] - slot[1],
+                ) > 0.001:
+                    direct_prefix_blocked = direct_layout
                 continue
             motion_fraction *= self._direction_change_motion_fraction(passenger, slot)
             if motion_fraction <= 0.0:
@@ -243,6 +277,11 @@ class FacilityQueue(list):
                 )
             )
             processed_passenger_ids.add(id(passenger))
+            if direct_layout:
+                direct_prefix_blocked = hypot(
+                    passenger.pos[0] - slot[0],
+                    passenger.pos[1] - slot[1],
+                ) > 0.001
 
     @property
     def persons(self) -> int:
@@ -253,9 +292,8 @@ class FacilityQueue(list):
         return self.max_length is not None and len(self) >= self.max_length
 
     @property
-    def occupied_slot_indices(self) -> tuple[int, ...]:
-        """Physical and FIFO slots currently claimed by queue occupants."""
-
+    def committed_slot_indices(self) -> tuple[int, ...]:
+        """Physical/FIFO slots claimed by bodies already in this queue."""
         claimed = set(range(len(self)))
         claimed.update(
             int(index)
@@ -271,6 +309,13 @@ class FacilityQueue(list):
         # arrival can be routed into the same coordinate and permanently pin
         # both people at the queue tail.
         claimed.update(self._nearest_explicit_slot_index(passenger) for passenger in self)
+        return tuple(sorted(claimed))
+
+    @property
+    def occupied_slot_indices(self) -> tuple[int, ...]:
+        """All queue and pending-approach slots currently claimed."""
+
+        claimed = set(self.committed_slot_indices)
         claimed.update(self._reserved_slot_index_by_unique_id.values())
         return tuple(sorted(claimed))
 
@@ -662,6 +707,8 @@ class FacilityQueue(list):
         self,
         passenger: PassengerAgent,
         desired_index: int,
+        *,
+        reconcile_nearest: bool = True,
     ) -> int:
         passenger_id = id(passenger)
         assigned = self._assigned_slot_index_by_passenger_id.get(
@@ -680,7 +727,7 @@ class FacilityQueue(list):
             passenger.pos[0] - nearest_slot[0],
             passenger.pos[1] - nearest_slot[1],
         )
-        if nearest_distance <= 0.12 < assigned_distance:
+        if reconcile_nearest and nearest_distance <= 0.12 < assigned_distance:
             assigned = nearest
             assigned_distance = nearest_distance
         at_assigned_slot = assigned_distance <= 0.12

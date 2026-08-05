@@ -14,6 +14,7 @@ from .facility_queue_geometry import (
 )
 from .approach_slot_assignment import rebalance_current_step_approach_slots
 from .evacuation_journey_rerouting import reroot_evacuation_goal_runtime
+from .facility_approach_release import clear_vacated_facility_targeting_reservations
 from .passenger_goal_runtime import PassengerGoalRuntime
 
 
@@ -334,6 +335,7 @@ class FacilityQueueRoutingMixin(FacilityQueueGeometryMixin):
             (passenger_id, stage_value),
             None,
         )
+        self._facility_approach_release_pending.discard((passenger_id, stage_value))
         facility_ids = set(
             self._passenger_stage_approach_claim_facility_ids(
                 passenger,
@@ -433,6 +435,18 @@ class FacilityQueueRoutingMixin(FacilityQueueGeometryMixin):
                 facility.queue.release_approach_slot(passenger_id)
         passenger.facility_approach_slots_by_stage.clear()
         passenger.facility_approach_facility_ids_by_stage.clear()
+
+    def _clear_vacated_facility_targeting_reservations(
+        self,
+        passenger: PassengerAgent,
+        *,
+        schedule_stage: str | FacilityStage | None = None,
+    ) -> None:
+        clear_vacated_facility_targeting_reservations(
+            self,
+            passenger,
+            schedule_stage=schedule_stage,
+        )
 
     def _facility_approach_ownership_facility(
         self,

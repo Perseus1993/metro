@@ -85,11 +85,9 @@ def compact_existing_approach_slots(model, facility) -> bool:
         model._facility_approach_slot_indices(facility),
         key=rank_by_index.__getitem__,
     )
-    reservation_indices = set(reserved_slots.values())
     occupied_by_queue = (
-        set(facility.queue.occupied_slot_indices)
-        | set(facility.lifecycle_reserved_queue_slot_indices)
-    ) - reservation_indices
+        set(facility.queue.committed_slot_indices)
+    ) | set(facility.lifecycle_reserved_queue_slot_indices)
     occupied_ranks = [
         rank_by_index[index]
         for index in occupied_by_queue
@@ -124,6 +122,16 @@ def compact_existing_approach_slots(model, facility) -> bool:
         old_index = previous_slot_by_passenger_id[passenger_id]
         new_index = proposed_slot_by_passenger_id[passenger_id]
         if old_index == new_index:
+            continue
+        dormant_platform_wait = (
+            str(passenger.state) == "waiting_platform"
+            and passenger_id in model._platform_waiting_reservations
+        )
+        if dormant_platform_wait:
+            # The approach claim preserves future FIFO order while the body
+            # is temporarily stored outside an active train-door crossing.
+            # Compact the ownership mirrors, but keep the current platform
+            # waiting target under its own physical authority.
             continue
         old_target = model._facility_approach_slot_position(facility, old_index)
         new_target = model._facility_approach_slot_position(facility, new_index)

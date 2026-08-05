@@ -130,7 +130,9 @@ def _initialize_base_state(
     # removed only by stage/all-owner invalidation.  External code must never
     # migrate or rewrite a (passenger_id, stage) key.
     model._facility_approach_reservation_registry: dict[tuple[int, str], object] = {}
+    model._facility_approach_release_pending: set[tuple[int, str]] = set()
     model._decision_holding_reservations: dict[tuple[int, str], object] = {}
+    model._decision_holding_release_pending: set[tuple[int, str]] = set()
     model._decision_holding_slot_owners: dict[tuple[str, float, float], int] = {}
     model._decision_holding_candidate_cache: dict[object, tuple[tuple[float, float], ...]] = {}
     model._platform_waiting_reservations: dict[int, object] = {}

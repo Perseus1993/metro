@@ -214,6 +214,7 @@ class StationSandboxScenario:
     jupedsim_neighbor_radius_units: float = 2.4
     jupedsim_neighbor_sample_limit: int = 12
     jupedsim_clearance_multiplier: float = 2.2
+    alighting_source_lateral_offset_m: float = 0.0
     gate_lane_edge_inset_max: float = 0.45
     facility_choice_logit_sensitivity: float = 1.0
     replan_avoided_facility_penalty: float = 4.0
@@ -224,6 +225,8 @@ class StationSandboxScenario:
     progress_stall_seconds: float = 20.0
     queue_replan_wait_seconds: float = 90.0
     progress_min_delta_units: float = 0.25
+    liveness_fail_fast_seconds: float = 120.0
+    liveness_min_displacement_units: float = 0.05
     replan_max_attempts_per_stage: int = 2
     admin_agent_count: int = 0
     admin_guide_radius_units: float = 18.0
@@ -321,6 +324,15 @@ class StationSandboxScenario:
         _require_positive("jupedsim_agent_radius_units", self.jupedsim_agent_radius_units)
         _require_positive("jupedsim_target_radius_units", self.jupedsim_target_radius_units)
         _require_positive("jupedsim_neighbor_radius_units", self.jupedsim_neighbor_radius_units)
+        _require_positive("liveness_fail_fast_seconds", self.liveness_fail_fast_seconds)
+        _require_positive(
+            "liveness_min_displacement_units",
+            self.liveness_min_displacement_units,
+        )
+        _require_non_negative(
+            "alighting_source_lateral_offset_m",
+            self.alighting_source_lateral_offset_m,
+        )
         _require_positive("jupedsim_dt_seconds", self.jupedsim_dt_seconds)
         _require_positive("movement_trace_sample_seconds", self.movement_trace_sample_seconds)
         _require_positive(

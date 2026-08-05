@@ -819,7 +819,6 @@ class ElevatorCabinCompletionMixin:
         )
         forward, _lateral = self._release_axes()
         spacing = self._release_spacing()
-        projection_limit = max(0.05, body_radius)
         forward_steps = list(range(max(0, int(self.spec.release_forward_extra)) + 1))
         if len(forward_steps) > 1:
             forward_steps = [1, 0, *forward_steps[2:]]
@@ -838,15 +837,10 @@ class ElevatorCabinCompletionMixin:
                     start[0] + forward[0] * spacing * forward_step,
                     start[1] + forward[1] * spacing * forward_step,
                 )
-                projected = self._project_release_position(candidate)
-                if (
-                    hypot(
-                        projected[0] - candidate[0],
-                        projected[1] - candidate[1],
-                    )
-                    > projection_limit
-                ):
-                    continue
+                # Cabin cells, release axes, and spacing are compiler output.
+                # Re-projecting this endpoint under a second runtime clearance
+                # policy can move it off the certified swept path.
+                projected = candidate
                 path = (
                     ShapelyPoint(start)
                     if hypot(projected[0] - start[0], projected[1] - start[1]) <= 1e-9

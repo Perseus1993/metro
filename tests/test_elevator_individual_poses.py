@@ -587,7 +587,13 @@ def test_elevator_physical_phase_boundaries_are_tick_invariant(
     elevator._begin_boarding([passenger], loaded_persons=1)
     event = model.facility_service_events[0]
 
-    assert event.commit_time == pytest.approx(event.start_time, abs=1e-9)
+    # Vertical service ownership commits at the process callback boundary;
+    # the first published pose is one physical interval later.
+    assert event.commit_time == pytest.approx(model.current_time_seconds, abs=1e-9)
+    assert event.start_time - event.commit_time == pytest.approx(
+        tick_seconds,
+        abs=1e-9,
+    )
     assert event.board_end_time - event.start_time == pytest.approx(3.25, abs=1e-9)
     assert event.arrive_time - event.board_end_time == pytest.approx(7.5, abs=1e-9)
     assert event.end_time - event.arrive_time == pytest.approx(2.75, abs=1e-9)
@@ -646,7 +652,14 @@ def test_escalator_event_duration_and_commit_are_tick_invariant(
     event = model.facility_service_events[0]
     ride = escalator.active_rides[0]
 
-    assert event.commit_time == pytest.approx(event.start_time, abs=1e-9)
+    # The process owns the rider at the callback boundary; the first published
+    # pose is one physical interval later.  Faults at that later boundary must
+    # therefore preserve the already-committed ride.
+    assert event.commit_time == pytest.approx(model.current_time_seconds, abs=1e-9)
+    assert event.start_time - event.commit_time == pytest.approx(
+        tick_seconds,
+        abs=1e-9,
+    )
     assert event.end_time - event.start_time == pytest.approx(7.3, abs=1e-9)
     assert ride.duration_seconds == pytest.approx(7.3, abs=1e-9)
 
@@ -675,7 +688,11 @@ def test_stairs_event_duration_and_commit_are_tick_invariant(
     event = model.facility_service_events[0]
     ride = stairs.active_rides[0]
 
-    assert event.commit_time == pytest.approx(event.start_time, abs=1e-9)
+    assert event.commit_time == pytest.approx(model.current_time_seconds, abs=1e-9)
+    assert event.start_time - event.commit_time == pytest.approx(
+        tick_seconds,
+        abs=1e-9,
+    )
     assert event.end_time - event.start_time == pytest.approx(
         expected_duration,
         abs=1e-9,

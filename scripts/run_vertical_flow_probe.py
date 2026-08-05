@@ -53,6 +53,12 @@ from sandbox.metro_station_sandbox.movement.backend import (  # noqa: E402
 from metro_station.adapters.simulation.movement.facility_motion_trace import (  # noqa: E402
     FacilityMotionTraceRecorder,
 )
+from metro_station.adapters.simulation.compilation import (  # noqa: E402
+    spatial_capacity as spatial_capacity_compiler,
+)
+from metro_station.adapters.simulation.compilation.geometry_reachability import (  # noqa: E402
+    GeometryCompilePolicy,
+)
 from metro_station.adapters.simulation.runtime.goal_parity import (  # noqa: E402
     GoalParityRecorder,
 )
@@ -264,6 +270,25 @@ class VerticalProbePassenger:
             "stage": stage.value if isinstance(stage, FacilityStage) else stage,
         }
 
+    def set_passive_layout_target(
+        self,
+        target: tuple[float, float],
+        *,
+        goal_kind: str,
+        goal_label: str,
+        facility_id: str | None = None,
+        stage: str | FacilityStage | None = None,
+    ) -> None:
+        """Mirror the production passive-layout ownership contract."""
+
+        self.set_target(
+            target,
+            goal_kind=goal_kind,
+            goal_label=goal_label,
+            facility_id=facility_id,
+            stage=stage,
+        )
+
     def apply_movement_result(self, result: MovementResult) -> bool:
         self.pos = self.model.clamp_position(result.position)
         if not result.reached:
@@ -436,10 +461,17 @@ class VerticalFlowProbeModel(mesa.Model):
             geometry=SimpleNamespace(width=self.width, height=self.height),
             facility_portal_binding=self.facility_portal_binding,
         )
+        self._spatial_capacity_slot_owners: dict[str, dict[int, int]] = {}
         self.jupedsim = JuPedSimAdapter()
         self.movement_backend = self._build_movement_backend()
         self._walkable_area = Polygon(
             [(0.0, 0.0), (self.width, 0.0), (self.width, self.height), (0.0, self.height)]
+        )
+        self._capacity_certificates: dict[str, object] = {}
+        if facility_spec.kind == FacilityKind.ELEVATOR.value:
+            self._install_elevator_capacity_certificates(facility_spec)
+        self.layout_graph.spatial_capacity_certificate = (
+            self.spatial_capacity_certificate
         )
         self.facility = self._build_facility(facility_spec)
         self.facilities_by_id = {self.facility.facility_id: self.facility}
@@ -470,6 +502,81 @@ class VerticalFlowProbeModel(mesa.Model):
         if facility_id != self._facility_portal_binding.facility_id:
             raise KeyError(facility_id)
         return self._facility_portal_binding
+
+    def spatial_capacity_certificate(
+        self,
+        resource_kind: str,
+        owner_id: str,
+        **_filters,
+    ):
+        if owner_id != self._facility_portal_binding.facility_id:
+            raise KeyError((resource_kind, owner_id))
+        try:
+            return self._capacity_certificates[resource_kind]
+        except KeyError as exc:
+            raise KeyError((resource_kind, owner_id)) from exc
+
+    def _install_elevator_capacity_certificates(
+        self,
+        facility_spec: FacilitySpec,
+    ) -> None:
+        policy = GeometryCompilePolicy(
+            agent_radius_m=float(self.scenario.jupedsim_agent_radius_units),
+            target_radius_m=float(self.scenario.jupedsim_target_radius_units),
+            personal_space_m=float(self.scenario.personal_space_units),
+            clearance_multiplier=float(self.scenario.jupedsim_clearance_multiplier),
+        )
+        spacing = spatial_capacity_compiler._release_spacing(facility_spec, policy)
+        required = int(facility_spec.vertical_config.elevator.batch_capacity)
+        raw_domain = self._walkable_area
+        safe_domain = raw_domain.buffer(-policy.agent_radius_m * 1.05)
+        batch_plans, batch_paths = (
+            spatial_capacity_compiler._compile_elevator_batch_plans(
+                facility_spec,
+                self._facility_portal_binding,
+                raw_domain=raw_domain,
+                safe_domain=safe_domain,
+                blocked_positions=(),
+                required_capacity=required,
+                spacing=spacing,
+                policy=policy,
+            )
+        )
+        slots, paths = spatial_capacity_compiler._elevator_release_envelope(
+            facility_spec,
+            batch_paths,
+            raw_domain=raw_domain,
+            safe_domain=safe_domain,
+            blocked_positions=(),
+            spacing=spacing,
+            policy=policy,
+        )
+        if len(batch_plans) != required or not slots or not paths:
+            raise RuntimeError("vertical probe could not compile elevator capacity")
+        common = {
+            "owner_id": facility_spec.facility_id,
+            "level_id": facility_spec.exit_level_id,
+            "certified_body_capacity": required,
+            "certified_person_capacity": required * self.scenario.group_size,
+            "batch_plans": batch_plans,
+            "batch_swept_paths": batch_paths,
+        }
+        self._capacity_certificates = {
+            "release_apron": SimpleNamespace(
+                certificate_id=f"probe:release:{facility_spec.facility_id}",
+                resource_kind="release_apron",
+                slots=tuple(slots),
+                swept_paths=(),
+                **common,
+            ),
+            "service_corridor": SimpleNamespace(
+                certificate_id=f"probe:corridor:{facility_spec.facility_id}",
+                resource_kind="service_corridor",
+                slots=(),
+                swept_paths=tuple(paths),
+                **common,
+            ),
+        }
 
     def record_facility_service_event(self, event: FacilityServiceEvent) -> None:
         self.facility_service_events.append(event)

@@ -146,6 +146,7 @@ class PassengerAgent(MovableAgent):
             str | FacilityStage | None,
         ] | None = None
         self.goal_command_region_id: str | None = None
+        self.route_waypoint_radius_override: float | None = None
         self.model.goal_coordinator.initialize(self)
 
     def _initial_position(self) -> Point:
@@ -342,6 +343,37 @@ class PassengerAgent(MovableAgent):
             (target,),
             goal_kind=goal_kind,
             goal_label=goal_label,
+            facility_id=facility_id,
+            stage=stage,
+        )
+
+    def set_passive_layout_target(
+        self,
+        target: Point,
+        *,
+        goal_kind: str,
+        goal_label: str,
+        facility_id: str | None = None,
+        stage: str | FacilityStage | None = None,
+    ) -> None:
+        """Assign a process-owned standing target without walking-route deferral.
+
+        Queue and waiting-layout motion already applies its own bounded
+        direction-change policy.  Sending those targets through ``set_route``
+        can create a pending turn that is only consumed by ordinary walking;
+        a passive JuPedSim body then keeps its stale slot forever.
+        """
+
+        self._pending_route_transition = None
+        self.route = []
+        self.target = (float(target[0]), float(target[1]))
+        self.route_segment_start = self.pos
+        self.corner_recovery_anchor = None
+        self.corner_recovery_speed_limit_mps = None
+        self.plan.set_goal(
+            kind=goal_kind,
+            label=goal_label,
+            target=self.target,
             facility_id=facility_id,
             stage=stage,
         )

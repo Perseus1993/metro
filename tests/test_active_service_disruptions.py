@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from dataclasses import replace
 import unittest
 
 from scripts import run_metro_stress_matrix as stress
@@ -9,6 +10,10 @@ from sandbox.metro_station_sandbox.facilities.vertical_runtime import (
     EscalatorProcessAgent,
 )
 from sandbox.metro_station_sandbox.planning.plan import AgentIntent
+from metro_station.adapters.simulation.planning.goal_state import (
+    FacilityCommitment,
+    FacilityInteractionState,
+)
 
 
 ELEVATOR_ID = "vertical:elevator_a:down:b1_concourse:b2_platform"
@@ -50,6 +55,29 @@ class ActiveServiceDisruptionTests(unittest.TestCase):
         model.passengers.append(passenger)
         return passenger
 
+    @staticmethod
+    def _align_goal_service(passenger: PassengerAgent, facility) -> None:
+        """Put a synthetic low-level service fixture on its matching graph node."""
+
+        node = next(
+            node
+            for node in passenger.goal_runtime.graph.nodes
+            if node.facility_stage == facility.spec.stage
+        )
+        passenger.goal_runtime.state = replace(
+            passenger.goal_runtime.state,
+            current_node_id=node.node_id,
+            interaction_state=FacilityInteractionState.QUEUEING.value,
+            current_stage=facility.spec.stage,
+            commitment=FacilityCommitment(
+                facility_id=facility.facility_id,
+                committed_at_seconds=0.0,
+                reason="synthetic_active_service_fixture",
+            ),
+            queued_facility_id=facility.facility_id,
+        )
+        passenger.assigned_facility_id = facility.facility_id
+
     def test_elevator_freezes_loaded_cabin_and_resumes_without_teleport(self) -> None:
         model = self._model(
             f"1:disable:{ELEVATOR_ID}",
@@ -58,6 +86,7 @@ class ActiveServiceDisruptionTests(unittest.TestCase):
         elevator = model.facilities_by_id[ELEVATOR_ID]
         self.assertIsInstance(elevator, ElevatorProcessAgent)
         passenger = self._passenger(model)
+        self._align_goal_service(passenger, elevator)
         elevator.join_queue(passenger, authority="goal_graph")
         passenger.pos = elevator._service_entry_position(0)
         elevator._begin_boarding([passenger], 1)
@@ -107,6 +136,7 @@ class ActiveServiceDisruptionTests(unittest.TestCase):
         escalator = model.facilities_by_id[ESCALATOR_ID]
         self.assertIsInstance(escalator, EscalatorProcessAgent)
         passenger = self._passenger(model)
+        self._align_goal_service(passenger, escalator)
         passenger.pos = escalator.spec.queue_layout.slot(0)
         self.assertTrue(escalator.queue.join(passenger))
         self.assertIs(passenger, escalator.queue.pop(0))
@@ -138,6 +168,7 @@ class ActiveServiceDisruptionTests(unittest.TestCase):
         model = self._model(f"1:disable:{ELEVATOR_ID}")
         elevator = model.facilities_by_id[ELEVATOR_ID]
         passenger = self._passenger(model)
+        self._align_goal_service(passenger, elevator)
         elevator.join_queue(passenger, authority="goal_graph")
         passenger.pos = elevator._service_entry_position(0)
         elevator._begin_boarding([passenger], 1)

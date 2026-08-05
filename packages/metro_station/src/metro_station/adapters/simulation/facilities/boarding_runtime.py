@@ -12,10 +12,11 @@ from .process import FacilityKind
 from .process_motion import minimum_jerk_duration_seconds, minimum_jerk_progress
 from .runtime_base import FacilityProcessAgent
 from .service_events import FacilityServiceEvent
+from ..planning.plan import AgentState
 
 if TYPE_CHECKING:
     from ..agents.passenger import PassengerAgent
-    from ..agents.transit import TrainAgent
+    from ..agents.transit import PlatformAgent, TrainAgent
 
 
 @dataclass
@@ -42,6 +43,7 @@ class BoardingDoorProcessAgent(FacilityProcessAgent):
     def __init__(self, model, *, spec) -> None:
         super().__init__(model, spec=spec)
         self.active_boardings: list[ActiveDoorBoarding] = []
+        self._crossing_waiting_passenger_ids: set[int] = set()
 
     def _initial_state(self) -> str:
         return "closed"
@@ -104,9 +106,13 @@ class BoardingDoorProcessAgent(FacilityProcessAgent):
         """
 
         scenario = self.model.scenario
-        return intermediate_waypoint_radius(
-            agent_radius=float(scenario.jupedsim_agent_radius_units),
-            final_target_radius=float(scenario.jupedsim_target_radius_units),
+        agent_radius = float(scenario.jupedsim_agent_radius_units)
+        return max(
+            agent_radius * 0.5,
+            intermediate_waypoint_radius(
+                agent_radius=agent_radius,
+                final_target_radius=float(scenario.jupedsim_target_radius_units),
+            ),
         )
 
     def _can_start_service(
@@ -137,7 +143,12 @@ class BoardingDoorProcessAgent(FacilityProcessAgent):
         start_time = float(self.model.current_time_seconds) + self._process_interval_seconds()
         if start_time + duration > close_time + 1e-9:
             return False
-        return self._boarding_path_is_clear(passenger, start, end)
+        return self._boarding_path_is_clear(
+            passenger,
+            start,
+            end,
+            allow_pending_approaches=True,
+        )
 
     def _start_service(
         self,
@@ -154,7 +165,12 @@ class BoardingDoorProcessAgent(FacilityProcessAgent):
             raise RuntimeError("Train-door service requires a stable passenger id")
 
         start_position, end_position, duration_seconds = self._boarding_motion(passenger)
-        if not self._boarding_path_is_clear(passenger, start_position, end_position):
+        if not self._boarding_path_is_clear(
+            passenger,
+            start_position,
+            end_position,
+            allow_pending_approaches=True,
+        ):
             raise RuntimeError("train-door swept path became occupied before admission")
         tick_seconds = self._process_interval_seconds()
         start_time = float(self.model.current_time_seconds) + tick_seconds
@@ -166,6 +182,7 @@ class BoardingDoorProcessAgent(FacilityProcessAgent):
             raise RuntimeError("train-door service cannot finish before the close boundary")
         end_time = start_time + duration_seconds
         event_id = self.model.next_facility_service_event_id()
+        approach_relocations = self._reserve_active_crossing_waits(passenger)
 
         # Capacity is reserved at admission, while completion and Goal Graph
         # advancement wait for the actual body to cross the door trajectory.
@@ -218,6 +235,113 @@ class BoardingDoorProcessAgent(FacilityProcessAgent):
                 train_arrival_sequence=int(train.arrival_sequence),
             )
         )
+        for approaching, platform, target in approach_relocations:
+            if approaching not in platform.waiting:
+                platform.waiting.append(approaching)
+            approaching.state = AgentState.WAITING_PLATFORM.value
+            approaching.set_target(
+                target,
+                goal_kind="waiting",
+                goal_label="active train-door crossing wait",
+            )
+            approaching.passive_layout_motion_step = None
+            approaching.passive_layout_motion_target = None
+            approaching.passive_layout_motion_speed_mps = None
+        # ``step`` lays out the queue before it admits the head.  A persistent
+        # movement backend consumes those layout requests later in the same
+        # interval, after the head has begun its swept crossing.  Cancel every
+        # follower request now; otherwise a follower can enter the newly owned
+        # crossing corridor and mutually block the rider until train close.
+        for queued in self.queue:
+            queued.passive_layout_motion_step = None
+            queued.passive_layout_motion_target = None
+            queued.passive_layout_motion_speed_mps = None
+
+    def _reserve_active_crossing_waits(
+        self,
+        rider: PassengerAgent,
+    ) -> tuple[tuple[PassengerAgent, PlatformAgent, tuple[float, float]], ...]:
+        """Relocate pending approach owners before the crossing becomes active."""
+
+        stage = self.spec.stage
+        relocations: list[
+            tuple[PassengerAgent, PlatformAgent, tuple[float, float]]
+        ] = []
+        for approaching in tuple(self.model.passengers):
+            if (
+                approaching is rider
+                or approaching in self.queue
+                or getattr(
+                    approaching,
+                    "facility_approach_facility_ids_by_stage",
+                    {},
+                ).get(stage)
+                != self.facility_id
+            ):
+                continue
+            platform = self.model.platform_for_passenger(approaching)
+            if platform is None:
+                platform = next(
+                    (
+                        candidate
+                        for candidate in self.model.platforms
+                        if candidate.platform_id == self.spec.platform_id
+                    ),
+                    None,
+                )
+            if platform is None:
+                continue
+            approaching.assigned_platform_id = platform.platform_id
+            approaching.assigned_line_id = platform.line_id
+            approaching.assigned_direction = platform.direction
+            target = self.model._reserve_platform_waiting_slot(
+                approaching,
+                platform,
+            )
+            self._crossing_waiting_passenger_ids.add(int(approaching.unique_id))
+            relocations.append((approaching, platform, target))
+        return tuple(relocations)
+
+    def _resume_crossing_waiters(self) -> None:
+        """Retry durable FIFO owners as soon as the swept crossing clears.
+
+        The platform scheduler runs before train-door completion.  Waiting for
+        its next train-available poll can therefore miss the close boundary
+        and strand a passenger whose approach was moved aside for the active
+        body.  The physical crossing-clear fact is the precise retry trigger.
+        """
+
+        if self.active_boardings or not self._crossing_waiting_passenger_ids:
+            return
+        passengers_by_id = {
+            int(passenger.unique_id): passenger
+            for passenger in self.model.passengers
+            if passenger.unique_id is not None
+        }
+        stage = self.spec.stage
+        for passenger_id in tuple(self._crossing_waiting_passenger_ids):
+            passenger = passengers_by_id.get(passenger_id)
+            if passenger is None or (
+                getattr(
+                    passenger,
+                    "facility_approach_facility_ids_by_stage",
+                    {},
+                ).get(stage)
+                != self.facility_id
+            ):
+                self._crossing_waiting_passenger_ids.discard(passenger_id)
+                continue
+            self.model.goal_coordinator.poll(passenger)
+            if (
+                passenger.state != AgentState.WAITING_PLATFORM.value
+                or getattr(
+                    passenger,
+                    "facility_approach_facility_ids_by_stage",
+                    {},
+                ).get(stage)
+                != self.facility_id
+            ):
+                self._crossing_waiting_passenger_ids.discard(passenger_id)
 
     def _boarding_motion(
         self,
@@ -247,6 +371,8 @@ class BoardingDoorProcessAgent(FacilityProcessAgent):
         passenger: PassengerAgent,
         start: tuple[float, float],
         end: tuple[float, float],
+        *,
+        allow_pending_approaches: bool = False,
     ) -> bool:
         path = (
             ShapelyPoint(start)
@@ -254,12 +380,25 @@ class BoardingDoorProcessAgent(FacilityProcessAgent):
             else LineString((start, end))
         )
         minimum_distance = self._release_min_distance()
+        excluded_ids = {int(passenger.unique_id)}
+        if allow_pending_approaches:
+            excluded_ids.update(
+                int(approaching.unique_id)
+                for approaching in self.model.passengers
+                if approaching not in self.queue
+                and getattr(
+                    approaching,
+                    "facility_approach_facility_ids_by_stage",
+                    {},
+                ).get(self.spec.stage)
+                == self.facility_id
+            )
         return all(
             path.distance(ShapelyPoint(position)) >= minimum_distance - 1e-9
             for position in external_body_positions(
                 self.model,
                 level_id=self.portal_entry_level_id,
-                excluded_passenger_ids=(int(passenger.unique_id),),
+                excluded_passenger_ids=excluded_ids,
             )
         )
 
@@ -269,6 +408,14 @@ class BoardingDoorProcessAgent(FacilityProcessAgent):
         current_time = float(self.model.current_time_seconds)
         tick_seconds = self._process_interval_seconds()
         remaining: list[ActiveDoorBoarding] = []
+        owns_passive_motion = getattr(
+            self.model.movement_backend,
+            "owns_passive_layout_motion",
+            None,
+        )
+        backend_owns_motion = bool(
+            callable(owns_passive_motion) and owns_passive_motion()
+        )
         for active in self.active_boardings:
             if current_time + 1e-9 < active.start_time:
                 remaining.append(active)
@@ -281,7 +428,7 @@ class BoardingDoorProcessAgent(FacilityProcessAgent):
             proposed_position = self.model.clamp_position(
                 self._position_at_elapsed(active, elapsed_after)
             )
-            if not self._boarding_path_is_clear(
+            if backend_owns_motion and not self._boarding_path_is_clear(
                 active.passenger,
                 tuple(active.passenger.pos),
                 proposed_position,
@@ -304,12 +451,7 @@ class BoardingDoorProcessAgent(FacilityProcessAgent):
             active.passenger.train_door_motion_episode_id = (
                 f"train_door:{self.facility_id}:{active.event_id}:boarding"
             )
-            owns_passive_motion = getattr(
-                self.model.movement_backend,
-                "owns_passive_layout_motion",
-                None,
-            )
-            if not callable(owns_passive_motion) or not owns_passive_motion():
+            if not backend_owns_motion:
                 interval_start = max(
                     current_time,
                     active.start_time + elapsed_before,
@@ -328,6 +470,7 @@ class BoardingDoorProcessAgent(FacilityProcessAgent):
                     continue
             remaining.append(active)
         self.active_boardings = remaining
+        self._resume_crossing_waiters()
 
     def commit_active_boardings_after_movement(self) -> None:
         """Commit only native JuPedSim door crossings at the interval end."""
@@ -377,6 +520,7 @@ class BoardingDoorProcessAgent(FacilityProcessAgent):
                 )
             self._finish_boarding(active)
         self.active_boardings = remaining
+        self._resume_crossing_waiters()
 
     def _set_boarding_event_completion(
         self,

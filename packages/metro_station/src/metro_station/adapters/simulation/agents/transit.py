@@ -197,7 +197,7 @@ class PlatformAgent(StationAgent):
         occupied_positions: list[tuple[float, float]] = []
         for passenger in self.waiting:
             target = self.model._reserve_platform_waiting_slot(passenger, self)
-            passenger.set_target(
+            passenger.set_passive_layout_target(
                 target,
                 goal_kind="waiting",
                 goal_label="platform waiting slot",
@@ -239,7 +239,10 @@ class PlatformAgent(StationAgent):
                 self.model.boarding_doors_for_platform(self),
             )
             self._notify_graph_train_available(passenger)
-            if passenger.state != AgentState.WAITING_PLATFORM.value:
+            if (
+                passenger.state != AgentState.WAITING_PLATFORM.value
+                and passenger in self.waiting
+            ):
                 self.waiting.remove(passenger)
 
     def _notify_graph_train_available(self, passenger: PassengerAgent) -> None:

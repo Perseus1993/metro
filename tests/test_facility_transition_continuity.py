@@ -28,8 +28,24 @@ from metro_station.adapters.simulation.facilities.vertical import (
     ElevatorConfig,
     VerticalFacilityConfig,
 )
-from metro_station.adapters.simulation.planning.plan import AgentIntent, WALKING_STATES
+from metro_station.adapters.simulation.planning.plan import (
+    AgentIntent,
+    AgentState,
+    FacilityStage,
+    WALKING_STATES,
+)
+from metro_station.adapters.simulation.planning.goal_commands import (
+    GoalCommand,
+    GoalCommandKind,
+)
+from metro_station.adapters.simulation.planning.goal_state import (
+    FacilityCommitment,
+    FacilityInteractionState,
+)
 from metro_station.adapters.simulation.runtime.mesa_model import MetroStationModel
+from metro_station.adapters.simulation.runtime.passenger_goal_command_executor import (
+    ProductionGoalCommandContext,
+)
 from metro_station.adapters.simulation.station.layout_queue_geometry import (
     _queue_layout_behind_service_entry,
     _queue_layout_with_service_entry_slot,
@@ -504,11 +520,19 @@ def test_train_door_does_not_compact_follower_into_active_crossing(
         "_boarding_motion",
         lambda passenger: (*original_motion(passenger)[:2], 10.0),
     )
+    monkeypatch.setattr(
+        model.movement_backend,
+        "owns_passive_layout_motion",
+        lambda: True,
+    )
     train.state = "boarding"
     train.close_step = 100
 
     door.step(train)
     assert door.active_boardings
+    assert follower.passive_layout_motion_step is None
+    assert follower.passive_layout_motion_target is None
+    assert follower.passive_layout_motion_speed_mps is None
     follower_position = tuple(follower.pos)
     model.step_index += 1
     door.step(train)
@@ -560,6 +584,267 @@ def test_train_door_active_crossing_reserves_handoff_from_late_arrival() -> None
     assert door.lifecycle_reserved_queue_slot_indices == ()
     assert 0 in model._available_facility_approach_slot_indices(door)
     assert door.join_queue(late_arrival, authority="goal_graph")
+
+
+def test_train_door_active_crossing_retargets_existing_slot_zero_approach(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    model = _model()
+    door = model.boarding_doors[0]
+    train = model.train_for_facility(door)
+    assert train is not None
+    rider = PassengerAgent(
+        model,
+        group_size=1,
+        created_step=0,
+        intent=AgentIntent.ENTER_AND_BOARD,
+    )
+    approaching = PassengerAgent(
+        model,
+        group_size=1,
+        created_step=0,
+        intent=AgentIntent.ENTER_AND_BOARD,
+    )
+    model.passengers.extend((rider, approaching))
+    for passenger in (rider, approaching):
+        passenger.current_level_id = door.spec.entry_level_id
+    rider.pos = door._service_entry_position(0)
+    approaching.pos = door._service_entry_position(1)
+    reserved = model._reserve_facility_approach_slot(approaching, door)
+    assert reserved == 0
+    approaching.set_route(
+        (model._facility_approach_slot_position(door, reserved),),
+        goal_kind="queue_approach",
+        goal_label="pending train-door approach",
+        facility_id=door.facility_id,
+        stage=door.spec.stage,
+    )
+    train.state = "boarding"
+    train.close_step = 100
+
+    assert door._can_start_service(rider, train)
+    door._start_service(rider, train)
+
+    assert approaching.facility_approach_slots_by_stage[door.spec.stage] == 0
+    assert approaching.state == AgentState.WAITING_PLATFORM.value
+    assert approaching.target != pytest.approx(door._service_entry_position(0))
+    assert int(approaching.unique_id) in model._platform_waiting_reservations
+
+    resumed: list[PassengerAgent] = []
+
+    def resume_approach(passenger: PassengerAgent) -> None:
+        resumed.append(passenger)
+        passenger.state = AgentState.WALKING_TO_PLATFORM.value
+        passenger.set_target(
+            door._service_entry_position(0),
+            goal_kind="queue_approach",
+            goal_label="resumed train-door approach",
+            facility_id=door.facility_id,
+            stage=door.spec.stage,
+        )
+
+    monkeypatch.setattr(model.goal_coordinator, "poll", resume_approach)
+    active = door.active_boardings[0]
+    active.elapsed_seconds = active.duration_seconds
+    rider.pos = active.end_position
+    rider.train_door_motion_episode_id = (
+        f"train_door:{door.facility_id}:{active.event_id}:boarding"
+    )
+
+    door.commit_active_boardings_after_movement()
+
+    assert resumed == [approaching]
+    assert approaching.current_goal.kind == "queue_approach"
+    assert int(approaching.unique_id) not in door._crossing_waiting_passenger_ids
+
+
+def test_boarding_join_block_registers_late_approach_for_platform_retry() -> None:
+    model = _model()
+    door = model.boarding_doors[0]
+    passenger = PassengerAgent(
+        model,
+        group_size=1,
+        created_step=0,
+        intent=AgentIntent.ENTER_AND_BOARD,
+    )
+    model.passengers.append(passenger)
+    platform = model.platforms_by_id[door.spec.platform_id]
+    passenger.current_level_id = door.spec.entry_level_id
+    passenger.assigned_platform_id = platform.platform_id
+    passenger.assigned_line_id = platform.line_id
+    passenger.assigned_direction = platform.direction
+    model._reserve_facility_approach_slot(passenger, door)
+
+    model.goal_coordinator.executor._restore_boarding_wait_after_join_block(
+        model,
+        passenger,
+        door,
+    )
+
+    passenger_id = int(passenger.unique_id)
+    assert passenger in platform.waiting
+    assert passenger_id in model._platform_waiting_reservations
+    assert passenger_id in door._crossing_waiting_passenger_ids
+    assert passenger.state == AgentState.WAITING_PLATFORM.value
+
+
+def test_goal_poll_reissues_durable_queue_approach_after_process_wait(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    model = _model()
+    door = model.boarding_doors[0]
+    passenger = PassengerAgent(
+        model,
+        group_size=1,
+        created_step=0,
+        intent=AgentIntent.ENTER_AND_BOARD,
+    )
+    runtime = passenger.goal_runtime
+    runtime.state = replace(
+        runtime.state,
+        current_node_id="use_boarding_door",
+        current_stage=door.spec.stage,
+        interaction_state=FacilityInteractionState.APPROACH_QUEUE.value,
+        commitment=FacilityCommitment(
+            facility_id=door.facility_id,
+            committed_at_seconds=0.0,
+            reason="test",
+        ),
+    )
+    commands = []
+
+    def capture_commands(_context, emitted, *, current_stage=None):
+        del current_stage
+        commands.extend(emitted)
+        return ()
+
+    monkeypatch.setattr(model.goal_coordinator.executor, "execute", capture_commands)
+
+    model.goal_coordinator.poll(passenger)
+
+    assert [command.kind for command in commands] == [
+        GoalCommandKind.WALK_TO_QUEUE.value
+    ]
+    assert commands[0].facility_id == door.facility_id
+
+
+def test_durable_queue_poll_keeps_the_original_finite_slot_route(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    model = _model()
+    facility = model.vertical_transports[0]
+    passenger = PassengerAgent(
+        model,
+        group_size=1,
+        created_step=0,
+        intent=AgentIntent.EVACUATE_STATION,
+    )
+    passenger.current_level_id = facility.spec.entry_level_id
+    model.passengers.append(passenger)
+    model._reserve_facility_approach_slot(passenger, facility)
+    target = model._safe_facility_queue_approach_target(passenger, facility)
+    passenger.pos = min(
+        (
+            node.position
+            for node in model.layout_graph.station_graph.nodes.values()
+            if node.level_id == passenger.current_level_id
+            and hypot(node.position[0] - target[0], node.position[1] - target[1]) > 2.0
+        ),
+        key=lambda point: hypot(point[0] - target[0], point[1] - target[1]),
+    )
+    command = GoalCommand(
+        kind=GoalCommandKind.WALK_TO_QUEUE.value,
+        stage=facility.spec.stage,
+        facility_id=facility.facility_id,
+    )
+
+    model.goal_coordinator.executor._walk_to_queue(model, passenger, command)
+    original_goal = passenger.current_goal
+    monkeypatch.setattr(
+        model,
+        "route_to_facility_queue",
+        lambda *_args: pytest.fail("durable poll recomputed a finite-slot route"),
+    )
+
+    model.goal_coordinator.executor._walk_to_queue(model, passenger, command)
+
+    assert passenger.current_goal == original_goal
+
+
+def test_goal_poll_restores_decision_route_overwritten_by_platform_layout(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    model = _model()
+    passenger = PassengerAgent(
+        model,
+        group_size=1,
+        created_step=0,
+        intent=AgentIntent.ENTER_AND_BOARD,
+    )
+    passenger.goal_runtime.state = replace(
+        passenger.goal_runtime.state,
+        current_node_id="approach_boarding_decision",
+    )
+    passenger.state = AgentState.WAITING_PLATFORM.value
+    passenger.set_target(
+        passenger.pos,
+        goal_kind="waiting",
+        goal_label="platform waiting slot",
+    )
+    commands = []
+
+    monkeypatch.setattr(
+        model.goal_coordinator,
+        "_refresh_stale_decision_route",
+        lambda *_args: False,
+    )
+
+    def capture_commands(_context, emitted, *, current_stage=None):
+        del current_stage
+        commands.extend(emitted)
+        return ()
+
+    monkeypatch.setattr(model.goal_coordinator.executor, "execute", capture_commands)
+
+    model.goal_coordinator.poll(passenger)
+
+    assert [command.kind for command in commands] == [
+        GoalCommandKind.WALK_TO_REGION.value
+    ]
+    assert commands[0].target_region_id == "boarding_decision"
+
+
+def test_direct_queue_layout_freezes_followers_behind_blocked_head() -> None:
+    model = _model()
+    door = model.boarding_doors[0]
+    head = PassengerAgent(
+        model,
+        group_size=1,
+        created_step=0,
+        intent=AgentIntent.ENTER_AND_BOARD,
+    )
+    follower = PassengerAgent(
+        model,
+        group_size=1,
+        created_step=0,
+        intent=AgentIntent.ENTER_AND_BOARD,
+    )
+    head.pos = door._service_entry_position(1)
+    follower.pos = door._service_entry_position(2)
+    assert door.join_queue(head, authority="goal_graph", preferred_slot_index=0)
+    assert door.join_queue(follower, authority="goal_graph", preferred_slot_index=1)
+    follower_start = tuple(follower.pos)
+
+    door.queue.layout_positions(
+        speed=2.0,
+        goal_label="blocked train-door queue",
+        facility_id=door.facility_id,
+        stage=door.spec.stage,
+        external_occupied_positions=(door._service_entry_position(0),),
+    )
+
+    assert head.pos != pytest.approx(door._service_entry_position(0))
+    assert follower.pos == pytest.approx(follower_start)
 
 
 def test_train_departure_counts_only_a_completed_door_crossing() -> None:
@@ -668,6 +953,45 @@ def test_train_door_commits_a_native_body_that_crossed_past_the_portal() -> None
         item for item in model.facility_service_events if item.event_id == active.event_id
     )
     assert event.end_position == pytest.approx(native_endpoint)
+
+
+def test_train_door_commits_body_straddling_portal_at_native_equilibrium() -> None:
+    model = _model()
+    door = model.boarding_doors[0]
+    train = model.train_for_facility(door)
+    assert train is not None
+    rider = PassengerAgent(
+        model,
+        group_size=1,
+        created_step=0,
+        intent=AgentIntent.ENTER_AND_BOARD,
+    )
+    model.passengers.append(rider)
+    rider.current_level_id = door.spec.entry_level_id
+    rider.pos = door._service_entry_position(0)
+    train.state = "boarding"
+    train.close_step = 100
+
+    door._start_service(rider, train)
+    active = door.active_boardings[0]
+    active.elapsed_seconds = active.duration_seconds
+    dx = active.end_position[0] - active.start_position[0]
+    dy = active.end_position[1] - active.start_position[1]
+    length = hypot(dx, dy)
+    native_endpoint = (
+        active.end_position[0] - dx / length * 0.07,
+        active.end_position[1] - dy / length * 0.07,
+    )
+    rider.pos = native_endpoint
+    rider.train_door_motion_episode_id = (
+        f"train_door:{door.facility_id}:{active.event_id}:boarding"
+    )
+
+    door.commit_active_boardings_after_movement()
+
+    assert not door.active_boardings
+    assert train.current_load_persons == 1
+    assert rider.pos == pytest.approx(native_endpoint)
 
 
 def test_train_door_boarding_body_shares_the_live_jupedsim_collision_world() -> None:
@@ -1820,11 +2144,8 @@ def test_all_compiled_approach_portals_are_body_clear_after_safe_projection() ->
 
 def test_pending_reservations_preserve_fifo_under_reverse_join_order() -> None:
     model = _model()
-    facility = next(
-        item
-        for item in model.vertical_transports
-        if len(model._facility_approach_slot_indices(item)) >= 3
-    )
+    facility = model.boarding_doors[0]
+    assert len(model._facility_approach_slot_indices(facility)) >= 3
     passengers = [
         PassengerAgent(
             model,
@@ -1864,6 +2185,47 @@ def test_pending_reservations_preserve_fifo_under_reverse_join_order() -> None:
         facility.queue._assigned_slot_index_by_passenger_id[id(passenger)]
         for passenger in facility.queue
     ] == [0, 1, 2]
+
+
+def test_settled_physical_queue_inversion_is_reconciled_without_overtaking() -> None:
+    model = _model()
+    door = model.boarding_doors[0]
+    slots = tuple(door.spec.queue_layout.slots)
+    assert len(slots) >= 4
+    outer_head, inner_body, tail = [
+        PassengerAgent(
+            model,
+            group_size=1,
+            created_step=0,
+            intent=AgentIntent.ENTER_AND_BOARD,
+        )
+        for _ in range(3)
+    ]
+    for passenger, slot_index in (
+        (outer_head, 2),
+        (inner_body, 1),
+        (tail, 3),
+    ):
+        passenger.pos = slots[slot_index]
+        assert door.join_queue(
+            passenger,
+            authority="goal_graph",
+            preferred_slot_index=slot_index,
+        )
+
+    door.queue.layout_positions(
+        speed=0.1,
+        goal_label="physically reconciled queue",
+        facility_id=door.facility_id,
+        stage=door.spec.stage,
+    )
+
+    assert list(door.queue) == [inner_body, outer_head, tail]
+    assigned = [
+        door.queue._assigned_slot_index_by_passenger_id[id(passenger)]
+        for passenger in door.queue
+    ]
+    assert len(set(assigned)) == len(assigned)
 
 
 def test_reused_physical_slot_never_reuses_fifo_priority() -> None:
@@ -1970,6 +2332,95 @@ def test_released_inner_approach_slot_compacts_tail_claim_and_reopens_capacity()
     assert follower_slot > compacted_slot
 
 
+def test_joined_fifo_growth_pushes_overlapping_pending_claim_tailward() -> None:
+    model = _model()
+    facility = model.boarding_doors[0]
+    assert len(model._facility_approach_slot_indices(facility)) >= 3
+    first, pending = [
+        PassengerAgent(
+            model,
+            group_size=1,
+            created_step=0,
+            intent=AgentIntent.ENTER_AND_BOARD,
+        )
+        for _ in range(2)
+    ]
+    assert facility.queue.join(first)
+    facility.queue.align_assigned_slots_with_fifo()
+    pending_slot = model._reserve_facility_approach_slot(pending, facility)
+
+    # Tail-mouth capture can grow the committed FIFO before the next batch
+    # approach rebalance. New occupants now own the pending portal, so the still-
+    # pending claim must move outward instead of sharing that coordinate.
+    for _ in range(pending_slot):
+        occupant = PassengerAgent(
+            model,
+            group_size=1,
+            created_step=0,
+            intent=AgentIntent.ENTER_AND_BOARD,
+        )
+        assert facility.queue.join(occupant)
+    facility.queue.align_assigned_slots_with_fifo()
+    assert pending_slot in facility.queue.committed_slot_indices
+    pending.current_level_id = facility.portal_entry_level_id
+    pending_target = model._facility_approach_slot_position(
+        facility,
+        pending_slot,
+    )
+    pending.pos = pending_target
+    pending.set_route(
+        (pending_target,),
+        goal_kind="queue_approach",
+        goal_label="pending gate approach",
+        facility_id=facility.facility_id,
+        stage=facility.spec.stage,
+    )
+    model.passengers.append(pending)
+
+    rebalance_current_step_approach_slots(model)
+
+    compacted = pending.facility_approach_slots_by_stage[facility.spec.stage]
+    assert compacted > pending_slot
+    assert compacted not in facility.queue.committed_slot_indices
+
+
+def test_dormant_platform_wait_keeps_target_while_approach_fifo_compacts() -> None:
+    model = _model()
+    facility = model.boarding_doors[0]
+    released, pending = [
+        PassengerAgent(
+            model,
+            group_size=1,
+            created_step=0,
+            intent=AgentIntent.ENTER_AND_BOARD,
+        )
+        for _ in range(2)
+    ]
+    released_slot = model._reserve_facility_approach_slot(released, facility)
+    pending_slot = model._reserve_facility_approach_slot(pending, facility)
+    assert pending_slot > released_slot
+    model._clear_facility_targeting_reservation(released, facility.spec.stage)
+
+    platform = model.platforms[0]
+    pending.current_level_id = facility.portal_entry_level_id
+    pending.assigned_platform_id = platform.platform_id
+    pending.assigned_line_id = platform.line_id
+    pending.assigned_direction = platform.direction
+    model.passengers.append(pending)
+    waiting_target = model._reserve_platform_waiting_slot(pending, platform)
+    pending.state = AgentState.WAITING_PLATFORM.value
+    pending.set_target(
+        waiting_target,
+        goal_kind="waiting",
+        goal_label="active crossing wait",
+    )
+
+    rebalance_current_step_approach_slots(model)
+
+    assert pending.facility_approach_slots_by_stage[facility.spec.stage] == released_slot
+    assert pending.target == pytest.approx(waiting_target)
+
+
 def test_physically_inverted_arrival_waits_outside_then_makes_progress() -> None:
     model = _model()
     slot0, slot1 = _gate_with_slots(model).spec.queue_layout.slots[:2]
@@ -2011,6 +2462,140 @@ def test_physically_inverted_arrival_waits_outside_then_makes_progress() -> None
 
     assert hypot(head.pos[0] - slot0[0], head.pos[1] - slot0[1]) <= 0.12
     assert hypot(follower.pos[0] - slot1[0], follower.pos[1] - slot1[1]) <= 0.12
+
+
+def test_gate_capture_keeps_later_reservation_outside_until_fifo_head_arrives() -> None:
+    model = _model()
+    gate = _gate_with_slots(model, count=2)
+    earlier, later = [
+        PassengerAgent(
+            model,
+            group_size=1,
+            created_step=0,
+            intent=AgentIntent.ENTER_AND_BOARD,
+        )
+        for _ in range(2)
+    ]
+    model.passengers.extend((earlier, later))
+    for passenger in (earlier, later):
+        passenger.current_level_id = gate.portal_entry_level_id
+
+    earlier_slot = model._reserve_facility_approach_slot(earlier, gate)
+    later_slot = model._reserve_facility_approach_slot(later, gate)
+    wall_clearance = max(
+        float(model.scenario.jupedsim_agent_radius_units) * 1.5,
+        float(model.scenario.personal_space_units) * 0.5,
+    )
+    area = model.jupedsim_walkable_area(gate.portal_entry_level_id)
+    for anchor in model._gate_queue_ingress_anchors(later, gate, later_slot):
+        assert ShapelyPoint(anchor).distance(area.boundary) >= wall_clearance - 1e-6
+    command = GoalCommand(
+        kind=GoalCommandKind.JOIN_QUEUE.value,
+        goal_node_id="use_entry_gate",
+        stage=FacilityStage.ENTRY_GATE.value,
+        facility_id=gate.facility_id,
+    )
+
+    later.pos = model._gate_queue_ingress_anchors(later, gate, later_slot)[-1]
+    later_events = model.goal_coordinator.executor.execute(
+        ProductionGoalCommandContext(model=model, passenger=later),
+        (command,),
+    )
+
+    assert later_events == ()
+    assert later not in gate.queue
+    assert earlier_slot < later_slot
+
+    earlier.pos = model._gate_queue_ingress_anchors(earlier, gate, earlier_slot)[-1]
+    earlier_events = model.goal_coordinator.executor.execute(
+        ProductionGoalCommandContext(model=model, passenger=earlier),
+        (command,),
+    )
+    assert len(earlier_events) == 1
+    assert list(gate.queue) == [earlier]
+
+    # Once the committed head has physically cleared the common capture
+    # mouth, the later reservation may join without inverting body order.
+    earlier.pos = gate.spec.queue_layout.slot(0)
+    later_events = model.goal_coordinator.executor.execute(
+        ProductionGoalCommandContext(model=model, passenger=later),
+        (command,),
+    )
+
+    assert len(later_events) == 1
+    assert list(gate.queue) == [earlier, later]
+
+
+def test_approach_slot_release_waits_for_physical_body_clearance() -> None:
+    model = _model()
+    gate = _gate_with_slots(model, count=2)
+    passenger = PassengerAgent(
+        model,
+        group_size=1,
+        created_step=0,
+        intent=AgentIntent.ENTER_AND_BOARD,
+    )
+    passenger.current_level_id = gate.portal_entry_level_id
+    model.passengers.append(passenger)
+    slot_index = model._reserve_facility_approach_slot(passenger, gate)
+    slot = model._facility_approach_slot_position(gate, slot_index)
+    passenger.pos = slot
+    owner_key = (int(passenger.unique_id), gate.spec.stage)
+
+    model._clear_vacated_facility_targeting_reservations(
+        passenger,
+        schedule_stage=gate.spec.stage,
+    )
+
+    assert owner_key in model._facility_approach_reservation_registry
+    passenger.pos = (slot[0] + 10.0, slot[1])
+    model._clear_vacated_facility_targeting_reservations(passenger)
+    assert owner_key not in model._facility_approach_reservation_registry
+
+
+def test_gate_capture_detects_one_tick_sweep_across_lane_mouth() -> None:
+    model = _model(design_template="two_level_island_platform")
+    gate = _gate_with_slots(model, count=3)
+    passenger = PassengerAgent(
+        model,
+        group_size=1,
+        created_step=0,
+        intent=AgentIntent.ENTER_AND_BOARD,
+    )
+    model.passengers.append(passenger)
+    passenger.current_level_id = gate.portal_entry_level_id
+    slot_index = model._reserve_facility_approach_slot(passenger, gate)
+    mouth = model._gate_queue_ingress_anchors(passenger, gate, slot_index)[-1]
+    capture_radius = max(
+        model._facility_queue_capture_radius(),
+        float(model.scenario.personal_space_units),
+    )
+    outside = (mouth[0], mouth[1] - capture_radius - 0.25)
+    inside = (mouth[0], mouth[1] + capture_radius + 0.25)
+    passenger.pos = outside
+    passenger.set_target(
+        model._facility_approach_slot_position(gate, slot_index),
+        goal_kind="queue_approach",
+        goal_label="entry gate queue approach",
+        facility_id=gate.facility_id,
+        stage=gate.spec.stage,
+    )
+    passenger.pos = inside
+    assert hypot(passenger.pos[0] - mouth[0], passenger.pos[1] - mouth[1]) > capture_radius
+
+    command = GoalCommand(
+        kind=GoalCommandKind.JOIN_QUEUE.value,
+        goal_node_id="use_entry_gate",
+        stage=FacilityStage.ENTRY_GATE.value,
+        facility_id=gate.facility_id,
+    )
+    events = model.goal_coordinator.executor.execute(
+        ProductionGoalCommandContext(model=model, passenger=passenger),
+        (command,),
+    )
+
+    assert len(events) == 1
+    assert list(gate.queue) == [passenger]
 
 
 @pytest.mark.parametrize(

@@ -95,7 +95,15 @@ class VerticalTransportProcessAgent(
             # facade keeps slot 0; every non-selected facade backs up one body
             # so the selected ride has a clear downstream landing.
             self._request_physical_resource()
+        offset = self._queue_layout_slot_index_offset()
+        self.queue.align_assigned_slots_with_fifo(slot_index_offset=offset)
         super()._layout_queue()
+
+    def _queue_layout_uses_strict_fifo_assignment(self) -> bool:
+        return True
+
+    def _queue_layout_reverses_processing_order(self) -> bool:
+        return self._queue_layout_slot_index_offset() > 0
 
     def _queue_layout_slot_index_offset(self) -> int:
         if not self.queue:
@@ -605,10 +613,12 @@ class VerticalTransportProcessAgent(
             end_time=end_time,
             start_position=start_position or self.portal_entry_position,
             end_position=self.portal_exit_position,
-            # Facility changes are first authoritative in the interval-end
-            # snapshot.  Use that physical service boundary, not the Mesa
-            # callback's interval-start timestamp, as the commitment instant.
-            commit_time=float(start_time),
+            # Service is authorized when this process callback acquires the
+            # physical resource.  Its first published pose is the later
+            # interval-end ``start_time``; keeping those clocks separate lets
+            # a drain command at that boundary preserve an already committed
+            # in-flight rider without reporting a false service-start breach.
+            commit_time=float(self.model.current_time_seconds),
             direction=self.portal_direction,
             from_level=self.portal_entry_level_id,
             to_level=self.portal_exit_level_id,

@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 from abc import abstractmethod
+from collections import Counter
+import json
 from math import hypot
 from typing import TYPE_CHECKING
 
@@ -25,6 +27,10 @@ if TYPE_CHECKING:
     from ..agents.transit import TrainAgent
 
 
+class FacilityServiceLivenessViolation(RuntimeError):
+    """A non-empty facility queue made no service-start progress for too long."""
+
+
 class FacilityProcessAgent(FacilityAgent):
     """Abstract queue/service/release process for a station facility."""
 
@@ -42,6 +48,11 @@ class FacilityProcessAgent(FacilityAgent):
         )
         self.service_credit = 0.0
         self.served_persons = 0
+        self.service_blocked_reason_counts: Counter[str] = Counter()
+        self.service_blocked_reason: str | None = None
+        self.service_blocked_passenger_id: int | None = None
+        self.service_blocked_since_step: int | None = None
+        self.service_blocked_consecutive_steps = 0
         self._service_release_positions_this_tick: list[tuple[float, float]] = []
 
     @property
@@ -167,11 +178,24 @@ class FacilityProcessAgent(FacilityAgent):
             stage=self.spec.stage,
             external_occupied_positions=self._queue_external_occupied_positions(),
             slot_index_offset=self._queue_layout_slot_index_offset(),
+            strict_fifo_assignment=self._queue_layout_uses_strict_fifo_assignment(),
+            reverse_processing_order=self._queue_layout_reverses_processing_order(),
         )
+
+    def _queue_layout_uses_strict_fifo_assignment(self) -> bool:
+        return False
+
+    def _queue_layout_reverses_processing_order(self) -> bool:
+        return False
 
     def _queue_external_occupied_positions(self) -> tuple[tuple[float, float], ...]:
         """Bodies outside the queue that occupy its physical layout domain."""
 
+        if not callable(getattr(self.model, "facility_portal_binding", None)):
+            # Isolated component probes intentionally provide only the
+            # facility process contract and have no compiled station portal
+            # registry.  They also own no external station bodies.
+            return ()
         return external_body_positions(
             self.model,
             level_id=self.portal_entry_level_id,
@@ -215,9 +239,11 @@ class FacilityProcessAgent(FacilityAgent):
 
     def _serve_queue(self, train: TrainAgent | None = None) -> None:
         if not self.is_open:
+            self._clear_service_blocked_state()
             return
         if not self.queue:
             self.service_credit = 0.0
+            self._clear_service_blocked_state()
             return
 
         self.service_credit += self._service_groups_per_tick()
@@ -227,6 +253,10 @@ class FacilityProcessAgent(FacilityAgent):
         while self.queue and self.service_credit >= 1.0:
             passenger = self.queue[0]
             if self.queue.is_settling(passenger):
+                self._record_service_blocked(
+                    "queue_head_settling",
+                    passenger,
+                )
                 break
             if not self._can_start_service(
                 passenger,
@@ -234,6 +264,14 @@ class FacilityProcessAgent(FacilityAgent):
                 release_index=release_index,
                 release_count=max(1, release_count),
             ):
+                self._record_service_blocked(
+                    self._service_start_block_reason(
+                        passenger,
+                        train,
+                        release_index=release_index,
+                    ),
+                    passenger,
+                )
                 break
             was_already_queued = (
                 passenger.state == self.spec.queue_state
@@ -249,16 +287,161 @@ class FacilityProcessAgent(FacilityAgent):
                 )
             except SpatialCapacityCertificateViolation:
                 raise
-            except RuntimeError:
+            except RuntimeError as exc:
                 # A two-phase facility start may reject its preflight before
                 # committing any passenger state.  Restoring the list must not
                 # replay queue-entry semantics or duplicate parity evidence.
                 if not was_already_queued:
                     passenger.enter_facility_queue(self.spec)
                 self.queue.insert(0, passenger)
+                self._record_service_blocked(
+                    "service_start_preflight_rejected",
+                    passenger,
+                    detail={
+                        "exception_type": type(exc).__name__,
+                        "exception": str(exc),
+                    },
+                )
                 break
+            # Service removes FIFO slot 0.  Rebase every remaining finite-slot
+            # claim in one ownership transaction before the next layout tick;
+            # otherwise a head at slot 1 cannot advance while followers still
+            # claim slots 2, 3, ... and head-first collision-safe compaction
+            # correctly refuses to pass bodies through one another.
+            self.queue.align_assigned_slots_with_fifo()
             self.service_credit -= 1.0
             release_index += 1
+            self._clear_service_blocked_state()
+
+    def _service_start_block_reason(
+        self,
+        passenger: PassengerAgent,
+        train: TrainAgent | None,
+        *,
+        release_index: int,
+    ) -> str:
+        del train
+        if not self._passenger_ready_for_service(
+            passenger,
+            release_index=release_index,
+        ):
+            return "queue_head_not_service_ready"
+        return "service_start_precondition_blocked"
+
+    def _record_service_blocked(
+        self,
+        reason: str,
+        passenger: PassengerAgent,
+        *,
+        detail: dict[str, object] | None = None,
+    ) -> None:
+        step = int(self.model.step_index)
+        passenger_id = int(passenger.unique_id)
+        self.service_blocked_reason_counts[str(reason)] += 1
+        if (
+            self.service_blocked_reason == reason
+            and self.service_blocked_passenger_id == passenger_id
+        ):
+            self.service_blocked_consecutive_steps += 1
+        else:
+            self.service_blocked_reason = str(reason)
+            self.service_blocked_passenger_id = passenger_id
+            self.service_blocked_since_step = step
+            self.service_blocked_consecutive_steps = 1
+            self._record_audit_event(
+                "facility_service_queue_head_blocked",
+                severity="warning",
+                step=step,
+                context=self._service_block_context(passenger, reason, detail),
+            )
+
+        threshold = float(
+            getattr(self.model.scenario, "liveness_fail_fast_seconds", 0.0)
+        )
+        blocked_seconds = (
+            self.service_blocked_consecutive_steps
+            * float(self.model.scenario.tick_seconds)
+        )
+        if (
+            self.spec.kind == "gate"
+            and threshold > 0.0
+            and blocked_seconds >= threshold
+            and self._service_block_reason_is_liveness_failure(reason)
+        ):
+            context = self._service_block_context(passenger, reason, detail)
+            context["blocked_seconds"] = blocked_seconds
+            self._record_audit_event(
+                "facility_service_liveness_violation",
+                severity="error",
+                step=step,
+                context=context,
+            )
+            raise FacilityServiceLivenessViolation(
+                "facility service liveness violation: "
+                + json.dumps(context, ensure_ascii=False, sort_keys=True, default=str)
+            )
+
+    @staticmethod
+    def _service_block_reason_is_liveness_failure(reason: str) -> bool:
+        # This reason is a deliberate capacity signal propagated from the
+        # boarding side. It may legitimately persist between train-service
+        # windows; source-demand conservation at the formal horizon decides
+        # whether that backpressure was ultimately drainable. Treating it as
+        # a local gate deadlock would abort before that evidence can exist.
+        return str(reason) not in {
+            "downstream_boarding_capacity_unavailable",
+            "shared_lane_opposing_flow",
+        }
+
+    def _service_block_context(
+        self,
+        passenger: PassengerAgent,
+        reason: str,
+        detail: dict[str, object] | None,
+    ) -> dict[str, object]:
+        current_goal = getattr(passenger, "current_goal", None)
+        return {
+            "facility_id": self.facility_id,
+            "facility_kind": self.spec.kind,
+            "facility_stage": self.spec.stage,
+            "reason": str(reason),
+            "blocked_since_step": self.service_blocked_since_step,
+            "blocked_consecutive_steps": self.service_blocked_consecutive_steps,
+            "queue_persons": int(self.queue_persons),
+            "service_credit": float(self.service_credit),
+            "passenger_id": int(passenger.unique_id),
+            "passenger_state": str(passenger.state),
+            "passenger_position": [float(passenger.pos[0]), float(passenger.pos[1])],
+            "passenger_target": [float(passenger.target[0]), float(passenger.target[1])],
+            "goal_kind": str(getattr(current_goal, "kind", "unknown")),
+            "goal_label": str(getattr(current_goal, "label", "unknown")),
+            **dict(detail or {}),
+        }
+
+    def _clear_service_blocked_state(self) -> None:
+        self.service_blocked_reason = None
+        self.service_blocked_passenger_id = None
+        self.service_blocked_since_step = None
+        self.service_blocked_consecutive_steps = 0
+
+    def _record_audit_event(
+        self,
+        event: str,
+        *,
+        severity: str,
+        step: int,
+        context: dict[str, object],
+    ) -> None:
+        audit = getattr(self.model, "audit", None)
+        record = getattr(audit, "record", None)
+        if callable(record):
+            record(
+                event,
+                source="facility_process",
+                severity=severity,
+                step=step,
+                context=context,
+            )
 
     def _service_groups_per_tick(self) -> float:
         scenario = self.model.scenario

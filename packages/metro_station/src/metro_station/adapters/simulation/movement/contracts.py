@@ -29,11 +29,19 @@ class MovementRequest:
             legacy_goal = getattr(passenger, "goal", None)
             if isinstance(legacy_goal, Mapping):
                 goal_kind = legacy_goal.get("kind")
-        tactical_target = bool(getattr(passenger, "route", ())) or (
-            goal_kind == "being_served"
+        tactical_target = bool(getattr(passenger, "route", ())) or goal_kind in {
+            "being_served",
+            "queue_approach",
+        }
+        waypoint_radius_override = getattr(
+            passenger,
+            "route_waypoint_radius_override",
+            None,
         )
         radius = (
-            intermediate_waypoint_radius(
+            max(0.001, float(waypoint_radius_override))
+            if tactical_target and waypoint_radius_override is not None
+            else intermediate_waypoint_radius(
                 agent_radius=float(scenario.jupedsim_agent_radius_units),
                 final_target_radius=final_target_radius,
             )

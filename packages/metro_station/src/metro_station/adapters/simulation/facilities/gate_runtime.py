@@ -6,10 +6,16 @@ from typing import TYPE_CHECKING
 
 import mesa
 
+from .gate_downstream_admission import (
+    direct_boarding_candidates,
+    has_direct_boarding_admission,
+    reserve_direct_boarding_admission,
+)
 from .process import FacilityKind, FacilitySpec
 from .runtime_base import FacilityProcessAgent
 from .service_events import FacilityServiceEvent
 from ..movement.waypoint_policy import intermediate_waypoint_radius
+from ..planning.plan import FacilityStage
 
 if TYPE_CHECKING:
     from ..agents.passenger import PassengerAgent
@@ -51,11 +57,50 @@ class GateProcessAgent(FacilityProcessAgent):
     def _queue_crossing_service_entry_position(self) -> tuple[float, float]:
         return self._mechanical_service_entry_position()
 
+    def _queue_layout_slot_index_offset(self) -> int:
+        """Keep the opposing release mouth clear while a shared-lane pass runs."""
+
+        opposing = tuple(
+            gate
+            for gate in self._shared_physical_lane_facilities()
+            if gate is not self and gate.portal_direction != self.portal_direction
+        )
+        if any(gate.active_passes for gate in opposing):
+            # Slot 1 clears the mechanical portal but not the certified
+            # downstream release cell: with 0.8 m queue spacing, the active
+            # body and an opposing head at slot 1 settle before the active
+            # body can reach/cross its release plane. Retract one additional
+            # slot while the lane is occupied so the pass can physically
+            # commit; ordinary turn-taking below still needs only slot 1.
+            return 2
+        if not any(gate.is_open and gate.queue for gate in opposing):
+            return 0
+        last_direction = getattr(
+            self.model,
+            "_shared_gate_lane_last_started_direction",
+            {},
+        ).get(self._physical_lane_key())
+        # With demand on both sides, the direction that just used the lane is
+        # the yielding side. Retract its FIFO head to slot 1 before the other
+        # direction attempts to reserve the shared release mouth.
+        return int(last_direction == self.portal_direction)
+
     def step(self, train: TrainAgent | None = None) -> None:
         self._sync_state(train)
         self._layout_queue()
         self._advance_active_passes()
         self._serve_queue(train)
+
+    def _layout_queue(self) -> None:
+        offset = self._queue_layout_slot_index_offset()
+        self.queue.align_assigned_slots_with_fifo(slot_index_offset=offset)
+        super()._layout_queue()
+
+    def _queue_layout_uses_strict_fifo_assignment(self) -> bool:
+        return True
+
+    def _queue_layout_reverses_processing_order(self) -> bool:
+        return self._queue_layout_slot_index_offset() > 0
 
     def has_active_service(self, passenger: PassengerAgent) -> bool:
         return any(active.passenger is passenger for active in self.active_passes)
@@ -81,6 +126,8 @@ class GateProcessAgent(FacilityProcessAgent):
             release_count=release_count,
         ):
             return False
+        if not has_direct_boarding_admission(self, passenger):
+            return False
 
         lane_facilities = self._shared_physical_lane_facilities()
         opposing = tuple(
@@ -91,12 +138,12 @@ class GateProcessAgent(FacilityProcessAgent):
         if any(gate.active_passes for gate in opposing):
             return False
 
-        ready_opposing = tuple(
+        waiting_opposing = tuple(
             gate
             for gate in opposing
-            if gate._head_is_ready_for_shared_lane()
+            if gate.is_open and gate.queue
         )
-        if not ready_opposing:
+        if not waiting_opposing:
             return True
 
         # Once the opposite facade has demand, stop adding same-direction
@@ -104,6 +151,34 @@ class GateProcessAgent(FacilityProcessAgent):
         # an alternating single-track block and prevents permanent starvation
         # under sustained flow in one direction.
         if self.active_passes:
+            return False
+
+        last_direction = getattr(
+            self.model,
+            "_shared_gate_lane_last_started_direction",
+            {},
+        ).get(self._physical_lane_key())
+        if last_direction is not None:
+            # Oldest-head selection is not fair under batched demand: one
+            # train can inject a whole older exit cohort and starve entries
+            # until that cohort drains. Alternate directions whenever both
+            # sides have a ready head; a lone direction still uses the lane
+            # continuously above.
+            if str(last_direction) == self.portal_direction:
+                return False
+            # This direction owns the next turn, but the previous direction's
+            # head must first finish retracting from the shared mouth.
+            return not any(
+                gate.queue.is_settling(gate.queue[0])
+                for gate in waiting_opposing
+            )
+
+        ready_opposing = tuple(
+            gate
+            for gate in waiting_opposing
+            if gate._head_is_ready_for_shared_lane()
+        )
+        if not ready_opposing:
             return False
 
         contenders = (self, *ready_opposing)
@@ -115,6 +190,44 @@ class GateProcessAgent(FacilityProcessAgent):
             ),
         )
         return winner is self
+
+    def _service_start_block_reason(
+        self,
+        passenger: PassengerAgent,
+        train: TrainAgent | None,
+        *,
+        release_index: int,
+    ) -> str:
+        if self._queue_layout_slot_index_offset() > 0:
+            # A bidirectional lane deliberately retracts the yielding facade
+            # head from slot 0.  Its distance from the service entry is an
+            # arbitration state, not a passenger readiness failure.
+            return "shared_lane_opposing_flow"
+        if not self._passenger_ready_for_service(
+            passenger,
+            release_index=release_index,
+        ):
+            return "queue_head_not_service_ready"
+        if not super()._can_start_service(
+            passenger,
+            train,
+            release_index=release_index,
+            release_count=1,
+        ):
+            return super()._service_start_block_reason(
+                passenger,
+                train,
+                release_index=release_index,
+            )
+        if not has_direct_boarding_admission(self, passenger):
+            return "downstream_boarding_capacity_unavailable"
+        return "shared_lane_opposing_flow"
+
+    def _direct_boarding_candidates(
+        self,
+        passenger: PassengerAgent,
+    ) -> tuple[FacilityProcessAgent, ...]:
+        return direct_boarding_candidates(self, passenger)
 
     def _head_is_ready_for_shared_lane(self) -> bool:
         if not self.is_open or not self.queue:
@@ -166,11 +279,27 @@ class GateProcessAgent(FacilityProcessAgent):
         # before mutating queue ownership, Goal Graph state, or native-body
         # lifecycle.  In particular, endpoint placement is a read-only query
         # and must not leave a half-started service behind on failure.
-        end_position, release_slot_index = self._reserve_certified_release_slot(
-            passenger,
-            preferred_index=release_index,
-            persistent=True,
-        )
+        downstream_reservation = reserve_direct_boarding_admission(self, passenger)
+        try:
+            end_position, release_slot_index = self._reserve_certified_release_slot(
+                passenger,
+                preferred_index=release_index,
+                persistent=True,
+            )
+        except Exception:
+            if downstream_reservation == "approach":
+                self.model._clear_facility_targeting_reservation(
+                    passenger,
+                    FacilityStage.BOARDING_DOOR.value,
+                )
+            elif downstream_reservation == "holding":
+                self.model._clear_decision_holding_reservation(
+                    passenger,
+                    "boarding_decision",
+                )
+            elif downstream_reservation == "platform":
+                self.model._clear_platform_waiting_reservation(passenger)
+            raise
         distance = hypot(
             end_position[0] - start_position[0],
             end_position[1] - start_position[1],
@@ -236,6 +365,15 @@ class GateProcessAgent(FacilityProcessAgent):
                 release_slot_index=release_slot_index,
             )
         )
+        lane_directions = getattr(
+            self.model,
+            "_shared_gate_lane_last_started_direction",
+            None,
+        )
+        if lane_directions is None:
+            lane_directions = {}
+            self.model._shared_gate_lane_last_started_direction = lane_directions
+        lane_directions[self._physical_lane_key()] = self.portal_direction
 
     def _planned_gate_release_position(
         self,

@@ -65,6 +65,9 @@ class SimulationStepOrchestrator:
             model.movement_backend.commit_movement_result(passenger, movement_result)
             reached = passenger.apply_movement_result(movement_result)
             passenger.advance_after_movement(reached)
+        for passenger in tuple(model.passengers):
+            model._clear_vacated_facility_targeting_reservations(passenger)
+            model._clear_vacated_decision_holding_reservations(passenger)
         for facility in model.vertical_transports:
             commit_native_motion = getattr(
                 facility,

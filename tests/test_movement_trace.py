@@ -62,10 +62,21 @@ def test_movement_request_separates_tactical_and_final_arrival_radius() -> None:
     )
 
     tactical = MovementRequest.from_passenger(passenger)
+    passenger.route_waypoint_radius_override = 0.396
+    body_clear_tactical = MovementRequest.from_passenger(passenger)
+    passenger.route_waypoint_radius_override = 0.8
+    corridor_tactical = MovementRequest.from_passenger(passenger)
     passenger.route = []
+    passenger.route_waypoint_radius_override = None
+    passenger.current_goal = SimpleNamespace(kind="queue_approach")
+    queue_handoff = MovementRequest.from_passenger(passenger)
+    passenger.current_goal = SimpleNamespace(kind="destination")
     final = MovementRequest.from_passenger(passenger)
 
     assert tactical.radius == pytest.approx(0.05)
+    assert body_clear_tactical.radius == pytest.approx(0.396)
+    assert corridor_tactical.radius == pytest.approx(0.8)
+    assert queue_handoff.radius == pytest.approx(0.05)
     assert final.radius == pytest.approx(0.45)
 
 

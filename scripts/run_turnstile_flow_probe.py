@@ -271,6 +271,25 @@ class TurnstileProbePassenger:
             "stage": stage.value if isinstance(stage, FacilityStage) else stage,
         }
 
+    def set_passive_layout_target(
+        self,
+        target: tuple[float, float],
+        *,
+        goal_kind: str,
+        goal_label: str,
+        facility_id: str | None = None,
+        stage: str | FacilityStage | None = None,
+    ) -> None:
+        """Mirror the production passive-layout ownership contract."""
+
+        self.set_target(
+            target,
+            goal_kind=goal_kind,
+            goal_label=goal_label,
+            facility_id=facility_id,
+            stage=stage,
+        )
+
     def apply_movement_result(self, result: MovementResult) -> bool:
         self.pos = self.model.clamp_position(result.position)
         if not result.reached:
@@ -580,10 +599,60 @@ class TurnstileProbeModel(mesa.Model):
             if self.scenario.gate_service_mode == "stochastic"
             else GateProcessAgent
         )
+        gate_spec = turnstile_spec(
+            service_persons_per_min=service_persons_per_min
+        )
+        entry_point = gate_spec.position
+        exit_point = gate_spec.exit_position
+        direction_length = max(
+            1e-9,
+            hypot(
+                exit_point[0] - entry_point[0],
+                exit_point[1] - entry_point[1],
+            ),
+        )
+        release_forward = (
+            (exit_point[0] - entry_point[0]) / direction_length,
+            (exit_point[1] - entry_point[1]) / direction_length,
+        )
+        self._facility_portal_binding = SimpleNamespace(
+            facility_id=gate_spec.facility_id,
+            entry_point=entry_point,
+            exit_point=exit_point,
+            entry_level_id=gate_spec.entry_level_id,
+            exit_level_id=gate_spec.exit_level_id,
+            direction=gate_spec.direction,
+            approach_slots=gate_spec.queue_layout.slots,
+            approach_slot_indices=tuple(range(len(gate_spec.queue_layout.slots))),
+            release_forward=release_forward,
+            release_lateral=(-release_forward[1], release_forward[0]),
+        )
+        release_slots = tuple(
+            (
+                exit_point[0] + release_forward[0] * 0.8 * index,
+                exit_point[1] + release_forward[1] * 0.8 * index,
+            )
+            for index in range(4)
+        )
+        self._release_capacity_certificate = SimpleNamespace(
+            certificate_id=f"probe:release:{gate_spec.facility_id}",
+            resource_kind="release_apron",
+            owner_id=gate_spec.facility_id,
+            level_id=gate_spec.exit_level_id,
+            slots=release_slots,
+            certified_body_capacity=len(release_slots),
+            certified_person_capacity=len(release_slots) * self.scenario.group_size,
+        )
+        self.layout_graph.facility_portal_binding = self.facility_portal_binding
+        self.layout_graph.spatial_capacity_certificate = (
+            self.spatial_capacity_certificate
+        )
         self.gate = gate_class(
             self,
-            spec=turnstile_spec(service_persons_per_min=service_persons_per_min),
+            spec=gate_spec,
         )
+        self.facilities = [self.gate]
+        self.facilities_by_id = {self.gate.facility_id: self.gate}
 
     @property
     def scenario(self) -> TurnstileProbeScenario:
@@ -605,6 +674,25 @@ class TurnstileProbeModel(mesa.Model):
         self._facility_service_event_id += 1
         return self._facility_service_event_id
 
+    def facility_portal_binding(self, facility_id: str):
+        if facility_id != self._facility_portal_binding.facility_id:
+            raise KeyError(facility_id)
+        return self._facility_portal_binding
+
+    def spatial_capacity_certificate(
+        self,
+        resource_kind: str,
+        owner_id: str,
+        **_filters,
+    ):
+        certificate = self._release_capacity_certificate
+        if (
+            resource_kind != certificate.resource_kind
+            or owner_id != certificate.owner_id
+        ):
+            raise KeyError((resource_kind, owner_id))
+        return certificate
+
     def record_facility_service_event(self, event: FacilityServiceEvent) -> None:
         self.facility_service_events.append(event)
 
@@ -616,7 +704,10 @@ class TurnstileProbeModel(mesa.Model):
         facility_id: str,
         passenger_ids: tuple[int, ...],
         completion_time_seconds: float,
+        *,
+        poll_immediately: bool = False,
     ) -> None:
+        del poll_immediately
         if facility_id != self.gate.facility_id:
             raise ValueError(f"unknown probe facility completion: {facility_id!r}")
         known_ids = {int(passenger.unique_id) for passenger in self.all_passengers}
@@ -675,7 +766,18 @@ class TurnstileProbeModel(mesa.Model):
         for passenger, movement_result in self.movement_backend.step_all(list(self.passengers)):
             reached = passenger.apply_movement_result(movement_result)
             if reached and passenger.state == AgentState.ENTERING_STATION.value:
-                self.gate.join_queue(passenger, authority="goal_graph")
+                passenger_id = int(passenger.unique_id)
+                preferred_slot = self.gate.queue.approach_slot_reservation(
+                    passenger_id
+                )
+                joined = self.gate.join_queue(
+                    passenger,
+                    authority="goal_graph",
+                    settle_after_walking=True,
+                    preferred_slot_index=preferred_slot,
+                )
+                if joined:
+                    self.gate.queue.release_approach_slot(passenger_id)
 
         self.gate.step()
         self.frames.append(self.snapshot())
@@ -718,14 +820,27 @@ class TurnstileProbeModel(mesa.Model):
         }
 
     def _target_approaching_passengers(self) -> None:
-        approaching = [
-            passenger
-            for passenger in self.passengers
-            if passenger.state == AgentState.ENTERING_STATION.value
-        ]
-        for passenger in approaching:
+        slots = self.gate.spec.queue_layout.slots
+        for passenger in self.passengers:
+            if passenger.state != AgentState.ENTERING_STATION.value:
+                continue
+            passenger_id = int(passenger.unique_id)
+            slot_index = self.gate.queue.approach_slot_reservation(passenger_id)
+            if slot_index is None:
+                claimed = set(self.gate.queue.occupied_slot_indices)
+                slot_index = next(
+                    (index for index in range(len(slots)) if index not in claimed),
+                    None,
+                )
+                if slot_index is not None:
+                    self.gate.queue.reserve_approach_slot(passenger_id, slot_index)
+            target = (
+                slots[slot_index]
+                if slot_index is not None
+                else self._pre_gate_target_for(passenger)
+            )
             passenger.set_target(
-                self._pre_gate_target_for(passenger),
+                target,
                 goal_kind="walk",
                 goal_label="turnstile pre-gate merge",
                 facility_id=self.gate.facility_id,

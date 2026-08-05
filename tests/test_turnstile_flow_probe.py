@@ -136,7 +136,7 @@ class TurnstileFlowProbeTests(unittest.TestCase):
         self.assertEqual(0, model.gate.served_persons)
         self.assertIn(passenger, model.gate.queue)
 
-    def test_gate_queue_layout_spreads_shared_anchor_arrivals(self) -> None:
+    def test_gate_queue_layout_rejects_shared_anchor_arrivals(self) -> None:
         args = probe.build_parser().parse_args(
             [
                 "--demands",
@@ -154,30 +154,16 @@ class TurnstileFlowProbeTests(unittest.TestCase):
         )
         model = probe.make_model(args, case)
         anchor = model.gate.spec.queue_layout.slot(0)
-        passengers = []
         for local_index in range(8):
             passenger = model.spawn_source_passenger(local_index=local_index)
             passenger.pos = anchor
             model.gate.join_queue(passenger, authority="goal_graph")
-            passengers.append(passenger)
 
-        # A collapsed-anchor defensive recovery advances through adjacent
-        # physical slots; the eighth passenger therefore needs seven queue
-        # intervals instead of being teleported directly to the tail.
-        for step in range(8):
-            model.step_index = step
+        # Admission/routing owns overlap prevention.  Once an invalid
+        # co-located queue has already been recorded, layout must fail closed
+        # instead of fabricating a collision-free fan-out.
+        with self.assertRaisesRegex(RuntimeError, "co-located bodies"):
             model.gate.step()
-
-        self.assertEqual(8, len(model.gate.queue))
-        self.assertEqual(
-            len(passengers),
-            len(
-                {
-                    (round(passenger.pos[0], 2), round(passenger.pos[1], 2))
-                    for passenger in passengers
-                }
-            ),
-        )
 
     def test_approach_targets_fan_into_pre_gate_zone(self) -> None:
         args = probe.build_parser().parse_args(

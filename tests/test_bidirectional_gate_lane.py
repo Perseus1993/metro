@@ -98,12 +98,39 @@ def test_opposite_gate_facades_share_one_fair_physical_lane() -> None:
     entry.queue.pop(0)
     entry._start_service(first_entry, None)
     assert not exit_gate._can_start_service(first_exit, None)
+    assert exit_gate._queue_layout_slot_index_offset() == 2
+    # The direction that just entered the shared lane is also the yielding
+    # direction for its next follower. The opposing facade retracts through
+    # slot 2 while the active body claims its certified release cell; the
+    # yielding same-direction facade only needs slot 1 for turn-taking.
+    assert entry._queue_layout_slot_index_offset() == 1
+    exit_gate._layout_queue()
+    assert first_exit.target == exit_gate.queue.layout.slot(2)
 
     second_entry = _queued_passenger(model, entry, AgentIntent.ENTER_AND_BOARD)
+    entry._layout_queue()
+    assert second_entry.target == entry.queue.layout.slot(1)
     assert not entry._can_start_service(second_entry, None)
+    assert (
+        entry._service_start_block_reason(
+            second_entry,
+            None,
+            release_index=0,
+        )
+        == "shared_lane_opposing_flow"
+    )
     while entry.active_passes:
         entry._advance_active_passes()
+    model.passengers.remove(first_entry)
 
+    assert exit_gate._queue_layout_slot_index_offset() == 0
+    for _ in range(20):
+        model.step_index += 1
+        exit_gate._layout_queue()
+        if exit_gate._passenger_ready_for_service(first_exit):
+            break
+    assert first_exit.target == exit_gate.queue.layout.slot(0)
+    assert exit_gate._passenger_ready_for_service(first_exit)
     assert exit_gate._can_start_service(first_exit, None)
     assert not entry._can_start_service(second_entry, None)
 
