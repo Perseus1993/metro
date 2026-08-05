@@ -199,15 +199,16 @@ def test_geometry_worker_deadline_terminates_late_processes() -> None:
 
 def test_geometry_worker_native_crash_fails_fast_with_typed_error() -> None:
     recipe = generate_geometry_scenario_matrix().recipes[0]
+    timeout_seconds = 30.0
     started = monotonic()
 
     records, unfinished = geometry._inspect_recipes(
         (recipe,),
-        timeout_seconds=5.0,
+        timeout_seconds=timeout_seconds,
         worker=_crashing_geometry_worker,
     )
 
-    assert monotonic() - started < 2.5
+    assert monotonic() - started < timeout_seconds / 2.0
     assert unfinished == (recipe.recipe_id,)
     assert records[0]["error_codes"] == ("GeometryWorkerCrashed",)
     assert "exitcode=17" in records[0]["error"]

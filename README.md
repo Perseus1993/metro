@@ -65,6 +65,14 @@ uv sync --locked --all-extras --all-packages
 uv run --no-sync pytest -q
 ```
 
+全量 suite 的 CI 入口按测试节点 ID 稳定拆成 64 片，每片独立受 15 分钟超时约束。本地可运行任意一片：
+
+```bash
+uv run --no-sync pytest -q --shard-count 64 --shard-index 0
+```
+
+`--shard-index` 取值为 `0..63`；64 片的并集恰好覆盖一次根目录收集到的全部测试。
+
 运行约束生成布局的静态几何、拓扑、回放和资产绑定验收：
 
 ```bash
