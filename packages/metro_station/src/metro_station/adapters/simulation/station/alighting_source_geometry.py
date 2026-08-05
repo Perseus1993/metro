@@ -27,6 +27,7 @@ def alighting_source_raw_candidate(
     candidate_index: int,
     *,
     agent_radius_m: float,
+    lateral_offset_m: float = 0.0,
 ) -> Point:
     """Return one door-local source-lattice point used by runtime admission."""
 
@@ -42,7 +43,7 @@ def alighting_source_raw_candidate(
     spacing = alighting_source_spacing_m(agent_radius_m)
     lane = int(candidate_index) % ALIGHTING_SOURCE_LANE_COUNT
     row = int(candidate_index) // ALIGHTING_SOURCE_LANE_COUNT
-    side_offset = (lane - 1.5) * spacing
+    side_offset = float(lateral_offset_m) + (lane - 1.5) * spacing
     inward_offset = ALIGHTING_SOURCE_FIRST_ROW_OFFSET_M + row * spacing
     return (
         float(base[0]) + inward_x * inward_offset + side_x * side_offset,
@@ -57,6 +58,7 @@ def materialize_alighting_source_candidates(
     *,
     agent_radius_m: float,
     peak_batch: int,
+    lateral_offset_m: float = 0.0,
     clamp: Callable[[Point], Point] | None = None,
 ) -> tuple[Point, ...]:
     """Materialize every source cell runtime may inspect for one peak batch.
@@ -77,6 +79,7 @@ def materialize_alighting_source_candidates(
             queue_anchor,
             index,
             agent_radius_m=agent_radius_m,
+            lateral_offset_m=lateral_offset_m,
         )
         projected_input = raw if clamp is None else clamp(raw)
         try:

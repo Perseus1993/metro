@@ -4,13 +4,14 @@ from dataclasses import replace
 from types import SimpleNamespace
 
 import pytest
-from shapely.geometry import MultiPoint, box
+from shapely.geometry import LineString, MultiPoint, Point, box
 
 from metro_station.adapters.simulation.compilation.spatial_capacity import (
     CAPACITY_POLICY_VERSION,
     SpatialCapacityCertificate,
     validate_spatial_capacity_certificates,
 )
+from metro_station.adapters.simulation.agents.passenger import PassengerAgent
 from metro_station.adapters.simulation.compilation.validation import (
     validate_compiled_station_design,
 )
@@ -19,6 +20,10 @@ from metro_station.adapters.simulation.design.templates import (
     topology_templates,
 )
 from metro_station.adapters.simulation.station.compiler import DesignCompiler
+from metro_station.adapters.simulation.station.alighting_source_geometry import (
+    alighting_source_raw_candidate,
+)
+from metro_station.adapters.simulation.station.geometry import grid_safe_points
 from metro_station.adapters.simulation.station.scenario import StationSandboxScenario
 from metro_station.adapters.simulation.runtime.mesa_model import MetroStationModel
 from metro_station.adapters.simulation.movement.contracts import MovementResult
@@ -72,6 +77,83 @@ def test_runtime_platform_waiting_positions_are_compiler_certificate_slots() -> 
         for certificate in sorted(certificates, key=lambda item: item.certificate_id)
         for point in certificate.slots
     )
+
+
+def test_platform_waiting_excludes_queue_and_holding_storage_domains() -> None:
+    document = create_design("single_level_terminal")
+    scenario = _scenario(document)
+    layout = DesignCompiler.compile(document, scenario)
+    waiting = tuple(
+        item
+        for item in layout.spatial_capacity_certificates
+        if item.resource_kind == "platform_waiting"
+    )
+    queues = tuple(
+        item
+        for item in layout.spatial_capacity_certificates
+        if item.resource_kind == "queue"
+    )
+    holdings = tuple(
+        item
+        for item in layout.spatial_capacity_certificates
+        if item.resource_kind == "decision_holding"
+    )
+    body_clearance = max(
+        scenario.jupedsim_agent_radius_units
+        * scenario.jupedsim_clearance_multiplier,
+        scenario.jupedsim_agent_radius_units * 2.05,
+    )
+
+    assert waiting
+    for certificate in waiting:
+        same_level_queues = tuple(
+            queue for queue in queues if queue.level_id == certificate.level_id
+        )
+        same_level_holdings = tuple(
+            holding for holding in holdings if holding.level_id == certificate.level_id
+        )
+        assert all(
+            all(
+                (point[0] - queue_point[0]) ** 2
+                + (point[1] - queue_point[1]) ** 2
+                >= body_clearance**2 - 1e-9
+                for queue in same_level_queues
+                for queue_point in queue.slots
+            )
+            and all(
+                holding.domain is None
+                or not holding.domain.covers(MultiPoint((point,)).geoms[0])
+                for holding in same_level_holdings
+            )
+            for point in certificate.slots
+        )
+
+
+def test_platform_waiting_excludes_train_door_boarding_crossings() -> None:
+    document = create_design("visual_demo_station")
+    scenario = _scenario(document)
+    model = MetroStationModel(scenario, seed=17)
+    platform = model.platforms[0]
+    passenger = PassengerAgent(
+        model,
+        group_size=1,
+        created_step=0,
+        intent=AgentIntent.ENTER_AND_BOARD,
+    )
+    passenger.current_level_id = model.boarding_doors[0].portal_entry_level_id
+    model.passengers.append(passenger)
+    slot = model._reserve_platform_waiting_slot(passenger, platform)
+    required_clearance = max(
+        scenario.jupedsim_agent_radius_units
+        * scenario.jupedsim_clearance_multiplier,
+        scenario.personal_space_units * 0.75,
+    )
+
+    for binding in model.layout_graph.facility_portal_bindings:
+        if binding.stage != "boarding_door" or not binding.approach_slots:
+            continue
+        crossing = LineString((binding.approach_slots[0], binding.entry_point))
+        assert crossing.distance(Point(slot)) >= required_clearance - 1e-9
 
 
 def test_overlapping_holding_regions_consume_one_shared_level_ledger() -> None:
@@ -151,7 +233,7 @@ def test_coactive_overlap_requires_an_explicit_mutex_contract() -> None:
     }
 
 
-def test_alighting_source_lattice_conflict_rejects_design_before_model_start() -> None:
+def test_alighting_source_pool_excludes_coactive_queue_slots_before_model_start() -> None:
     document = create_design("visual_demo_station")
     compiled = validate_compiled_station_design(
         document,
@@ -165,9 +247,59 @@ def test_alighting_source_lattice_conflict_rejects_design_before_model_start() -
     )
     assert sources
     assert all(item.required_body_capacity == 1 for item in sources)
-    assert "capacity.coactive_slot_conflict" in {
+    assert "capacity.coactive_slot_conflict" not in {
         item.code for item in compiled.issues if item.severity == "error"
     }
+    queues = tuple(
+        item
+        for item in compiled.spatial_capacity_certificates
+        if item.resource_kind in {"queue", "decision_holding"}
+    )
+    assert all(
+        (source_point[0] - queue_point[0]) ** 2
+        + (source_point[1] - queue_point[1]) ** 2
+        >= max(source.minimum_clearance_m, queue.minimum_clearance_m) ** 2 - 1e-9
+        for source in sources
+        for queue in queues
+        if source.level_id == queue.level_id
+        for source_point in source.slots
+        for queue_point in queue.slots
+    )
+
+
+def test_alighting_source_lateral_offset_moves_the_complete_door_local_lattice() -> None:
+    base = (0.0, 0.0)
+    queue_anchor = (0.0, -1.0)
+
+    centered = alighting_source_raw_candidate(
+        base,
+        queue_anchor,
+        0,
+        agent_radius_m=0.18,
+    )
+    shifted = alighting_source_raw_candidate(
+        base,
+        queue_anchor,
+        0,
+        agent_radius_m=0.18,
+        lateral_offset_m=10.0,
+    )
+
+    assert centered == pytest.approx((-0.6, -0.35))
+    assert shifted == pytest.approx((9.4, -0.35))
+
+
+def test_grid_safe_points_preserve_declared_sub_metre_spacing() -> None:
+    spacing = 0.801
+    points = grid_safe_points(box(0.0, 0.0, 4.0, 4.0), spacing=spacing, clearance=0.0)
+
+    assert points
+    assert all(
+        (left[0] - right[0]) ** 2 + (left[1] - right[1]) ** 2
+        >= spacing**2 - 1e-9
+        for index, left in enumerate(points)
+        for right in points[index + 1 :]
+    )
 
 
 def test_elevator_certificate_proves_every_batch_prefix() -> None:

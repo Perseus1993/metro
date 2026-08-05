@@ -180,7 +180,10 @@ def grid_safe_points(
     while y <= max_y - spacing / 2.0:
         x = min_x + spacing / 2.0
         while x <= max_x - spacing / 2.0:
-            candidates.append((round(x, 4), round(y, 4)))
+            # Capacity certificates compare this lattice against the exact
+            # requested spacing.  Six decimals keep the rounding error below
+            # the compiler's numerical tolerance for sub-metre body grids.
+            candidates.append((round(x, 6), round(y, 6)))
             x += spacing
         y += spacing
     if not candidates:

@@ -794,7 +794,7 @@ def test_non_evacuation_cost_change_retargets_tactical_catchment() -> None:
     assert passenger.goal_runtime.state.commitment is None
 
 
-def test_platform_waiting_slot_is_inside_boarding_door_decision_catchment() -> None:
+def test_boarding_unavailable_retains_owned_platform_waiting_target() -> None:
     model = MetroStationModel(_scenario(), seed=53)
     passenger = model._spawn_passenger(AgentIntent.ENTER_AND_BOARD)
     platform = model.platforms[0]
@@ -808,8 +808,9 @@ def test_platform_waiting_slot_is_inside_boarding_door_decision_catchment() -> N
 
     route = router.route(model, passenger, "boarding_decision")
 
-    assert route == (passenger.pos,)
-    assert router.reached(passenger, route)
+    reservation = model._platform_waiting_reservations[int(passenger.unique_id)]
+    assert route == (reservation.point,)
+    assert passenger in platform.waiting
 
 
 @pytest.mark.parametrize(
@@ -903,6 +904,9 @@ def test_holding_context_reconsiders_newly_reopened_facility_bank() -> None:
     assert len(gates) > 1
     escape_gate = gates[-1]
     reopened_gates = gates[:-1]
+    passenger = model._spawn_passenger(AgentIntent.ENTER_AND_BOARD)
+    model._clear_all_decision_holding_reservations(passenger)
+    model._clear_all_facility_targeting_reservations(passenger)
     model.disruption_controller.dynamic_disabled_ids.update(
         gate.facility_id for gate in reopened_gates
     )
@@ -922,8 +926,12 @@ def test_holding_context_reconsiders_newly_reopened_facility_bank() -> None:
         model._reserve_facility_approach_slot(owner, escape_gate)
         reservation_owner.unique_id -= 1
 
-    passenger = model._spawn_passenger(AgentIntent.ENTER_AND_BOARD)
     router = model.goal_coordinator.executor.region_router
+    passenger.set_route(
+        router.route(model, passenger, "entry_gate_decision"),
+        goal_kind="goal_region",
+        goal_label="entry_gate_decision",
+    )
     assert "entry_gate_decision" in passenger.decision_holding_target_by_region
     assert set(passenger.decision_facility_ids_by_region["entry_gate_decision"]) == {
         escape_gate.facility_id
@@ -1177,7 +1185,7 @@ def test_decision_holding_capacity_exhaustion_is_typed() -> None:
         )
 
 
-def test_closed_entry_gates_and_saturated_holding_apply_backpressure_without_abort() -> None:
+def test_closed_entry_gates_and_saturated_holding_reject_second_published_body() -> None:
     baseline = MetroStationModel(_scenario(), seed=73061)
     entry_gate_ids = tuple(gate.facility_id for gate in baseline.gates)
     model = MetroStationModel(
@@ -1198,26 +1206,27 @@ def test_closed_entry_gates_and_saturated_holding_apply_backpressure_without_abo
             for item in model.layout_graph.decision_holding_regions
         ),
     )
-    passengers = tuple(
+    first = PassengerAgent(
+        model,
+        group_size=1,
+        created_step=0,
+        intent=AgentIntent.ENTER_AND_BOARD,
+        initial_position=region.anchors[0],
+        initial_level_id=region.level_id,
+    )
+    with pytest.raises(DecisionHoldingCapacityError):
         PassengerAgent(
             model,
             group_size=1,
             created_step=0,
             intent=AgentIntent.ENTER_AND_BOARD,
-            initial_position=(region.anchors[0][0] - index * 0.5, region.anchors[0][1]),
+            initial_position=(region.anchors[0][0] - 0.5, region.anchors[0][1]),
             initial_level_id=region.level_id,
         )
-        for index in range(2)
-    )
-    model.passengers.extend(passengers)
-    router = PassengerGoalRegionRouter()
 
-    first_route = router.route(model, passengers[0], "entry_gate_decision")
-    second_route = router.route(model, passengers[1], "entry_gate_decision")
-
-    assert first_route
-    assert second_route
-    assert second_route[-1] == passengers[1].pos
+    assert first.decision_holding_target_by_region == {
+        "entry_gate_decision": region.slots[0]
+    }
     assert all(not gate.is_open for gate in model.gates)
 
 
@@ -1261,6 +1270,37 @@ def test_decision_holding_revalidates_reservation_after_geometry_revision(
     assert second != first
     reservation = model._decision_holding_reservations[(int(passenger.unique_id), region.region_id)]
     assert reservation.walkable_area_revision == model._walkable_area_revision
+
+
+def test_decision_holding_release_waits_for_physical_body_clearance() -> None:
+    model = MetroStationModel(_scenario(), seed=7308)
+    region = next(
+        item
+        for item in model.layout_graph.decision_holding_regions
+        if item.region_id == "entry_gate_decision"
+    )
+    passenger = PassengerAgent(
+        model,
+        group_size=1,
+        created_step=0,
+        intent=AgentIntent.ENTER_AND_BOARD,
+        initial_position=region.anchors[0],
+        initial_level_id=region.level_id,
+    )
+    target = model._reserve_decision_holding_slot(
+        passenger,
+        region.region_id,
+        region.anchors,
+    )
+    passenger.pos = target
+    owner_key = (int(passenger.unique_id), region.region_id)
+
+    model._clear_vacated_decision_holding_reservations(passenger, schedule=True)
+
+    assert owner_key in model._decision_holding_reservations
+    passenger.pos = (target[0] + 10.0, target[1])
+    model._clear_vacated_decision_holding_reservations(passenger)
+    assert owner_key not in model._decision_holding_reservations
 
 
 def test_disabled_facility_portals_do_not_expand_decision_region() -> None:

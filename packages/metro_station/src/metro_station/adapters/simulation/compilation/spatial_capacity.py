@@ -22,9 +22,20 @@ from ..station.alighting_source_geometry import (
 )
 from ..station.geometry import grid_safe_points, level_walkable_geometry
 from ..station.graph import StationGraph
-from .decision_holding_regions import DecisionHoldingRegionBinding
+from .decision_holding_regions import (
+    DecisionHoldingRegionBinding,
+    _facility_ingress_corridors,
+)
 from .facility_portal_contract import NUMERICAL_TOLERANCE_M
 from .geometry_reachability import GeometryCompilePolicy
+from .spatial_capacity_geometry import (
+    PointSpatialIndex as _PointSpatialIndex,
+    boarding_queue_access_corridors as _boarding_queue_access_corridors,
+    distance as _distance,
+    gate_bank_tail_aisles as _gate_bank_tail_aisles,
+    point_segment_distance as _point_segment_distance,
+    station_walk_flow_corridors as _station_walk_flow_corridors,
+)
 
 
 CAPACITY_POLICY_VERSION = 1
@@ -200,22 +211,19 @@ def compile_spatial_capacity_certificates(
             )
         )
 
-    alighting_sources = _alighting_source_certificates(
-        document,
-        facility_by_id,
-        bindings,
-        scenario=scenario,
-        policy=policy,
-        body_profile_fingerprint=body_fingerprint,
-    )
-    certificates.extend(alighting_sources)
-
-    static_blockers_by_level = _stationary_blockers_by_level(certificates)
     release_and_corridor: list[SpatialCapacityCertificate] = []
     for binding in bindings:
         facility = facility_by_id.get(binding.facility_id)
         if facility is None:
             continue
+        coactive_release_certificates = (
+            tuple(release_and_corridor)
+            if binding.kind == FacilityKind.ESCALATOR.value
+            else ()
+        )
+        blockers_by_level = _stationary_blockers_by_level(
+            (*certificates, *coactive_release_certificates)
+        )
         release, corridor = _facility_release_certificates(
             document,
             facility,
@@ -223,11 +231,22 @@ def compile_spatial_capacity_certificates(
             scenario=scenario,
             policy=policy,
             body_profile_fingerprint=body_fingerprint,
-            blocked_positions=static_blockers_by_level.get(binding.exit_level_id, ()),
+            blocked_positions=blockers_by_level.get(binding.exit_level_id, ()),
             mutex_owner_ids=_binding_mutex_owner_ids(binding, bindings),
         )
         release_and_corridor.extend((release, corridor))
     certificates.extend(release_and_corridor)
+
+    alighting_sources = _alighting_source_certificates(
+        document,
+        facility_by_id,
+        bindings,
+        blocked_certificates=tuple(certificates),
+        scenario=scenario,
+        policy=policy,
+        body_profile_fingerprint=body_fingerprint,
+    )
+    certificates.extend(alighting_sources)
 
     spawn_certificates = _spawn_reservoir_certificates(
         document,
@@ -986,15 +1005,87 @@ def _platform_waiting_certificates(
         )
 
     result: list[SpatialCapacityCertificate] = []
-    spacing = max(policy.two_body_clearance_m, policy.agent_radius_m * 2.05) + 0.001
+    spacing = max(
+        policy.personal_space_m,
+        policy.two_body_clearance_m,
+        policy.agent_radius_m * 2.05,
+    ) + 0.001
+    storage_clearance = spacing
+    corridor_clearance = spacing
     for level_id in sorted(level_ids):
         domain = level_walkable_geometry(document, level_id).buffer(-policy.agent_radius_m * 1.05)
         blocked = by_level.get(level_id, ())
         if blocked:
-            domain = domain.difference(MultiPoint(blocked).buffer(spacing))
+            domain = domain.difference(MultiPoint(blocked).buffer(storage_clearance))
+        storage_exclusions: list[Any] = []
+        for certificate in existing:
+            if certificate.level_id != level_id:
+                continue
+            if (
+                certificate.resource_kind == "decision_holding"
+                and certificate.domain is not None
+            ):
+                # Holding is an owned area, not just a set of independently
+                # clear point centres. Allowing platform storage in the gaps
+                # of its lattice recreates an immobile mixed-owner wall.
+                storage_exclusions.append(certificate.domain)
+            elif certificate.resource_kind == "queue" and certificate.slots:
+                # Queue certificates use the whole walkable level as their
+                # validation domain, so exclude a continuous tube around the
+                # materialised FIFO instead of that (over-broad) domain.
+                storage_exclusions.append(
+                    MultiPoint(certificate.slots).buffer(storage_clearance)
+                )
+        if storage_exclusions:
+            domain = domain.difference(unary_union(storage_exclusions))
         corridors = corridor_domains_by_level.get(level_id, ())
         if corridors:
             domain = domain.difference(unary_union(corridors).buffer(policy.target_radius_m))
+        flow_corridors = _station_walk_flow_corridors(
+            graph,
+            level_id,
+            clearance=corridor_clearance,
+        )
+        if not flow_corridors.is_empty:
+            # Waiting cells are long-lived bodies.  Point-clear certificates
+            # can still pack them across a strategic station route and create
+            # a wall under sustained demand, so preserve the authored walk
+            # graph as a continuous aisle before materialising storage.
+            domain = domain.difference(flow_corridors)
+        facility_ingress_corridors = _facility_ingress_corridors(
+            bindings,
+            graph,
+            level_id,
+            spacing,
+        )
+        if not facility_ingress_corridors.is_empty:
+            # Queue point buffers protect only materialised standing cells.
+            # Long-lived platform storage must also leave the full approach
+            # sweep and multi-lane tail aisle body-free, otherwise the gaps
+            # between valid waiting cells can still close the only FIFO
+            # ingress under sustained mixed flow.
+            domain = domain.difference(facility_ingress_corridors)
+        gate_tail_aisles = _gate_bank_tail_aisles(
+            bindings,
+            level_id,
+            domain,
+            clearance=spacing,
+        )
+        if not gate_tail_aisles.is_empty:
+            domain = domain.difference(gate_tail_aisles)
+        boarding_access_corridors = _boarding_queue_access_corridors(
+            graph,
+            bindings,
+            level_id,
+            clearance=corridor_clearance,
+        )
+        if not boarding_access_corridors.is_empty:
+            # The queue tail is the only legitimate hand-off from broad
+            # platform storage into a finite boarding FIFO. Keep one
+            # continuous upstream lane body-free; otherwise a valid set of
+            # waiting cells can form a closed arc around the tail and make
+            # every owned queue slot dynamically unreachable.
+            domain = domain.difference(boarding_access_corridors)
         approaches = boarding_approaches_by_level.get(level_id, ())
         slots = tuple(
             sorted(
@@ -1031,6 +1122,7 @@ def _alighting_source_certificates(
     facility_by_id: dict[str, FacilitySpec],
     bindings: tuple[FacilityPortalBinding, ...],
     *,
+    blocked_certificates: tuple[SpatialCapacityCertificate, ...],
     scenario: Any,
     policy: GeometryCompilePolicy,
     body_profile_fingerprint: str,
@@ -1049,13 +1141,32 @@ def _alighting_source_certificates(
         if facility is None:
             continue
         walkable = level_walkable_geometry(document, binding.exit_level_id)
-        candidates = materialize_alighting_source_candidates(
+        raw_candidates = materialize_alighting_source_candidates(
             facility.exit_position,
             facility.queue_layout.anchor,
             walkable,
             agent_radius_m=policy.agent_radius_m,
             peak_batch=peak_batch,
+            lateral_offset_m=float(scenario.alighting_source_lateral_offset_m),
         )
+        occupied = (*blocked_certificates, *result)
+        selected_candidates: list[Point] = []
+        for candidate in raw_candidates:
+            if not _alighting_candidate_is_clear(
+                candidate,
+                binding.exit_level_id,
+                occupied,
+                source_clearance_m=policy.two_body_clearance_m,
+            ):
+                continue
+            if _first_cross_clearance_conflict(
+                tuple(selected_candidates),
+                (candidate,),
+                policy.two_body_clearance_m,
+            ) is not None:
+                continue
+            selected_candidates.append(candidate)
+        candidates = tuple(selected_candidates)
         proved_capacity = min(peak_batch, len(candidates))
         batch_plans = tuple(
             tuple(candidates[:size]) for size in range(1, proved_capacity + 1)
@@ -1080,6 +1191,30 @@ def _alighting_source_certificates(
             )
         )
     return tuple(result)
+
+
+def _alighting_candidate_is_clear(
+    candidate: Point,
+    level_id: str,
+    blocked_certificates: tuple[SpatialCapacityCertificate, ...],
+    *,
+    source_clearance_m: float,
+) -> bool:
+    """Keep the certified runtime source pool disjoint from co-active storage."""
+
+    for certificate in blocked_certificates:
+        if (
+            certificate.level_id != level_id
+            or certificate.resource_kind not in STORAGE_RESOURCE_KINDS
+        ):
+            continue
+        minimum = max(source_clearance_m, certificate.minimum_clearance_m)
+        if any(
+            _distance(candidate, point) + NUMERICAL_TOLERANCE_M < minimum
+            for point in certificate.slots
+        ):
+            return False
+    return True
 
 
 def _spawn_reservoir_certificates(
@@ -1473,91 +1608,6 @@ def _geometry_fingerprint(geometry: Any) -> str:
     if geometry is None:
         return hashlib.sha256(b"none").hexdigest()
     return hashlib.sha256(bytes(geometry.wkb)).hexdigest()
-
-
-def _distance(left: Point, right: Point) -> float:
-    return hypot(left[0] - right[0], left[1] - right[1])
-
-
-def _point_segment_distance(point: Point, start: Point, end: Point) -> float:
-    dx = end[0] - start[0]
-    dy = end[1] - start[1]
-    squared_length = dx * dx + dy * dy
-    if squared_length <= 1e-18:
-        return _distance(point, start)
-    ratio = (
-        (point[0] - start[0]) * dx + (point[1] - start[1]) * dy
-    ) / squared_length
-    ratio = min(1.0, max(0.0, ratio))
-    projection = start[0] + ratio * dx, start[1] + ratio * dy
-    return _distance(point, projection)
-
-
-@dataclass(frozen=True)
-class _PointSpatialIndex:
-    """Finite point lookup used by constructive path proofs.
-
-    Release paths are short straight segments.  Indexing stationary resources
-    by clearance-sized cells avoids rebuilding millions of Shapely Point
-    objects and keeps compile cost proportional to nearby blockers.
-    """
-
-    cell_size: float
-    buckets: dict[tuple[int, int], tuple[Point, ...]]
-
-    @classmethod
-    def build(
-        cls,
-        points: Iterable[Point],
-        *,
-        cell_size: float,
-    ) -> _PointSpatialIndex:
-        size = max(0.001, float(cell_size))
-        mutable: dict[tuple[int, int], list[Point]] = {}
-        for point in points:
-            key = floor(point[0] / size), floor(point[1] / size)
-            mutable.setdefault(key, []).append(point)
-        return cls(size, {key: tuple(value) for key, value in mutable.items()})
-
-    def near_point(self, point: Point, *, radius: float) -> tuple[Point, ...]:
-        return self._in_bounds(
-            point[0] - radius,
-            point[1] - radius,
-            point[0] + radius,
-            point[1] + radius,
-        )
-
-    def near_segment(
-        self,
-        start: Point,
-        end: Point,
-        *,
-        radius: float,
-    ) -> tuple[Point, ...]:
-        return self._in_bounds(
-            min(start[0], end[0]) - radius,
-            min(start[1], end[1]) - radius,
-            max(start[0], end[0]) + radius,
-            max(start[1], end[1]) + radius,
-        )
-
-    def _in_bounds(
-        self,
-        min_x: float,
-        min_y: float,
-        max_x: float,
-        max_y: float,
-    ) -> tuple[Point, ...]:
-        min_cell_x = floor(min_x / self.cell_size)
-        min_cell_y = floor(min_y / self.cell_size)
-        max_cell_x = floor(max_x / self.cell_size)
-        max_cell_y = floor(max_y / self.cell_size)
-        return tuple(
-            point
-            for cell_x in range(min_cell_x, max_cell_x + 1)
-            for cell_y in range(min_cell_y, max_cell_y + 1)
-            for point in self.buckets.get((cell_x, cell_y), ())
-        )
 
 
 def _dedupe_issues(issues: Iterable[ValidationIssue]) -> list[ValidationIssue]:

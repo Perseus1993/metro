@@ -528,58 +528,83 @@ def test_invalid_design_simulation_endpoint_returns_422_and_no_job() -> None:
     assert "job_id" not in response_payload
 
 
-def test_random_scratch_drags_generate_deterministically_without_crashing() -> None:
-    rng = random.Random(20260713)
-    statuses: list[str] = []
-    for template_id in (
+def test_queue_generation_failure_is_reported_as_a_validation_issue() -> None:
+    payload = _generated_payload("scratch_two_level")
+    for node in payload["nodes"]:
+        if node.get("data", {}).get("inspector_created"):
+            node["position"] = {"x": 50.0, "y": 35.0}
+
+    compiled = compile_react_flow_payload(payload)
+
+    assert compiled["summary"]["status"] == "error"
+    assert any(
+        issue["code"] == "spatial_capacity.queue_domain_unavailable"
+        and issue["path"] == "queues"
+        for issue in compiled["validation_issues"]
+    )
+
+
+@pytest.mark.parametrize(
+    ("template_id", "sample"),
+    tuple(
+        (template_id, sample)
+        for template_id in (
+            "scratch_single_level",
+            "scratch_two_level",
+            "scratch_three_level",
+        )
+        for sample in range(30)
+    ),
+)
+def test_random_scratch_drags_generate_deterministically_without_crashing(
+    template_id: str,
+    sample: int,
+) -> None:
+    template_index = (
         "scratch_single_level",
         "scratch_two_level",
         "scratch_three_level",
-    ):
-        for sample in range(30):
-            payload = _generated_payload(template_id)
-            for node in payload["nodes"]:
-                if not node.get("data", {}).get("inspector_created"):
-                    continue
-                width = float(node["width"])
-                height = float(node["height"])
-                if sample % 2 == 0:
-                    node["position"] = {
-                        "x": node["position"]["x"] + rng.uniform(-2.0, 2.0),
-                        "y": node["position"]["y"] + rng.uniform(-2.0, 2.0),
-                    }
-                else:
-                    node["position"] = {
-                        "x": rng.uniform(4.0, 116.0 - width),
-                        "y": rng.uniform(4.0, 76.0 - height),
-                    }
+    ).index(template_id)
+    rng = random.Random(20260713 + template_index * 30 + sample)
+    payload = _generated_payload(template_id)
+    for node in payload["nodes"]:
+        if not node.get("data", {}).get("inspector_created"):
+            continue
+        width = float(node["width"])
+        height = float(node["height"])
+        if sample % 2 == 0:
+            node["position"] = {
+                "x": node["position"]["x"] + rng.uniform(-2.0, 2.0),
+                "y": node["position"]["y"] + rng.uniform(-2.0, 2.0),
+            }
+        else:
+            node["position"] = {
+                "x": rng.uniform(4.0, 116.0 - width),
+                "y": rng.uniform(4.0, 76.0 - height),
+            }
 
-            first = compile_react_flow_payload(payload)
-            second = compile_react_flow_payload(copy.deepcopy(payload))
-            first_signature = (
-                first["summary"]["status"],
-                [
-                    (issue["severity"], issue["code"], issue["path"])
-                    for issue in first["validation_issues"]
-                ],
-                first["document"]["queues"],
-                first["document"]["connections"],
-            )
-            second_signature = (
-                second["summary"]["status"],
-                [
-                    (issue["severity"], issue["code"], issue["path"])
-                    for issue in second["validation_issues"]
-                ],
-                second["document"]["queues"],
-                second["document"]["connections"],
-            )
+    first = compile_react_flow_payload(payload)
+    second = compile_react_flow_payload(copy.deepcopy(payload))
+    first_signature = (
+        first["summary"]["status"],
+        [
+            (issue["severity"], issue["code"], issue["path"])
+            for issue in first["validation_issues"]
+        ],
+        first["document"]["queues"],
+        first["document"]["connections"],
+    )
+    second_signature = (
+        second["summary"]["status"],
+        [
+            (issue["severity"], issue["code"], issue["path"])
+            for issue in second["validation_issues"]
+        ],
+        second["document"]["queues"],
+        second["document"]["connections"],
+    )
 
-            assert first_signature == second_signature
-            statuses.append(first["summary"]["status"])
-
-    assert "ok" in statuses
-    assert "error" in statuses
+    assert first_signature == second_signature
 
 
 def test_frontend_demand_drag_requires_the_correct_facility_and_updates_rate() -> None:

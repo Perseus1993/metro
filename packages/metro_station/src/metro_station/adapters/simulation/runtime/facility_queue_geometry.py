@@ -2,8 +2,10 @@ from __future__ import annotations
 
 import sys
 from dataclasses import dataclass, field
+from math import hypot
 
 from ..agents.passenger import PassengerAgent
+from ..facilities.process import FacilityKind
 from ..facilities.runtime import FacilityProcessAgent
 from ..station.geometry import project_to_safe_point
 
@@ -257,6 +259,18 @@ class FacilityQueueGeometryMixin:
         passenger: PassengerAgent,
         facility: FacilityProcessAgent,
     ) -> tuple[tuple[float, float], ...]:
+        stage = facility.spec.stage
+        reserved_index = passenger.facility_approach_slots_by_stage.get(stage)
+        if (
+            passenger.facility_approach_facility_ids_by_stage.get(stage)
+            == facility.facility_id
+            and reserved_index is not None
+        ):
+            return self.route_to_facility_queue_slot(
+                passenger,
+                facility,
+                reserved_index,
+            )
         portals = self._facility_portals(passenger, facility)
         topology_route = self._station_graph_route_to_facility(
             passenger,
@@ -291,20 +305,127 @@ class FacilityQueueGeometryMixin:
             normalized_index,
         )
         binding = self.facility_portal_binding(facility.facility_id)
+        ingress_anchors = self._gate_queue_ingress_anchors(
+            passenger,
+            facility,
+            normalized_index,
+        )
+        include_navigation_waypoints = facility.spec.kind != FacilityKind.GATE.value
         topology_route = self._station_graph_route_to_facility(
             passenger,
             facility,
             final_target_override=target,
-            include_navigation_waypoints=True,
+            final_approach_anchors=ingress_anchors,
+            include_navigation_waypoints=include_navigation_waypoints,
         )
         if topology_route:
             return topology_route
         return self._physical_route_for_points(
             passenger,
-            (target,),
+            (*ingress_anchors, target),
             level_id=binding.entry_level_id,
-            include_navigation_waypoints=True,
+            include_navigation_waypoints=include_navigation_waypoints,
         )
+
+    def _gate_queue_ingress_anchors(
+        self,
+        passenger: PassengerAgent,
+        facility: FacilityProcessAgent,
+        slot_index: int,
+    ) -> tuple[tuple[float, float], ...]:
+        """Enter a gate bank from its open tail aisle, never across other lanes."""
+
+        if facility.spec.kind != FacilityKind.GATE.value:
+            return ()
+        binding = self.facility_portal_binding(facility.facility_id)
+        slots = tuple(binding.approach_slots)
+        if not slots or slot_index < 0 or slot_index >= len(slots):
+            return ()
+        entry = tuple(binding.entry_point)
+        tail = slots[-1]
+        axis = (tail[0] - entry[0], tail[1] - entry[1])
+        axis_length = hypot(axis[0], axis[1])
+        if axis_length <= 1e-6:
+            return ()
+        axis_unit = (axis[0] / axis_length, axis[1] / axis_length)
+        lateral = (-axis_unit[1], axis_unit[0])
+        spacing = min(
+            (
+                hypot(right[0] - left[0], right[1] - left[1])
+                for left, right in zip(slots, slots[1:])
+                if hypot(right[0] - left[0], right[1] - left[1]) > 1e-6
+            ),
+            default=max(0.8, float(self.scenario.personal_space_units)),
+        )
+        aisle_clearance = max(
+            spacing,
+            float(self.scenario.personal_space_units),
+            float(self.scenario.jupedsim_agent_radius_units) * 2.5,
+        )
+        mouth = (
+            tail[0] + axis_unit[0] * aisle_clearance,
+            tail[1] + axis_unit[1] * aisle_clearance,
+        )
+        bank_bindings = tuple(
+            candidate
+            for candidate in self.layout_graph.facility_portal_bindings
+            if candidate.kind == binding.kind
+            and candidate.stage == binding.stage
+            and candidate.source_element_id == binding.source_element_id
+            and candidate.entry_level_id == binding.entry_level_id
+            and candidate.approach_slots
+        )
+        tail_projections = tuple(
+            candidate.approach_slots[-1][0] * lateral[0]
+            + candidate.approach_slots[-1][1] * lateral[1]
+            for candidate in bank_bindings
+        )
+        passenger_projection = (
+            passenger.pos[0] * lateral[0] + passenger.pos[1] * lateral[1]
+        )
+        clamped_projection = min(
+            max(passenger_projection, min(tail_projections)),
+            max(tail_projections),
+        )
+        mouth_projection = mouth[0] * lateral[0] + mouth[1] * lateral[1]
+        bank_entry = (
+            mouth[0]
+            + lateral[0] * (clamped_projection - mouth_projection),
+            mouth[1]
+            + lateral[1] * (clamped_projection - mouth_projection),
+        )
+        # The raw tail aisle can coincide with the radius-shrunk navigation
+        # boundary. JuPedSim's wall force then balances the desired force for
+        # a body moving parallel to the bank and creates a solitary local
+        # minimum. Keep operational ingress anchors inside a modest wall-safe
+        # core; the certified queue slots themselves remain unchanged.
+        wall_clearance = max(
+            float(self.scenario.jupedsim_agent_radius_units) * 1.5,
+            float(self.scenario.personal_space_units) * 0.5,
+        )
+        area = self._facility_approach_walkable_area(facility)
+        bank_entry = project_to_safe_point(
+            area,
+            bank_entry,
+            clearance=wall_clearance,
+            require_inside=False,
+        )
+        mouth = project_to_safe_point(
+            area,
+            mouth,
+            clearance=wall_clearance,
+            require_inside=False,
+        )
+        ingress = (
+            (bank_entry, mouth)
+            if hypot(
+                bank_entry[0] - mouth[0],
+                bank_entry[1] - mouth[1],
+            )
+            >= aisle_clearance
+            else (mouth,)
+        )
+        return ingress
 
     def facility_walking_route(
         self,
