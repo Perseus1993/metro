@@ -1,0 +1,23 @@
+{
+  "schema_version": "alignment_agent_review.v2",
+  "round": 25,
+  "agent": "debt_audit",
+  "task_ref": "T9",
+  "status": "pass",
+  "checks": [
+    {"id": "G1", "question": "所有生产改动是否完成 fix/patch 判定", "verdict": "pass", "evidence": ["cmd: git diff 55543e2b..HEAD -- production paths | output: 17 logical changes; 15 fix, 2 visibility-only patch"], "note": "两项 visibility-only 机制均已登记，不被当作根因修复。"},
+    {"id": "G2", "question": "fallback 是否仍暴露失败", "verdict": "pass", "evidence": ["alignment/src/metro_alignment/admission_tokens.py", "alignment/src/metro_alignment/metro_executor.py"], "note": "缺证据、hash/scope 不匹配和欠配均形成 blocker；不存在默认 W。"},
+    {"id": "G3", "question": "恢复机制是否按频率分类", "verdict": "pass", "evidence": ["alignment/docs/debt_register.md", "alignment/output/round25/T9_debt_triage.json"], "note": "replan 78.8%、T5 placement retry 11.59%、T8 13.46% 均作为常态依赖登记。"},
+    {"id": "G4", "question": "隔离与豁免是否有退休条件", "verdict": "pass", "evidence": ["alignment/docs/debt_register.md"], "note": "每条 debt 都有 retire_evidence 和 expiry_round。"},
+    {"id": "G5", "question": "10m lateral offset 是否被合理化", "verdict": "pass", "evidence": ["alignment/docs/debt_register.md#debt-1"], "note": "缺外部观测依据，明确登记 DEBT-1。"},
+    {"id": "G6", "question": "本轮是否违反冻结 design/demand/seed", "verdict": "pass", "evidence": ["cmd: git diff 55543e2b..HEAD -- alignment/src/metro_alignment/scenes/designs.py | audit output: directional topology freeze only; evidence cohorts retain seed42 and demand"], "note": "未通过调场景旋钮让 gate 通过。"},
+    {"id": "G7", "question": "候选清单是否全部分类", "verdict": "pass", "evidence": ["alignment/docs/debt_register.md#candidate-triage", "alignment/output/round25/T9_debt_triage.json"], "note": "五项 debt、三项有外部依据的 legitimate_design，零未分类候选。"},
+    {"id": "G8", "question": "净增是否诚实报告", "verdict": "pass", "evidence": ["alignment/docs/debt_register.md", "alignment/output/round25/T9_debt_triage.json"], "note": "首轮 baseline 不伪造 registered delta；registered_debt_delta=null，unclassified_candidate_delta=-6。"},
+    {"id": "G9", "question": "fix 提交是否回答三个必答问题", "verdict": "pass", "evidence": ["cmd: audit git log 55543e2b..HEAD fix commits | output: 7/7 bodies contain failure mode, failure-or-visibility, visibility-only debt"], "note": "全部 fix 提交满足反补丁契约。"},
+    {"id": "G10", "question": "证据登记是否不可手改", "verdict": "pass", "evidence": ["alignment/output/round25/round25_evidence_manifest.json", "cmd: write_round25_evidence_manifest.py --verify-only | output: 10 artifacts verified"], "note": "T9 与其余正式证据均有 content-addressed copy。"}
+  ],
+  "issues": [],
+  "falsification_attempts": ["对每个逻辑生产改动执行删除检查/计数器后的行为反事实。", "搜索 default、fallback、except/retry/replan/recover/degraded、skip/xfail/quarantine。", "复算所有超过 1% 的恢复比率并与 debt register 对照。", "审计 7 个 fix commit 的完整正文。"],
+  "metrics": {"production_changes": 17, "judged_fix": 15, "judged_patch": 2, "judged_unverified": 0, "registered_debt_delta": null, "unclassified_candidate_delta": -6, "fix_commits_audited": 7, "fix_commits_compliant": 7, "p0": 0, "p1": 0},
+  "unverified_reason": ""
+}

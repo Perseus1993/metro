@@ -1,0 +1,24 @@
+{
+  "schema_version": "alignment_agent_review.v2",
+  "round": 25,
+  "agent": "admission_lifecycle",
+  "task_ref": "T2",
+  "status": "pass",
+  "checks": [
+    {"id": "A1", "question": "acquire/release 是否覆盖正常、replan、移除、终止、异常和重复获取", "verdict": "pass", "evidence": ["alignment/src/metro_alignment/metro_executor.py:648", "alignment/src/metro_alignment/metro_executor.py:979", "packages/metro_station/src/metro_station/adapters/simulation/runtime/simulation_lifecycle.py:83", "packages/metro_station/src/metro_station/adapters/simulation/facilities/admission_resource.py:67"], "note": "正常、移除和异常路径均释放；生命周期 finally 对剩余 owner 右删失关闭；重复 acquire/release 被拒绝。"},
+    {"id": "A2", "question": "持有 token 时 replan 是否泄漏", "verdict": "pass", "evidence": ["packages/metro_station/src/metro_station/adapters/simulation/runtime/passenger_goal_command_executor.py:485", "alignment/src/metro_alignment/metro_executor.py:979"], "note": "replan 不改以 passenger id 记录的 owner；后续完成或移除路径释放。"},
+    {"id": "A3", "question": "是否存在双重释放导致容量膨胀", "verdict": "pass", "evidence": ["packages/metro_station/src/metro_station/adapters/simulation/facilities/admission_resource.py:43", "alignment/tests/test_admission_tokens.py:75"], "note": "容量由 owner 字典长度导出，第二次释放同一 owner 抛 RuntimeError。"},
+    {"id": "A4", "question": "资源是否持有几何对象", "verdict": "pass", "evidence": ["packages/metro_station/src/metro_station/adapters/simulation/facilities/admission_resource.py:23", "alignment/src/metro_alignment/metro_executor.py:947"], "note": "资源只保存标识、整数容量、owner step 和驻留记录。"},
+    {"id": "A5", "question": "放行失败是阻塞还是丢弃", "verdict": "pass", "evidence": ["alignment/src/metro_alignment/metro_executor.py:773", "packages/metro_station/src/metro_station/adapters/simulation/runtime/passenger_demand.py:500"], "note": "token、source cell 或 placement 阻塞均恢复当前需求和未处理 tail 到 pending。"},
+    {"id": "A6", "question": "pending 是否 FIFO、无界、无 TTL/淘汰", "verdict": "pass", "evidence": ["alignment/src/metro_alignment/metro_executor.py:580", "alignment/src/metro_alignment/metro_executor.py:742", "packages/metro_station/src/metro_station/adapters/simulation/runtime/passenger_demand.py:41", "cmd: rg -n \"TTL|ttl|maxlen|expire|evict|discard|drop\" alignment/src/metro_alignment/metro_executor.py packages/metro_station/src/metro_station/adapters/simulation/runtime/passenger_demand.py packages/metro_station/src/metro_station/adapters/simulation/facilities/admission_resource.py | output: no TTL/maxlen/expiry/eviction implementation"], "note": "无 maxlen 的 deque 从队首处理，阻塞时恢复完整 tail。"},
+    {"id": "A7", "question": "admission 与 dynamic placement 是否解耦", "verdict": "pass", "evidence": ["packages/metro_station/src/metro_station/adapters/simulation/facilities/admission_resource.py:24", "packages/metro_station/src/metro_station/adapters/simulation/runtime/passenger_demand.py:161", "alignment/src/metro_alignment/metro_executor.py:830"], "note": "admission 只授予计数 credit；物理放置失败释放临时 token 并重试。"}
+  ],
+  "issues": [],
+  "falsification_attempts": [
+    "追踪 step/progress callback 抛异常后的 finally，活动 owner 均被 lifecycle_right_censored 关闭。",
+    "构造持 token 后 replan、重复 acquire/transfer/release、token exhaustion、placement/spawn/transfer exception，均未形成泄漏、容量膨胀或需求丢弃。",
+    "搜索 TTL、maxlen、expiry、eviction 和 geometry 字段，未发现 pending 淘汰或 token 几何耦合。"
+  ],
+  "metrics": {"p0": 0, "p1": 0, "p2": 0, "checks_passed": 7, "targeted_admission_tests_passed": 7, "current_regression_passed": 138, "current_regression_skipped": 7, "reviewed_head": "e522d67234eace8f89532c400ff7b765b00b32b8"},
+  "unverified_reason": ""
+}

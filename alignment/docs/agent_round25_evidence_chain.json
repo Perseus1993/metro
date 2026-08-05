@@ -1,0 +1,20 @@
+{
+  "schema_version": "alignment_agent_review.v2",
+  "round": 25,
+  "agent": "evidence_chain",
+  "task_ref": "T0/T1/T3/T4/T5/T6/T8/T9",
+  "status": "pass",
+  "checks": [
+    {"id": "E1", "question": "所有正式 artifact 是否包含四类身份信息", "verdict": "pass", "evidence": ["alignment/output/round25/round25_evidence_manifest.json", "cmd: independent artifact scan | output: 10/10 aliases verified"], "note": "设计、场景配置、Metro runtime 与 analysis runtime 均直接记录或通过有 hash 的上游证据引用闭包锚定。"},
+    {"id": "E2", "question": "T0 两臂是否只差容量控制字段", "verdict": "pass", "evidence": ["alignment/output/round25/T0_two_arm_baseline.json"], "note": "frozen_input_sha256 相同；唯一差异为 entry/exit admission capacity。"},
+    {"id": "E3", "question": "Windows 超长嵌套路径是否 fail-closed", "verdict": "pass", "evidence": ["alignment/tests/test_runner_publication.py", "alignment/src/metro_alignment/runner.py"], "note": "预计路径 >=262 字符时在 manifest switch 前拒绝。"},
+    {"id": "E4", "question": "中途发布失败是否保留旧 bundle", "verdict": "pass", "evidence": ["alignment/src/metro_alignment/runner.py", "alignment/tests/test_runner_publication.py"], "note": "临时目录完成验证后才原子切换；失败清理临时内容，不覆盖旧指针。"},
+    {"id": "E5", "question": "手改顶层字段能否逃逸", "verdict": "pass", "evidence": ["alignment/src/metro_alignment/evidence_manifest.py", "alignment/output/round25/round25_evidence_manifest.json", "cmd: verify-only | output: 10 artifacts verified"], "note": "alias 与 immutable byte hash、canonical artifact hash 同时校验，手改任一副本都会失败。"},
+    {"id": "E6", "question": "指纹是否在 start/end/pre-write 三处守卫", "verdict": "pass", "evidence": ["alignment/scripts/run_alignment_scene.py", "alignment/src/metro_alignment/analysis_runtime.py"], "note": "正式写入要求 Metro、analysis 指纹和完整 scene config 在 cohort 内一致。"},
+    {"id": "E7", "question": "文档数字是否能映射到证据", "verdict": "pass", "evidence": ["alignment/output/round25/T1_residence_time.json", "alignment/output/round25/T3_preflight_sizing.json", "alignment/output/round25/T5_tripwire_120.json", "alignment/output/round25/T8_ladder_240.json", "alignment/output/round25/T9_debt_triage.json"], "note": "容量、驻留、T5/T8 守恒和 debt 比率均与正式 alias/immutable artifact 一致。"}
+  ],
+  "issues": [],
+  "falsification_attempts": ["从 HEAD Git blob 独立规范化 LF 并复算两类 source fingerprint。", "逐字段比较两臂并尝试改 alias、immutable copy、artifact_sha256 和 file_sha256。", "构造 Windows 超长嵌套输出路径和发布中断。", "执行 T8 no-write replay，18 个 gate group 与 artifact 逐项一致。"],
+  "metrics": {"manifest_entries_verified": 10, "manifest_entries_failed": 0, "t8_replayed_gate_groups": 18, "metro_source_tree_sha256": "ec2ecc090713a995667dc089bea0775e948cdbe154a1da302a9b4670cdd321e5", "analysis_content_sha256": "43cfc72b51343f270f9f4f628f580f93fa6d23e71575a2e62a206d5f23d57512", "reviewed_head": "e522d67234eace8f89532c400ff7b765b00b32b8"},
+  "unverified_reason": ""
+}
