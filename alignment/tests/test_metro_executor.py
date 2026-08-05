@@ -32,7 +32,6 @@ from metro_alignment.metro_executor import (
 from metro_alignment.metro_scene import build_metro_request
 from metro_alignment.scenes import build_scene_config
 
-
 FA2555_GEOMETRY_QUARANTINE = pytest.mark.skip(
     reason=(
         "expires when frozen-design entry-only reaches admitted=417/417, "
