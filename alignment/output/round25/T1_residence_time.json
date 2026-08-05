@@ -366,8 +366,8 @@
       "pedpy": "1.5.1",
       "shapely": "2.1.2"
     },
-    "python_file_count": 270,
-    "source_tree_sha256": "ec2ecc090713a995667dc089bea0775e948cdbe154a1da302a9b4670cdd321e5"
+    "python_file_count": 271,
+    "source_tree_sha256": "6a6b0b1a24e3e3ef221d43fb7fb7d35754c2d557493ac23ccbbb4c099dc0bfe3"
   },
   "analysis_runtime_fingerprint": {
     "schema_version": "alignment_analysis_runtime.v2",
@@ -401,5 +401,5 @@
     "movement_backend_name": "jupedsim",
     "jupedsim_operational_model": "collision_free_speed"
   },
-  "artifact_sha256": "6d019bd5a5cd5d61c3878663bfb31963bd1b94b85eb73e727356a9f3d55b43ce"
+  "artifact_sha256": "54dffbda2ffc4858aa6a9030b70953f2bafe8c45041be19512bcb6f6ea6cbc1d"
 }

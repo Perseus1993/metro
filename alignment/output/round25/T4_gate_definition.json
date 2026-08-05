@@ -15,8 +15,8 @@
       "pedpy": "1.5.1",
       "shapely": "2.1.2"
     },
-    "python_file_count": 270,
-    "source_tree_sha256": "ec2ecc090713a995667dc089bea0775e948cdbe154a1da302a9b4670cdd321e5"
+    "python_file_count": 271,
+    "source_tree_sha256": "6a6b0b1a24e3e3ef221d43fb7fb7d35754c2d557493ac23ccbbb4c099dc0bfe3"
   },
   "analysis_runtime_fingerprint": {
     "schema_version": "alignment_analysis_runtime.v2",
@@ -45,5 +45,5 @@
   ],
   "implementation": "alignment/src/metro_alignment/source_integrity_gate.py",
   "tests": "alignment/tests/test_source_integrity_gate.py",
-  "artifact_sha256": "fd8278fb5055c11392b2680fc59cdc00a776b721773cad11a8ceced721ad8bcc"
+  "artifact_sha256": "9ed48f8083aa7bdb7f141f554f6d67b1be0c73b0ee900f2ace2e287307743dfe"
 }

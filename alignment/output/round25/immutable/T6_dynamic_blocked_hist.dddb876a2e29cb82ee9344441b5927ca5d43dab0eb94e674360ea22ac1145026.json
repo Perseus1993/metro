@@ -15,8 +15,8 @@
       "pedpy": "1.5.1",
       "shapely": "2.1.2"
     },
-    "python_file_count": 270,
-    "source_tree_sha256": "ec2ecc090713a995667dc089bea0775e948cdbe154a1da302a9b4670cdd321e5"
+    "python_file_count": 271,
+    "source_tree_sha256": "6a6b0b1a24e3e3ef221d43fb7fb7d35754c2d557493ac23ccbbb4c099dc0bfe3"
   },
   "analysis_runtime_fingerprint": {
     "schema_version": "alignment_analysis_runtime.v2",
@@ -138,5 +138,5 @@
     "T8_240": true
   },
   "conclusion": "All dynamic blocks are placement.dynamic_blocked events in the same three entry-gate release-apron lane certificates in both arms. The identical arm histograms show that admission capacity is not the cause; the remaining events are downstream spatial-release contention.",
-  "artifact_sha256": "53e9f3b5573483d823b7568764f5657ede08b3e1682aea5c658aa3e9716a8c6e"
+  "artifact_sha256": "dddb876a2e29cb82ee9344441b5927ca5d43dab0eb94e674360ea22ac1145026"
 }

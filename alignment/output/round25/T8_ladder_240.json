@@ -138,8 +138,8 @@
           "pedpy": "1.5.1",
           "shapely": "2.1.2"
         },
-        "python_file_count": 270,
-        "source_tree_sha256": "ec2ecc090713a995667dc089bea0775e948cdbe154a1da302a9b4670cdd321e5"
+        "python_file_count": 271,
+        "source_tree_sha256": "6a6b0b1a24e3e3ef221d43fb7fb7d35754c2d557493ac23ccbbb4c099dc0bfe3"
       },
       "analysis_runtime_fingerprint": {
         "schema_version": "alignment_analysis_runtime.v2",
@@ -151,11 +151,11 @@
       "residence_evidence_artifacts": {
         "entry": {
           "reference": "alignment/output/round25/T1_residence_time.json#entry.p99",
-          "artifact_sha256": "6d019bd5a5cd5d61c3878663bfb31963bd1b94b85eb73e727356a9f3d55b43ce"
+          "artifact_sha256": "54dffbda2ffc4858aa6a9030b70953f2bafe8c45041be19512bcb6f6ea6cbc1d"
         },
         "exit": {
           "reference": "alignment/output/round25/T1_residence_time.json#exit.p90",
-          "artifact_sha256": "6d019bd5a5cd5d61c3878663bfb31963bd1b94b85eb73e727356a9f3d55b43ce"
+          "artifact_sha256": "54dffbda2ffc4858aa6a9030b70953f2bafe8c45041be19512bcb6f6ea6cbc1d"
         }
       },
       "metrics": {
@@ -827,8 +827,8 @@
           "pedpy": "1.5.1",
           "shapely": "2.1.2"
         },
-        "python_file_count": 270,
-        "source_tree_sha256": "ec2ecc090713a995667dc089bea0775e948cdbe154a1da302a9b4670cdd321e5"
+        "python_file_count": 271,
+        "source_tree_sha256": "6a6b0b1a24e3e3ef221d43fb7fb7d35754c2d557493ac23ccbbb4c099dc0bfe3"
       },
       "analysis_runtime_fingerprint": {
         "schema_version": "alignment_analysis_runtime.v2",
@@ -840,11 +840,11 @@
       "residence_evidence_artifacts": {
         "entry": {
           "reference": "alignment/output/round25/T1_residence_time.json#entry.p99",
-          "artifact_sha256": "6d019bd5a5cd5d61c3878663bfb31963bd1b94b85eb73e727356a9f3d55b43ce"
+          "artifact_sha256": "54dffbda2ffc4858aa6a9030b70953f2bafe8c45041be19512bcb6f6ea6cbc1d"
         },
         "exit": {
           "reference": "alignment/output/round25/T1_residence_time.json#exit.p90",
-          "artifact_sha256": "6d019bd5a5cd5d61c3878663bfb31963bd1b94b85eb73e727356a9f3d55b43ce"
+          "artifact_sha256": "54dffbda2ffc4858aa6a9030b70953f2bafe8c45041be19512bcb6f6ea6cbc1d"
         }
       },
       "metrics": {
@@ -1412,8 +1412,8 @@
         "pedpy": "1.5.1",
         "shapely": "2.1.2"
       },
-      "python_file_count": 270,
-      "source_tree_sha256": "ec2ecc090713a995667dc089bea0775e948cdbe154a1da302a9b4670cdd321e5"
+      "python_file_count": 271,
+      "source_tree_sha256": "6a6b0b1a24e3e3ef221d43fb7fb7d35754c2d557493ac23ccbbb4c099dc0bfe3"
     },
     "analysis_runtime_fingerprint": {
       "schema_version": "alignment_analysis_runtime.v2",
@@ -1423,6 +1423,6 @@
       "content_sha256": "43cfc72b51343f270f9f4f628f580f93fa6d23e71575a2e62a206d5f23d57512"
     }
   },
-  "runtime_cohort_sha256": "5f5ca0c0aaec1ae2bd36dc3455288afefe97aed6eee43803f16ab92cd716498c",
-  "artifact_sha256": "97a90ce90e8b10972a66b3d4a88ebb80e395e02e8b8d1287a628681122d11323"
+  "runtime_cohort_sha256": "9a121f8d4a1071bad6f6ebe70886a0dfb6cced8647e08470c36a8248b7839262",
+  "artifact_sha256": "be8243a5febd9124ab5c8e0864c04599a36464c7e101b7e7050cb010016a8b83"
 }

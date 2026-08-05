@@ -15,8 +15,8 @@
       "pedpy": "1.5.1",
       "shapely": "2.1.2"
     },
-    "python_file_count": 270,
-    "source_tree_sha256": "ec2ecc090713a995667dc089bea0775e948cdbe154a1da302a9b4670cdd321e5"
+    "python_file_count": 271,
+    "source_tree_sha256": "6a6b0b1a24e3e3ef221d43fb7fb7d35754c2d557493ac23ccbbb4c099dc0bfe3"
   },
   "analysis_runtime_fingerprint": {
     "schema_version": "alignment_analysis_runtime.v2",
@@ -46,5 +46,5 @@
     "command": "python -m pytest alignment/tests/test_admission_tokens.py alignment/tests/test_metro_executor.py tests/test_spatial_capacity_certificates.py::test_explicit_source_position_is_rejected_before_publication -q",
     "latest_result": "pass"
   },
-  "artifact_sha256": "f10f354573379e00ac09067e16bbd0c0625a6ab35d624d2edca2e8055cc32b3a"
+  "artifact_sha256": "1c3eb427734366d8008b9ed76d8825ac50db4b6eb9f3e523d05cdde73aee66b7"
 }

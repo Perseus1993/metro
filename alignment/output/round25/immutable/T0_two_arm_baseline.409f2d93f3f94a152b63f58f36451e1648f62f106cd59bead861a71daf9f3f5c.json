@@ -138,8 +138,8 @@
           "pedpy": "1.5.1",
           "shapely": "2.1.2"
         },
-        "python_file_count": 270,
-        "source_tree_sha256": "ec2ecc090713a995667dc089bea0775e948cdbe154a1da302a9b4670cdd321e5"
+        "python_file_count": 271,
+        "source_tree_sha256": "6a6b0b1a24e3e3ef221d43fb7fb7d35754c2d557493ac23ccbbb4c099dc0bfe3"
       },
       "analysis_runtime_fingerprint": {
         "schema_version": "alignment_analysis_runtime.v2",
@@ -151,11 +151,11 @@
       "residence_evidence_artifacts": {
         "entry": {
           "reference": "alignment/output/round25/T1_residence_time.json#entry.p99",
-          "artifact_sha256": "6d019bd5a5cd5d61c3878663bfb31963bd1b94b85eb73e727356a9f3d55b43ce"
+          "artifact_sha256": "54dffbda2ffc4858aa6a9030b70953f2bafe8c45041be19512bcb6f6ea6cbc1d"
         },
         "exit": {
           "reference": "alignment/output/round25/T1_residence_time.json#exit.p90",
-          "artifact_sha256": "6d019bd5a5cd5d61c3878663bfb31963bd1b94b85eb73e727356a9f3d55b43ce"
+          "artifact_sha256": "54dffbda2ffc4858aa6a9030b70953f2bafe8c45041be19512bcb6f6ea6cbc1d"
         }
       },
       "metrics": {
@@ -792,8 +792,8 @@
           "pedpy": "1.5.1",
           "shapely": "2.1.2"
         },
-        "python_file_count": 270,
-        "source_tree_sha256": "ec2ecc090713a995667dc089bea0775e948cdbe154a1da302a9b4670cdd321e5"
+        "python_file_count": 271,
+        "source_tree_sha256": "6a6b0b1a24e3e3ef221d43fb7fb7d35754c2d557493ac23ccbbb4c099dc0bfe3"
       },
       "analysis_runtime_fingerprint": {
         "schema_version": "alignment_analysis_runtime.v2",
@@ -805,11 +805,11 @@
       "residence_evidence_artifacts": {
         "entry": {
           "reference": "alignment/output/round25/T1_residence_time.json#entry.p99",
-          "artifact_sha256": "6d019bd5a5cd5d61c3878663bfb31963bd1b94b85eb73e727356a9f3d55b43ce"
+          "artifact_sha256": "54dffbda2ffc4858aa6a9030b70953f2bafe8c45041be19512bcb6f6ea6cbc1d"
         },
         "exit": {
           "reference": "alignment/output/round25/T1_residence_time.json#exit.p90",
-          "artifact_sha256": "6d019bd5a5cd5d61c3878663bfb31963bd1b94b85eb73e727356a9f3d55b43ce"
+          "artifact_sha256": "54dffbda2ffc4858aa6a9030b70953f2bafe8c45041be19512bcb6f6ea6cbc1d"
         }
       },
       "metrics": {
@@ -1342,8 +1342,8 @@
         "pedpy": "1.5.1",
         "shapely": "2.1.2"
       },
-      "python_file_count": 270,
-      "source_tree_sha256": "ec2ecc090713a995667dc089bea0775e948cdbe154a1da302a9b4670cdd321e5"
+      "python_file_count": 271,
+      "source_tree_sha256": "6a6b0b1a24e3e3ef221d43fb7fb7d35754c2d557493ac23ccbbb4c099dc0bfe3"
     },
     "analysis_runtime_fingerprint": {
       "schema_version": "alignment_analysis_runtime.v2",
@@ -1353,6 +1353,50 @@
       "content_sha256": "43cfc72b51343f270f9f4f628f580f93fa6d23e71575a2e62a206d5f23d57512"
     }
   },
-  "runtime_cohort_sha256": "5f5ca0c0aaec1ae2bd36dc3455288afefe97aed6eee43803f16ab92cd716498c",
-  "artifact_sha256": "ef870449f059b316a9acfd07f5ea51fd763ddda05f3bfda8ddb2e1fd99e87201"
+  "runtime_cohort_sha256": "9a121f8d4a1071bad6f6ebe70886a0dfb6cced8647e08470c36a8248b7839262",
+  "historical_round24_baseline": {
+    "schema_version": "alignment_round24_handoff_baseline.v1",
+    "provenance_status": "committed_handoff_claim",
+    "source": {
+      "path": "alignment/docs/reviews/round_24_step5_conservation_handoff.md",
+      "commit": "0b938dcdea9a117d7d3fe96cbb30c8f9520d811f",
+      "git_blob_sha1": "801735a1ae5299b2fa5bebd9a38179ee3abac179",
+      "file_sha256": "bc634d85ffc6b0e7418dcba3b17ccd504629adb37c86a3984f3f631a0a3cf496"
+    },
+    "frozen_inputs": {
+      "seed": 42,
+      "entry_count_hour": 2500,
+      "exit_count_hour": 2200,
+      "demand_steps": 120,
+      "horizon_steps": 120,
+      "design": "fixed-direction gates and seven train doors"
+    },
+    "controlled_difference": "downstream finite-admission evidence reported effectively unbounded capacity",
+    "arms": {
+      "finite_admission": {
+        "scheduled_entry": 83,
+        "spawned_entry": 75,
+        "pending_entry": 8,
+        "dropped": 0,
+        "conserved": true,
+        "admission_exhausted": 90,
+        "deferred_downstream": 89,
+        "dynamic_blocked": 12,
+        "passenger_liveness_violation": 0
+      },
+      "unbounded_admission_probe": {
+        "scheduled_entry": 83,
+        "spawned_entry": 83,
+        "pending_entry": 0,
+        "dropped": 0,
+        "conserved": true,
+        "admission_exhausted": 0,
+        "deferred_downstream": 0,
+        "dynamic_blocked": 16,
+        "passenger_liveness_violation": 0
+      }
+    },
+    "interpretation": "Historical pre-refactor observation anchored to the committed Round 24 handoff; current replay results are stored separately in this T0 artifact."
+  },
+  "artifact_sha256": "409f2d93f3f94a152b63f58f36451e1648f62f106cd59bead861a71daf9f3f5c"
 }
