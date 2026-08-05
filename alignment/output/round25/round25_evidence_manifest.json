@@ -2,7 +2,7 @@
   "schema_version": "alignment_round25_evidence_manifest.v1",
   "round": 25,
   "status": "pass",
-  "trust_model": "Aliases and canonical artifact hashes are anchored by immutable, content-addressed copies committed with this manifest.",
+  "trust_model": "Aliases and canonical artifact hashes are anchored by immutable, content-addressed copies. Verification against an explicit Git revision provides the external trust root for the coordinated-rewrite threat.",
   "required_artifacts": [
     "T0_two_arm_baseline.json",
     "T1_measurement_900.json",
@@ -18,84 +18,84 @@
   "entries": [
     {
       "alias": "T0_two_arm_baseline.json",
-      "immutable_path": "immutable/T0_two_arm_baseline.409f2d93f3f94a152b63f58f36451e1648f62f106cd59bead861a71daf9f3f5c.json",
+      "immutable_path": "immutable/T0_two_arm_baseline.00a4c73caba89a69c63d8b3b8908a6eb2188db32c7b61be4fa4c864d1cc81249.json",
       "schema_version": "alignment_round25_two_arm.v1",
       "status": "pass",
-      "artifact_sha256": "409f2d93f3f94a152b63f58f36451e1648f62f106cd59bead861a71daf9f3f5c",
-      "file_sha256": "ac6238cea6b393479b5b03979bf5e0bd1e694d1f1ba1ac0130ccaed2b70ad553"
+      "artifact_sha256": "00a4c73caba89a69c63d8b3b8908a6eb2188db32c7b61be4fa4c864d1cc81249",
+      "file_sha256": "202dfe269f24a2c6d08c701eaf5bb22699e3cab6111e3b98bb5a105fde1fce2a"
     },
     {
       "alias": "T1_measurement_900.json",
-      "immutable_path": "immutable/T1_measurement_900.4f9bc2407bee87ba35145b364a25a996fbb202d674e5e0a14822a5f34b28b397.json",
+      "immutable_path": "immutable/T1_measurement_900.97ca0e402602e5514ed198b9d51fd1713064190ea36d3c3f7bbd7a4e3166c692.json",
       "schema_version": "alignment_round25_residence_probe.v1",
       "status": "pass",
-      "artifact_sha256": "4f9bc2407bee87ba35145b364a25a996fbb202d674e5e0a14822a5f34b28b397",
-      "file_sha256": "4fcea882a8012d558e7e955c5d0ad265eb2dbb32b73edaf1ccf85c827f0b9377"
+      "artifact_sha256": "97ca0e402602e5514ed198b9d51fd1713064190ea36d3c3f7bbd7a4e3166c692",
+      "file_sha256": "458f57cd1c4e9874b4af637f3544d4dc688b44dd9dcd4932c150c1065484be6a"
     },
     {
       "alias": "T1_residence_time.json",
-      "immutable_path": "immutable/T1_residence_time.54dffbda2ffc4858aa6a9030b70953f2bafe8c45041be19512bcb6f6ea6cbc1d.json",
+      "immutable_path": "immutable/T1_residence_time.4e3652c1b4faad6df9bd3e9ebdfbbed19a76aa43f91a105f2d2530153d85416e.json",
       "schema_version": "alignment_round25_residence_time.v1",
       "status": "measured",
-      "artifact_sha256": "54dffbda2ffc4858aa6a9030b70953f2bafe8c45041be19512bcb6f6ea6cbc1d",
-      "file_sha256": "1552164e0536b2d876f1cba485491a8ea87ea4fdff09753b5ecb5d28fbbe1160"
+      "artifact_sha256": "4e3652c1b4faad6df9bd3e9ebdfbbed19a76aa43f91a105f2d2530153d85416e",
+      "file_sha256": "4373a4c5e7967467a717b3cda7e84558f43691cb85177fe5254514492e3cf7aa"
     },
     {
       "alias": "T2_diff_summary.json",
-      "immutable_path": "immutable/T2_diff_summary.1c3eb427734366d8008b9ed76d8825ac50db4b6eb9f3e523d05cdde73aee66b7.json",
+      "immutable_path": "immutable/T2_diff_summary.50e77267d7eb632ba095c6fa0f087aa474f3b5a44e60bf025e5132ad09230505.json",
       "schema_version": "alignment_round25_t2_diff_summary.v1",
       "status": "implemented",
-      "artifact_sha256": "1c3eb427734366d8008b9ed76d8825ac50db4b6eb9f3e523d05cdde73aee66b7",
-      "file_sha256": "8b95f880b7861499f9a33d805dbf95d05a67ed7b091f49bcb6130e16f04a072e"
+      "artifact_sha256": "50e77267d7eb632ba095c6fa0f087aa474f3b5a44e60bf025e5132ad09230505",
+      "file_sha256": "bb7ea9bc6d1bdf9f0ad1b42ac2a7bfe867098e4966db2354d122359609fa7e48"
     },
     {
       "alias": "T3_preflight_sizing.json",
-      "immutable_path": "immutable/T3_preflight_sizing.617ccf7f9dd7c3901c052093e278eec22b8b00925806af4276db95f1ec15bbc7.json",
+      "immutable_path": "immutable/T3_preflight_sizing.0e5170c1320ee7d1ec6a87da2796d36470287605ebfd1beb79cc77aaf79fd5a0.json",
       "schema_version": "alignment_round25_t3_preflight_sizing.v1",
       "status": "pass",
-      "artifact_sha256": "617ccf7f9dd7c3901c052093e278eec22b8b00925806af4276db95f1ec15bbc7",
-      "file_sha256": "dfe5fa17dee19149217d37b211b7d9c4485206c5fedfa715e69f8217122494c4"
+      "artifact_sha256": "0e5170c1320ee7d1ec6a87da2796d36470287605ebfd1beb79cc77aaf79fd5a0",
+      "file_sha256": "4906f387ae42a89ce5f90e645b92a035de38aa3464849846d84b02f2ea861783"
     },
     {
       "alias": "T4_gate_definition.json",
-      "immutable_path": "immutable/T4_gate_definition.9ed48f8083aa7bdb7f141f554f6d67b1be0c73b0ee900f2ace2e287307743dfe.json",
+      "immutable_path": "immutable/T4_gate_definition.f22fc7b29d786b6574456cf13d9a8adf9a8948aa44dc8886a88444773461dae6.json",
       "schema_version": "alignment_round25_t4_gate_definition.v1",
       "status": "active",
-      "artifact_sha256": "9ed48f8083aa7bdb7f141f554f6d67b1be0c73b0ee900f2ace2e287307743dfe",
-      "file_sha256": "a5c7381c19b63e6ff0ca3780dce232dbd70f4f40a3f856c880f5c4c96e26f55f"
+      "artifact_sha256": "f22fc7b29d786b6574456cf13d9a8adf9a8948aa44dc8886a88444773461dae6",
+      "file_sha256": "ec4e83881f7e0af2cced8b1b07540380aa566485683d721debb936d3ea315f57"
     },
     {
       "alias": "T5_tripwire_120.json",
-      "immutable_path": "immutable/T5_tripwire_120.a38ebe756aee4b847bfaf15b40fd1f6f94085624d53377b78f6d5b659ec5873f.json",
+      "immutable_path": "immutable/T5_tripwire_120.07b6611cdc4d016e5945a8148a12ca5325dd035ba6cb062d22cac53b282e2447.json",
       "schema_version": "alignment_round25_two_arm.v1",
       "status": "pass",
-      "artifact_sha256": "a38ebe756aee4b847bfaf15b40fd1f6f94085624d53377b78f6d5b659ec5873f",
-      "file_sha256": "936f875b31867d6ec2eea0798a92dd41c18000f3bd3c9b47d6a7e14f7eb5caf8"
+      "artifact_sha256": "07b6611cdc4d016e5945a8148a12ca5325dd035ba6cb062d22cac53b282e2447",
+      "file_sha256": "4ffd3c1796adbbee431e6990c4f181a602f0a3ec903106b932394877f73f2f70"
     },
     {
       "alias": "T6_dynamic_blocked_hist.json",
-      "immutable_path": "immutable/T6_dynamic_blocked_hist.dddb876a2e29cb82ee9344441b5927ca5d43dab0eb94e674360ea22ac1145026.json",
+      "immutable_path": "immutable/T6_dynamic_blocked_hist.a41d8759d61c74ea28b351e4f4fe0238ddcc1abbfc7febe0404759c6b30f1481.json",
       "schema_version": "alignment_round25_dynamic_blocked_attribution.v1",
       "status": "pass",
-      "artifact_sha256": "dddb876a2e29cb82ee9344441b5927ca5d43dab0eb94e674360ea22ac1145026",
-      "file_sha256": "0433c75468efdbc7baba303c62d2594ba07524c46324aff3c9b6b84dd883e4f9"
+      "artifact_sha256": "a41d8759d61c74ea28b351e4f4fe0238ddcc1abbfc7febe0404759c6b30f1481",
+      "file_sha256": "0724f2c69caa9820c3e37fc66707b9a75e2f5879e596423224c9918b66a11c42"
     },
     {
       "alias": "T8_ladder_240.json",
-      "immutable_path": "immutable/T8_ladder_240.be8243a5febd9124ab5c8e0864c04599a36464c7e101b7e7050cb010016a8b83.json",
+      "immutable_path": "immutable/T8_ladder_240.2eb70cb294acbe0d9b640e821b110a431fead5bdc97b946463c63474371ff355.json",
       "schema_version": "alignment_round25_two_arm.v1",
       "status": "pass",
-      "artifact_sha256": "be8243a5febd9124ab5c8e0864c04599a36464c7e101b7e7050cb010016a8b83",
-      "file_sha256": "31780c3147c69cd286cf98be284ebc2acfbad3bbd0acbe1e47d2380237f7d627"
+      "artifact_sha256": "2eb70cb294acbe0d9b640e821b110a431fead5bdc97b946463c63474371ff355",
+      "file_sha256": "3fb833435c0b2f2922f82fcb86ac1d6d8f2714a10d9626f5e60b46af4016538c"
     },
     {
       "alias": "T9_debt_triage.json",
-      "immutable_path": "immutable/T9_debt_triage.28e34ae4a704261ef2b8a0e79ab2da40a0f5c1e0f524871a9f9a4e164305d46e.json",
+      "immutable_path": "immutable/T9_debt_triage.3c309dab915da48be08f7d3d4711d814f732cfe2e7575ae7900c1f8055949884.json",
       "schema_version": "alignment_round25_debt_triage.v1",
       "status": "pass",
-      "artifact_sha256": "28e34ae4a704261ef2b8a0e79ab2da40a0f5c1e0f524871a9f9a4e164305d46e",
-      "file_sha256": "aca53ae4e5c78c13eb315cc816dd1a4ea44d2e29069557579bf4af70bccdc470"
+      "artifact_sha256": "3c309dab915da48be08f7d3d4711d814f732cfe2e7575ae7900c1f8055949884",
+      "file_sha256": "4463eee569f42632c56e8b2517d0eb9c493141e6f33617c2376260fee5b3f041"
     }
   ],
-  "artifact_sha256": "3408f7b7b25e2e44e30296ad131e3ce965d5a9a41b5b4614080e2205bca200ea"
+  "artifact_sha256": "7b456cf44cd175488e35db860a5595c2654c6826972fdbfd31e817f239c90078"
 }

@@ -23,7 +23,7 @@
     "python": "CPython 3.12.13",
     "pedpy_version": "1.5.1",
     "file_count": 42,
-    "content_sha256": "43cfc72b51343f270f9f4f628f580f93fa6d23e71575a2e62a206d5f23d57512"
+    "content_sha256": "70cf6b08d76dba7987e169c2cd8912ea324b6d2515f9190204b1ab1e8d3d379a"
   },
   "production_files": [
     "packages/metro_station/src/metro_station/adapters/simulation/facilities/admission_resource.py",
@@ -46,5 +46,5 @@
     "command": "python -m pytest alignment/tests/test_admission_tokens.py alignment/tests/test_metro_executor.py tests/test_spatial_capacity_certificates.py::test_explicit_source_position_is_rejected_before_publication -q",
     "latest_result": "pass"
   },
-  "artifact_sha256": "1c3eb427734366d8008b9ed76d8825ac50db4b6eb9f3e523d05cdde73aee66b7"
+  "artifact_sha256": "50e77267d7eb632ba095c6fa0f087aa474f3b5a44e60bf025e5132ad09230505"
 }

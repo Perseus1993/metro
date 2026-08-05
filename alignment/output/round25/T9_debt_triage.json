@@ -23,7 +23,7 @@
     "python": "CPython 3.12.13",
     "pedpy_version": "1.5.1",
     "file_count": 42,
-    "content_sha256": "43cfc72b51343f270f9f4f628f580f93fa6d23e71575a2e62a206d5f23d57512"
+    "content_sha256": "70cf6b08d76dba7987e169c2cd8912ea324b6d2515f9190204b1ab1e8d3d379a"
   },
   "register": "alignment/docs/debt_register.md",
   "baseline_policy": {
@@ -101,5 +101,5 @@
     "https://semver.org/",
     "https://import-linter.readthedocs.io/en/stable/"
   ],
-  "artifact_sha256": "28e34ae4a704261ef2b8a0e79ab2da40a0f5c1e0f524871a9f9a4e164305d46e"
+  "artifact_sha256": "3c309dab915da48be08f7d3d4711d814f732cfe2e7575ae7900c1f8055949884"
 }

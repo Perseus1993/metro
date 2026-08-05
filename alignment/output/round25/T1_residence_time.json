@@ -374,7 +374,7 @@
     "python": "CPython 3.12.13",
     "pedpy_version": "1.5.1",
     "file_count": 42,
-    "content_sha256": "43cfc72b51343f270f9f4f628f580f93fa6d23e71575a2e62a206d5f23d57512"
+    "content_sha256": "70cf6b08d76dba7987e169c2cd8912ea324b6d2515f9190204b1ab1e8d3d379a"
   },
   "evidence_scope": {
     "seed": 42,
@@ -401,5 +401,5 @@
     "movement_backend_name": "jupedsim",
     "jupedsim_operational_model": "collision_free_speed"
   },
-  "artifact_sha256": "54dffbda2ffc4858aa6a9030b70953f2bafe8c45041be19512bcb6f6ea6cbc1d"
+  "artifact_sha256": "4e3652c1b4faad6df9bd3e9ebdfbbed19a76aa43f91a105f2d2530153d85416e"
 }

@@ -146,16 +146,16 @@
         "python": "CPython 3.12.13",
         "pedpy_version": "1.5.1",
         "file_count": 42,
-        "content_sha256": "43cfc72b51343f270f9f4f628f580f93fa6d23e71575a2e62a206d5f23d57512"
+        "content_sha256": "70cf6b08d76dba7987e169c2cd8912ea324b6d2515f9190204b1ab1e8d3d379a"
       },
       "residence_evidence_artifacts": {
         "entry": {
           "reference": "alignment/output/round25/T1_residence_time.json#entry.p99",
-          "artifact_sha256": "54dffbda2ffc4858aa6a9030b70953f2bafe8c45041be19512bcb6f6ea6cbc1d"
+          "artifact_sha256": "4e3652c1b4faad6df9bd3e9ebdfbbed19a76aa43f91a105f2d2530153d85416e"
         },
         "exit": {
           "reference": "alignment/output/round25/T1_residence_time.json#exit.p90",
-          "artifact_sha256": "54dffbda2ffc4858aa6a9030b70953f2bafe8c45041be19512bcb6f6ea6cbc1d"
+          "artifact_sha256": "4e3652c1b4faad6df9bd3e9ebdfbbed19a76aa43f91a105f2d2530153d85416e"
         }
       },
       "metrics": {
@@ -800,16 +800,16 @@
         "python": "CPython 3.12.13",
         "pedpy_version": "1.5.1",
         "file_count": 42,
-        "content_sha256": "43cfc72b51343f270f9f4f628f580f93fa6d23e71575a2e62a206d5f23d57512"
+        "content_sha256": "70cf6b08d76dba7987e169c2cd8912ea324b6d2515f9190204b1ab1e8d3d379a"
       },
       "residence_evidence_artifacts": {
         "entry": {
           "reference": "alignment/output/round25/T1_residence_time.json#entry.p99",
-          "artifact_sha256": "54dffbda2ffc4858aa6a9030b70953f2bafe8c45041be19512bcb6f6ea6cbc1d"
+          "artifact_sha256": "4e3652c1b4faad6df9bd3e9ebdfbbed19a76aa43f91a105f2d2530153d85416e"
         },
         "exit": {
           "reference": "alignment/output/round25/T1_residence_time.json#exit.p90",
-          "artifact_sha256": "54dffbda2ffc4858aa6a9030b70953f2bafe8c45041be19512bcb6f6ea6cbc1d"
+          "artifact_sha256": "4e3652c1b4faad6df9bd3e9ebdfbbed19a76aa43f91a105f2d2530153d85416e"
         }
       },
       "metrics": {
@@ -1350,10 +1350,10 @@
       "python": "CPython 3.12.13",
       "pedpy_version": "1.5.1",
       "file_count": 42,
-      "content_sha256": "43cfc72b51343f270f9f4f628f580f93fa6d23e71575a2e62a206d5f23d57512"
+      "content_sha256": "70cf6b08d76dba7987e169c2cd8912ea324b6d2515f9190204b1ab1e8d3d379a"
     }
   },
-  "runtime_cohort_sha256": "9a121f8d4a1071bad6f6ebe70886a0dfb6cced8647e08470c36a8248b7839262",
+  "runtime_cohort_sha256": "a2fab7819b24af5e0d525e6fdf8e9a22a2758dbdee18c78c84519aec6b9991dc",
   "historical_round24_baseline": {
     "schema_version": "alignment_round24_handoff_baseline.v1",
     "provenance_status": "committed_handoff_claim",
@@ -1398,5 +1398,5 @@
     },
     "interpretation": "Historical pre-refactor observation anchored to the committed Round 24 handoff; current replay results are stored separately in this T0 artifact."
   },
-  "artifact_sha256": "409f2d93f3f94a152b63f58f36451e1648f62f106cd59bead861a71daf9f3f5c"
+  "artifact_sha256": "00a4c73caba89a69c63d8b3b8908a6eb2188db32c7b61be4fa4c864d1cc81249"
 }

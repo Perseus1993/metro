@@ -3,6 +3,7 @@ from __future__ import annotations
 import hashlib
 import json
 from pathlib import Path
+import subprocess
 from typing import Any
 
 from metro_alignment.artifact_io import write_json_atomic
@@ -77,7 +78,8 @@ def write_round25_evidence_manifest(
         "status": "pass",
         "trust_model": (
             "Aliases and canonical artifact hashes are anchored by immutable, "
-            "content-addressed copies committed with this manifest."
+            "content-addressed copies. Verification against an explicit Git revision "
+            "provides the external trust root for the coordinated-rewrite threat."
         ),
         "required_artifacts": list(required_artifacts),
         "entries": entries,
@@ -115,9 +117,69 @@ def verify_round25_evidence_manifest(path: Path) -> dict[str, Any]:
     return manifest
 
 
+def verify_round25_evidence_git_anchor(
+    path: Path,
+    *,
+    revision: str = "HEAD",
+) -> tuple[dict[str, Any], str]:
+    """Verify the evidence set byte-for-byte against a reviewed Git revision."""
+
+    manifest = verify_round25_evidence_manifest(path)
+    resolved_path = path.resolve()
+    root_result = subprocess.run(
+        ["git", "-C", str(resolved_path.parent), "rev-parse", "--show-toplevel"],
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+    if root_result.returncode != 0:
+        raise ValueError("round25 evidence is not inside a Git worktree")
+    repo_root = Path(root_result.stdout.strip()).resolve()
+    revision_result = subprocess.run(
+        ["git", "-C", str(repo_root), "rev-parse", "--verify", f"{revision}^{{commit}}"],
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+    if revision_result.returncode != 0:
+        raise ValueError(f"round25 evidence Git revision is invalid: {revision}")
+    resolved_revision = revision_result.stdout.strip()
+    output_dir = resolved_path.parent
+    targets = [resolved_path]
+    for entry in manifest["entries"]:
+        targets.extend(
+            (
+                output_dir / str(entry["alias"]),
+                output_dir / str(entry["immutable_path"]),
+            )
+        )
+    for target in targets:
+        resolved_target = target.resolve()
+        if not resolved_target.is_relative_to(repo_root):
+            raise ValueError(f"round25 evidence target escapes Git worktree: {target}")
+        relative = resolved_target.relative_to(repo_root).as_posix()
+        blob_result = subprocess.run(
+            ["git", "-C", str(repo_root), "show", f"{resolved_revision}:{relative}"],
+            check=False,
+            capture_output=True,
+        )
+        if blob_result.returncode != 0:
+            raise ValueError(
+                f"round25 evidence target is absent from Git revision "
+                f"{resolved_revision}: {relative}"
+            )
+        if resolved_target.read_bytes() != blob_result.stdout:
+            raise ValueError(
+                f"round25 evidence differs from Git revision "
+                f"{resolved_revision}: {relative}"
+            )
+    return manifest, resolved_revision
+
+
 __all__ = [
     "ROUND25_REQUIRED_ARTIFACTS",
     "verify_artifact_self_hash",
+    "verify_round25_evidence_git_anchor",
     "verify_round25_evidence_manifest",
     "write_round25_evidence_manifest",
 ]

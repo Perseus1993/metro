@@ -23,7 +23,7 @@
     "python": "CPython 3.12.13",
     "pedpy_version": "1.5.1",
     "file_count": 42,
-    "content_sha256": "43cfc72b51343f270f9f4f628f580f93fa6d23e71575a2e62a206d5f23d57512"
+    "content_sha256": "70cf6b08d76dba7987e169c2cd8912ea324b6d2515f9190204b1ab1e8d3d379a"
   },
   "thresholds": {
     "max_pending_residence_steps_exclusive": 10,
@@ -45,5 +45,5 @@
   ],
   "implementation": "alignment/src/metro_alignment/source_integrity_gate.py",
   "tests": "alignment/tests/test_source_integrity_gate.py",
-  "artifact_sha256": "9ed48f8083aa7bdb7f141f554f6d67b1be0c73b0ee900f2ace2e287307743dfe"
+  "artifact_sha256": "f22fc7b29d786b6574456cf13d9a8adf9a8948aa44dc8886a88444773461dae6"
 }

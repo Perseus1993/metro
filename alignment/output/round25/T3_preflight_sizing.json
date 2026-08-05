@@ -23,7 +23,7 @@
     "python": "CPython 3.12.13",
     "pedpy_version": "1.5.1",
     "file_count": 42,
-    "content_sha256": "43cfc72b51343f270f9f4f628f580f93fa6d23e71575a2e62a206d5f23d57512"
+    "content_sha256": "70cf6b08d76dba7987e169c2cd8912ea324b6d2515f9190204b1ab1e8d3d379a"
   },
   "normal": {
     "schema_version": "alignment_admission_preflight_bundle.v1",
@@ -68,7 +68,7 @@
     ],
     "blockers": []
   },
-  "residence_evidence_artifact_sha256": "54dffbda2ffc4858aa6a9030b70953f2bafe8c45041be19512bcb6f6ea6cbc1d",
+  "residence_evidence_artifact_sha256": "4e3652c1b4faad6df9bd3e9ebdfbbed19a76aa43f91a105f2d2530153d85416e",
   "deterministic_schedule_envelopes": {
     "entry": {
       "deterministic_arrival_envelope": 26,
@@ -160,5 +160,5 @@
     "test": "alignment/tests/test_runner_publication.py::test_admission_preflight_failure_preserves_existing_bundle",
     "mechanism": "blocker artifact uses a distinct atomic path before runtime; existing simulation bundle is untouched"
   },
-  "artifact_sha256": "617ccf7f9dd7c3901c052093e278eec22b8b00925806af4276db95f1ec15bbc7"
+  "artifact_sha256": "0e5170c1320ee7d1ec6a87da2796d36470287605ebfd1beb79cc77aaf79fd5a0"
 }
