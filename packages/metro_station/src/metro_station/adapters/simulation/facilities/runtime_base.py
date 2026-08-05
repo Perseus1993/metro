@@ -237,6 +237,9 @@ class FacilityProcessAgent(FacilityAgent):
             ),
         )
 
+    def _max_service_starts_per_step(self) -> int | None:
+        return None
+
     def _serve_queue(self, train: TrainAgent | None = None) -> None:
         if not self.is_open:
             self._clear_service_blocked_state()
@@ -248,9 +251,17 @@ class FacilityProcessAgent(FacilityAgent):
 
         self.service_credit += self._service_groups_per_tick()
         release_count = min(len(self.queue), int(self.service_credit))
+        max_service_starts = self._max_service_starts_per_step()
         release_index = 0
         self._service_release_positions_this_tick = []
-        while self.queue and self.service_credit >= 1.0:
+        while (
+            self.queue
+            and self.service_credit >= 1.0
+            and (
+                max_service_starts is None
+                or release_index < max_service_starts
+            )
+        ):
             passenger = self.queue[0]
             if self.queue.is_settling(passenger):
                 self._record_service_blocked(

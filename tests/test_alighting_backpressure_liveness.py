@@ -32,6 +32,11 @@ from metro_station_testkit.alighting_backpressure_scenario import (
 from metro_station_testkit.instant_movement_backend import InstantMovementBackend
 
 
+class DeferredPassiveLayoutBackend(InstantMovementBackend):
+    def owns_passive_layout_motion(self) -> bool:
+        return True
+
+
 def test_alighting_stays_pending_without_downstream_approach_ownership() -> None:
     model = MetroStationModel(
         alighting_backpressure_scenario(),
@@ -303,6 +308,117 @@ def test_gate_queue_head_block_reason_transitions_are_observable() -> None:
     assert gate.service_blocked_reason_counts["queue_head_settling"] == 1
     assert gate.service_blocked_reason_counts["queue_head_not_service_ready"] == 1
     assert model.audit.counts["facility_service_queue_head_blocked"] == 2
+
+
+def test_gate_retargets_next_head_during_the_active_service_interval() -> None:
+    model = MetroStationModel(
+        alighting_backpressure_scenario(disable_exit_gates=False),
+        seed=51,
+        movement_backend=DeferredPassiveLayoutBackend(),
+    )
+    gate = model.exit_gates[0]
+    passengers = [
+        PassengerAgent(
+            model,
+            group_size=1,
+            created_step=0,
+            intent=AgentIntent.EXIT_STATION,
+        )
+        for _ in range(2)
+    ]
+    model.passengers.extend(passengers)
+    for index, passenger in enumerate(passengers):
+        passenger.pos = gate.queue.layout.slot(index)
+        assert gate.join_queue(passenger, authority="goal_graph")
+    gate.service_credit = 2.0
+
+    gate.step()
+
+    assert [active.passenger for active in gate.active_passes] == [passengers[0]]
+    assert list(gate.queue) == [passengers[1]]
+    assert passengers[1].target == gate.queue.layout.slot(0)
+    assert passengers[1].passive_layout_motion_target == gate.queue.layout.slot(0)
+    assert gate.service_blocked_reason_counts["queue_head_not_service_ready"] == 0
+
+    gate.active_passes[0].remaining_seconds = 10.0
+    gate.step()
+
+    assert list(gate.queue) == [passengers[1]]
+    assert gate.service_blocked_reason_counts["queue_head_not_service_ready"] == 0
+
+
+def test_gate_queue_layout_compacts_a_remote_head_to_its_fifo_slot() -> None:
+    model = MetroStationModel(
+        alighting_backpressure_scenario(disable_exit_gates=False),
+        seed=52,
+        movement_backend=DeferredPassiveLayoutBackend(),
+    )
+    gate = model.exit_gates[0]
+    passenger = PassengerAgent(
+        model,
+        group_size=1,
+        created_step=0,
+        intent=AgentIntent.EXIT_STATION,
+    )
+    model.passengers.append(passenger)
+    passenger.pos = gate.queue.layout.slot(4)
+    assert gate.join_queue(
+        passenger,
+        authority="goal_graph",
+        preferred_slot_index=4,
+    )
+
+    gate.step()
+
+    assert list(gate.queue) == [passenger]
+    assert passenger.target == gate.queue.layout.slot(0)
+
+
+def test_gate_compacts_approaching_successor_during_active_service() -> None:
+    model = MetroStationModel(
+        alighting_backpressure_scenario(disable_exit_gates=False),
+        seed=53,
+        movement_backend=DeferredPassiveLayoutBackend(),
+    )
+    gate = model.exit_gates[0]
+    serving = PassengerAgent(
+        model,
+        group_size=1,
+        created_step=0,
+        intent=AgentIntent.EXIT_STATION,
+    )
+    approaching = PassengerAgent(
+        model,
+        group_size=1,
+        created_step=0,
+        intent=AgentIntent.EXIT_STATION,
+    )
+    model.passengers.extend((serving, approaching))
+    serving.pos = gate.queue.layout.slot(0)
+    assert gate.join_queue(serving, authority="goal_graph")
+    reserved_index = model._reserve_facility_approach_slot(approaching, gate)
+    assert reserved_index == 1
+    reserved_target = model._facility_approach_slot_position(gate, reserved_index)
+    approaching.set_target(
+        reserved_target,
+        goal_kind="walk",
+        goal_label="gate approach",
+        facility_id=gate.facility_id,
+        stage=gate.spec.stage,
+    )
+    gate.service_credit = 1.0
+
+    gate.step()
+
+    assert [active.passenger for active in gate.active_passes] == [serving]
+    assert model._facility_targeting_slot_indices[gate.facility_id][
+        int(approaching.unique_id)
+    ] == 0
+    assert approaching.facility_approach_slots_by_stage[gate.spec.stage] == 0
+    assert gate.queue.approach_slot_reservation(int(approaching.unique_id)) == 0
+    assert (approaching.target, *approaching.route)[-1] == (
+        model._facility_approach_slot_position(gate, 0)
+    )
 
 
 def test_flat_entry_gate_reports_downstream_boarding_backpressure() -> None:

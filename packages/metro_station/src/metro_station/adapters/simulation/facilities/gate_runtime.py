@@ -89,7 +89,49 @@ class GateProcessAgent(FacilityProcessAgent):
         self._sync_state(train)
         self._layout_queue()
         self._advance_active_passes()
-        self._serve_queue(train)
+        active_passes_before_service = len(self.active_passes)
+        head_prepositioning_during_active_pass = (
+            bool(self.active_passes)
+            and bool(self.queue)
+            and not self._passenger_ready_for_service(self.queue[0])
+        )
+        if head_prepositioning_during_active_pass:
+            # This interval is the queue's physical slot advance, not a failed
+            # service opportunity. Preserve the configured headway credit; if
+            # the head is still absent after the active pass ends, the next
+            # interval records queue_head_not_service_ready normally.
+            self.service_credit += self._service_groups_per_tick()
+            self._clear_service_blocked_state()
+        else:
+            self._serve_queue(train)
+        owns_passive_motion = getattr(
+            self.model.movement_backend,
+            "owns_passive_layout_motion",
+            None,
+        )
+        service_started = len(self.active_passes) > active_passes_before_service
+        if service_started:
+            # Queue ownership and queue-approach ownership are one FIFO. Move
+            # the pending reservations into the slots released by this service
+            # before physical movement consumes the interval.
+            compact_approach_slots = getattr(
+                self.model,
+                "_compact_existing_facility_approach_slots",
+                None,
+            )
+            if callable(compact_approach_slots):
+                compact_approach_slots(self)
+        if (
+            self.queue
+            and service_started
+            and callable(owns_passive_motion)
+            and owns_passive_motion()
+        ):
+            # Service removes slot 0 before the physical movement phase.  Re-
+            # publish the compacted FIFO targets now so the next head advances
+            # from slot 1 during the active pass instead of waiting one empty
+            # process interval before it starts moving toward service.
+            self._layout_queue()
 
     def _layout_queue(self) -> None:
         offset = self._queue_layout_slot_index_offset()
@@ -101,6 +143,12 @@ class GateProcessAgent(FacilityProcessAgent):
 
     def _queue_layout_reverses_processing_order(self) -> bool:
         return self._queue_layout_slot_index_offset() > 0
+
+    def _max_service_starts_per_step(self) -> int | None:
+        # One process interval contains one physical queue advance. Retain any
+        # accumulated credit for the next interval instead of popping a second
+        # head before that body has consumed its slot-1 -> slot-0 movement.
+        return 1
 
     def has_active_service(self, passenger: PassengerAgent) -> bool:
         return any(active.passenger is passenger for active in self.active_passes)

@@ -12,7 +12,10 @@ from .facility_queue_geometry import (
     FacilityQueueGeometryMixin,
     _ApproachProjectionContext as _ApproachProjectionContext,
 )
-from .approach_slot_assignment import rebalance_current_step_approach_slots
+from .approach_slot_assignment import (
+    compact_existing_approach_slots,
+    rebalance_current_step_approach_slots,
+)
 from .evacuation_journey_rerouting import reroot_evacuation_goal_runtime
 from .facility_approach_release import clear_vacated_facility_targeting_reservations
 from .passenger_goal_runtime import PassengerGoalRuntime
@@ -318,6 +321,12 @@ class FacilityQueueRoutingMixin(FacilityQueueGeometryMixin):
 
     def _rebalance_current_step_approach_slots(self) -> None:
         rebalance_current_step_approach_slots(self)
+
+    def _compact_existing_facility_approach_slots(
+        self,
+        facility: FacilityProcessAgent,
+    ) -> bool:
+        return compact_existing_approach_slots(self, facility)
 
     def _clear_facility_targeting_reservation(
         self,

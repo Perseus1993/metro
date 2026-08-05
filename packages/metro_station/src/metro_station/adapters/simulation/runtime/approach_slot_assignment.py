@@ -3,6 +3,7 @@ from __future__ import annotations
 from dataclasses import dataclass, replace
 from math import hypot, isfinite
 
+from ..facilities.process import FacilityKind
 from ..planning.plan import AgentGoal, FacilityStage
 
 
@@ -146,17 +147,26 @@ def compact_existing_approach_slots(model, facility) -> bool:
         ) <= 1e-6
         if not owns_old_terminal and not already_at_new_target:
             return False
-        route = (
-            ()
-            if already_at_new_target and not owns_old_terminal
-            else tuple(
+        if already_at_new_target and not owns_old_terminal:
+            route = ()
+        elif facility.spec.kind == FacilityKind.GATE.value:
+            # A gate approach already owns a certified path through the bank
+            # tail. Closing a released queue-slot hole must not rebuild that
+            # path from the passenger's current position: doing so can send an
+            # in-flight body back to the tail aisle. Keep the live prefix and
+            # replace only its stale finite-slot terminal.
+            route = _replace_effective_navigation_terminal(
+                passenger,
+                new_target,
+            )
+        else:
+            route = tuple(
                 model.route_to_facility_queue_slot(
                     passenger,
                     facility,
                     new_index,
                 )
             )
-        )
         points = route or (new_target,)
         if any(
             not isfinite(float(coordinate))
@@ -477,6 +487,18 @@ def _effective_navigation_terminal(passenger) -> tuple[float, float]:
     if passenger.route:
         return tuple(passenger.route[-1])
     return tuple(passenger.target)
+
+
+def _replace_effective_navigation_terminal(
+    passenger,
+    new_target: tuple[float, float],
+) -> tuple[tuple[float, float], ...]:
+    pending = passenger._pending_route_transition
+    if pending is not None and pending[0]:
+        points = tuple(tuple(point) for point in pending[0])
+    else:
+        points = (tuple(passenger.target), *(tuple(point) for point in passenger.route))
+    return (*points[:-1], tuple(new_target))
 
 
 def _effective_navigation_goal(passenger, *, fallback) -> AgentGoal:
