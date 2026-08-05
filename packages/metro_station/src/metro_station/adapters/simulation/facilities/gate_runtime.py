@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-from dataclasses import dataclass, replace
 from math import ceil, hypot, inf, nextafter, sqrt
 from typing import TYPE_CHECKING
 
@@ -10,6 +9,12 @@ from .gate_downstream_admission import (
     direct_boarding_candidates,
     has_direct_boarding_admission,
     reserve_direct_boarding_admission,
+)
+from .gate_pass_lifecycle import (
+    ActiveGatePass,
+    delay_gate_event,
+    elapsed_from_committed_gate_position,
+    set_gate_event_completion_time,
 )
 from .process import FacilityKind, FacilitySpec
 from .runtime_base import FacilityProcessAgent
@@ -24,22 +29,6 @@ from ..spatial_capacity_admission import (
 if TYPE_CHECKING:
     from ..agents.passenger import PassengerAgent
     from ..agents.transit import TrainAgent
-
-
-@dataclass
-class ActiveGatePass:
-    passenger: PassengerAgent
-    event_id: int
-    start_position: tuple[float, float]
-    end_position: tuple[float, float]
-    end_time: float
-    total_steps: int
-    progress_steps: float = 0.0
-    duration_seconds: float = 0.0
-    elapsed_seconds: float = 0.0
-    remaining_seconds: float = 0.0
-    last_motion_request_time: float | None = None
-    release_slot_index: int | None = None
 
 
 class GateProcessAgent(FacilityProcessAgent):
@@ -497,7 +486,11 @@ class GateProcessAgent(FacilityProcessAgent):
                 else 0.0
             )
             if blocked_seconds > 1e-9:
-                self._delay_gate_event(active, blocked_seconds)
+                delay_gate_event(
+                    active,
+                    self.model.facility_service_events,
+                    blocked_seconds,
+                )
             active.progress_steps = (
                 float(active.total_steps)
                 if active.duration_seconds <= 1e-12
@@ -544,7 +537,7 @@ class GateProcessAgent(FacilityProcessAgent):
             elapsed_before = float(active.elapsed_seconds)
             elapsed_now = max(
                 elapsed_before,
-                self._elapsed_from_committed_gate_position(active),
+                elapsed_from_committed_gate_position(active),
             )
             if active.last_motion_request_time is not None:
                 wall_elapsed = max(
@@ -552,8 +545,9 @@ class GateProcessAgent(FacilityProcessAgent):
                     current_time - active.last_motion_request_time,
                 )
                 physical_elapsed = max(0.0, elapsed_now - elapsed_before)
-                self._delay_gate_event(
+                delay_gate_event(
                     active,
+                    self.model.facility_service_events,
                     max(0.0, wall_elapsed - physical_elapsed),
                 )
             active.elapsed_seconds = elapsed_now
@@ -612,22 +606,6 @@ class GateProcessAgent(FacilityProcessAgent):
             self._finish_gate_pass(active)
         self.active_passes = remaining
 
-    @staticmethod
-    def _elapsed_from_committed_gate_position(active: ActiveGatePass) -> float:
-        dx = active.end_position[0] - active.start_position[0]
-        dy = active.end_position[1] - active.start_position[1]
-        length_squared = dx * dx + dy * dy
-        if length_squared <= 1e-18:
-            return active.duration_seconds
-        progress = (
-            (active.passenger.pos[0] - active.start_position[0]) * dx
-            + (active.passenger.pos[1] - active.start_position[1]) * dy
-        ) / length_squared
-        return max(
-            0.0,
-            min(active.duration_seconds, progress * active.duration_seconds),
-        )
-
     def _gate_backpressure_fraction(
         self,
         passenger: PassengerAgent,
@@ -666,24 +644,6 @@ class GateProcessAgent(FacilityProcessAgent):
             )
         return max(0.0, min(1.0, allowed_distance / distance))
 
-    def _delay_gate_event(self, active: ActiveGatePass, delay_seconds: float) -> None:
-        if delay_seconds <= 0.0:
-            return
-        active.end_time += delay_seconds
-        for index, event in enumerate(self.model.facility_service_events):
-            if event.event_id != active.event_id:
-                continue
-            self.model.facility_service_events[index] = replace(
-                event,
-                end_time=event.end_time + delay_seconds,
-                arrive_time=(
-                    None
-                    if event.arrive_time is None
-                    else event.arrive_time + delay_seconds
-                ),
-            )
-            return
-
     def _finish_gate_pass(self, active: ActiveGatePass) -> None:
         passenger = active.passenger
         passenger.passive_facility_service = False
@@ -694,8 +654,9 @@ class GateProcessAgent(FacilityProcessAgent):
             # as much as the target radius and make the next walking command
             # reverse back toward the still-native body.
             passenger.pos = self.model.clamp_position(tuple(passenger.pos))
-            self._set_gate_event_completion_time(
+            set_gate_event_completion_time(
                 active,
+                self.model.facility_service_events,
                 float(self.model.current_time_seconds),
             )
             self.model.movement_backend.record_facility_motion_boundary(
@@ -717,29 +678,6 @@ class GateProcessAgent(FacilityProcessAgent):
             poll_immediately=True,
         )
         self._release_certified_slot(passenger, active.release_slot_index)
-
-    def _set_gate_event_completion_time(
-        self,
-        active: ActiveGatePass,
-        completion_time: float,
-    ) -> None:
-        actual_end = max(0.0, float(completion_time))
-        active.end_time = actual_end
-        for index, event in enumerate(self.model.facility_service_events):
-            if event.event_id != active.event_id:
-                continue
-            self.model.facility_service_events[index] = replace(
-                event,
-                end_time=actual_end,
-                arrive_time=actual_end,
-                end_position=tuple(active.passenger.pos),
-                board_end_time=(
-                    None
-                    if event.board_end_time is None
-                    else min(float(event.board_end_time), actual_end)
-                ),
-            )
-            return
 
     def _backend_owns_gate_service_motion(self) -> bool:
         owns_service_motion = getattr(
