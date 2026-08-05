@@ -40,8 +40,25 @@ def _build_platform_design(config: PlatformBoardingConfig) -> StationDesignDocum
     width = float(config.platform_width_m)
     max_x, max_y = x_m + length, y_m + width
     gate_width = max(4.0, min(10.0, length * 0.22))
+    gate_lane_count = max(2, int(gate_width // 1.5))
+    entry_gate_lane_count = gate_lane_count // 2
+    exit_gate_lane_count = gate_lane_count - entry_gate_lane_count
+    gate_bank_clearance = 0.6
+    usable_gate_width = gate_width - gate_bank_clearance
+    entry_gate_width = usable_gate_width * entry_gate_lane_count / gate_lane_count
+    exit_gate_width = usable_gate_width - entry_gate_width
+    gate_x = x_m + 8.0
+    gate_y = y_m + 8.0
     edge_width = max(12.0, min(length - config.train_door_x_m - 2.0, 40.0))
-    edge_x = x_m + float(config.train_door_x_m)
+    boarding_bank_clearance = 2.0
+    edge_x = x_m + float(config.train_door_x_m) + boarding_bank_clearance
+    boarding_door_count = 7
+    boarding_door_pitch = edge_width / boarding_door_count
+    boarding_door_width = min(3.0, boarding_door_pitch - 0.6)
+    boarding_edge_ids = tuple(
+        "platform_edge_" + chr(ord("a") + index)
+        for index in range(boarding_door_count)
+    )
     footprint = ((x_m, y_m), (max_x, y_m), (max_x, max_y), (x_m, max_y))
 
     elements = (
@@ -66,25 +83,65 @@ def _build_platform_design(config: PlatformBoardingConfig) -> StationDesignDocum
             False,
         ),
         DesignElement(
-            "gate_bank_a",
-            "gate",
+            "exit_a",
+            "entrance",
             "l1_platform",
-            rect(x_m + 8.0, y_m + 8.0, gate_width, 2.0),
-            "Gate bank",
-            capacity=max(1, int(gate_width // 1.5)),
-            gate_direction="bidirectional",
+            rect(
+                gate_x + entry_gate_width + gate_bank_clearance,
+                y_m + 1.0,
+                exit_gate_width,
+                2.0,
+            ),
+            "Dedicated exit access",
+            "egress",
+            False,
+            False,
         ),
         DesignElement(
-            "platform_edge_a",
-            "platform_edge",
+            "entry_gate_bank_a",
+            "gate",
             "l1_platform",
-            rect(edge_x, max_y - 1.2, edge_width, 1.2),
-            "Boarding edge",
-            "boarding",
-            False,
-            True,
-            line_id="default",
-            direction="down",
+            rect(gate_x, gate_y, entry_gate_width, 2.0),
+            "Entry gate bank",
+            capacity=entry_gate_lane_count,
+            gate_direction="entry",
+        ),
+        DesignElement(
+            "exit_gate_bank_a",
+            "gate",
+            "l1_platform",
+            rect(
+                gate_x + entry_gate_width + gate_bank_clearance,
+                gate_y,
+                exit_gate_width,
+                2.0,
+            ),
+            "Exit gate bank",
+            capacity=exit_gate_lane_count,
+            gate_direction="exit",
+        ),
+        *(
+            DesignElement(
+                edge_id,
+                "platform_edge",
+                "l1_platform",
+                rect(
+                    edge_x
+                    + index * boarding_door_pitch
+                    + (boarding_door_pitch - boarding_door_width) / 2.0,
+                    max_y - 1.2,
+                    boarding_door_width,
+                    1.2,
+                ),
+                f"Boarding edge door {index + 1}",
+                "boarding",
+                False,
+                True,
+                capacity=10,
+                line_id="default",
+                direction="down",
+            )
+            for index, edge_id in enumerate(boarding_edge_ids)
         ),
     )
     document = StationDesignDocument(
@@ -101,8 +158,26 @@ def _build_platform_design(config: PlatformBoardingConfig) -> StationDesignDocum
         elements=elements,
         connections=(
             DesignConnection("conn_access_hall", "entrance_a", "main_hall"),
-            DesignConnection("conn_hall_gate", "main_hall", "gate_bank_a"),
-            DesignConnection("conn_gate_boarding", "gate_bank_a", "platform_edge_a"),
+            DesignConnection("conn_exit_access_hall", "exit_a", "main_hall"),
+            DesignConnection("conn_hall_entry_gate", "main_hall", "entry_gate_bank_a"),
+            *(
+                DesignConnection(
+                    f"conn_entry_gate_boarding_{index + 1}",
+                    "entry_gate_bank_a",
+                    edge_id,
+                )
+                for index, edge_id in enumerate(boarding_edge_ids)
+            ),
+            *(
+                DesignConnection(
+                    f"conn_platform_exit_gate_{index + 1}",
+                    edge_id,
+                    "exit_gate_bank_a",
+                )
+                for index, edge_id in enumerate(boarding_edge_ids)
+            ),
+            DesignConnection("conn_exit_gate_hall", "exit_gate_bank_a", "main_hall"),
+            DesignConnection("conn_exit_gate_access", "exit_gate_bank_a", "exit_a"),
         ),
         metadata={
             "alignment_scene_id": config.scene_id,
@@ -110,6 +185,13 @@ def _build_platform_design(config: PlatformBoardingConfig) -> StationDesignDocum
             "platform_length_m": length,
             "platform_width_m": width,
             "train_door_x_m": float(config.train_door_x_m),
+            "boarding_bank_clearance_m": boarding_bank_clearance,
+            "boarding_door_policy": "seven_parallel_fixed_train_doors",
+            "boarding_door_count": boarding_door_count,
+            "gate_lane_policy": "fixed_direction",
+            "access_flow_policy": "separate_entry_and_exit_portals",
+            "entry_gate_lane_count": entry_gate_lane_count,
+            "exit_gate_lane_count": exit_gate_lane_count,
         },
     )
     document = with_standard_graph_contract(document)

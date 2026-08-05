@@ -27,7 +27,6 @@ from .vertical_landing import (
     vertical_landing_position,
 )
 
-
 QUEUE_COMPONENT_KINDS = {"gate", "escalator", "stairs", "elevator", "platform_edge"}
 
 
@@ -304,12 +303,13 @@ def _generated_queue(
     # otherwise unrelated resource even though a slightly smaller domain
     # still materialises every declared body slot.  Search deterministic
     # scaled domains instead of accepting the least-overlapping invalid one.
+    minimum_queue_width = 1.0 if element.kind == "platform_edge" else 2.0
     candidates = tuple(
         (scale, candidate)
         for scale in (1.0, 0.98, 0.95, 0.9, 0.8, 0.7)
         for candidate in _generated_queue_candidates(
             element,
-            queue_width=max(2.0, queue_width * scale),
+            queue_width=max(minimum_queue_width, queue_width * scale),
             queue_height=max(2.0, queue_height * scale),
         )
     )
@@ -384,7 +384,7 @@ def _generated_queue(
         # template constant.  When collision avoidance shrinks a generated
         # queue, reduce the authored demand contract conservatively with area;
         # the portal compiler will still prove the exact slot count.
-        capacity=max(1, int(floor(capacity * _scale * _scale))),
+        capacity=max(1, floor(capacity * _scale * _scale)),
         spacing_m=0.8,
         direction_deg=(
             {"below": 270.0, "above": 90.0, "right": 180.0, "left": 0.0}[side]
@@ -575,9 +575,10 @@ def _normalize_service_queue_directions(
 
 
 def _queue_dimensions(element: DesignElement) -> tuple[float, float, int, str]:
-    width = max(4.0, min(18.0, element.geometry.bounds()[2] - element.geometry.bounds()[0]))
+    element_width = element.geometry.bounds()[2] - element.geometry.bounds()[0]
     if element.kind == "platform_edge":
-        return max(12.0, width), 6.0, 80, "holding_area"
+        return max(1.0, min(18.0, element_width)), 6.0, element.capacity or 80, "holding_area"
+    width = max(4.0, min(18.0, element_width))
     if element.kind == "gate":
         # Seven metres of queue depth materializes six body-clear slots per
         # lane after the scenario radius is buffered out.  Declare exactly
