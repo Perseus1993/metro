@@ -7,9 +7,9 @@ from metro_station.domain.time_boundaries import (
     positive_steps_to_cover,
 )
 
+from ..planning.plan import AgentState
 from .base import StationAgent
 from .passenger import PassengerAgent
-from ..planning.plan import AgentState
 
 
 class TrainAgent(StationAgent):
@@ -60,6 +60,8 @@ class TrainAgent(StationAgent):
         step = self.model.step_index
 
         if self.state == "away" and step >= self.next_arrival_step:
+            if self.next_arrival_step > self.model.scenario.demand_steps:
+                return
             if self._service_suspended():
                 self.cancelled_trains += 1
                 self.last_cancelled_arrival_step = step

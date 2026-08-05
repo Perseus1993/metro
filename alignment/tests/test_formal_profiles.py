@@ -18,13 +18,19 @@ def test_final_profile_freezes_ladder_and_qualifier_order() -> None:
         "mixed-600",
     )
     assert profile.controls[0].horizon_steps == 350
-    assert profile.controls[1].horizon_steps == 600
+    assert profile.controls[1].horizon_steps == 900
+    assert profile.controls[1].recovery_window_steps == 300
+    assert profile.controls[3].horizon_steps == 900
+    assert profile.controls[3].recovery_window_steps == 300
     assert profile.controls[2].saturated_flow is not None
     assert profile.publication_control_id == "mixed-600"
 
 
 def test_nightly_profile_accepts_only_preregistered_seeds() -> None:
     for seed in MULTI_SEED_NIGHTLY_SEEDS:
-        assert multi_seed_nightly_profile(seed).controls[0].seed == seed
+        control = multi_seed_nightly_profile(seed).controls[0]
+        assert control.seed == seed
+        assert control.recovery_window_steps == 300
+        assert control.as_payload()["recovery_window_steps"] == 300
     with pytest.raises(ValueError, match="nightly seed"):
         multi_seed_nightly_profile(40)

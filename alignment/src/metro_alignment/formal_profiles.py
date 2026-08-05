@@ -59,9 +59,21 @@ class FormalControlSpec:
             raise ValueError("qualification controls require saturated-flow registration")
         if self.kind == "mixed" and not self.require_final_acceptance:
             raise ValueError("mixed publication control requires final acceptance")
+        if self.require_final_acceptance and self.recovery_window_steps <= 0:
+            raise ValueError(
+                "final-acceptance controls require a positive recovery window"
+            )
+
+    @property
+    def recovery_window_steps(self) -> int:
+        """Steps after the registered demand window used only for system drain."""
+
+        return self.horizon_steps - self.demand_minutes * 60
 
     def as_payload(self) -> dict:
-        return asdict(self)
+        payload = asdict(self)
+        payload["recovery_window_steps"] = self.recovery_window_steps
+        return payload
 
     @property
     def sha256(self) -> str:
@@ -122,7 +134,7 @@ ENTRY_TAIL_SATURATED_FLOW = SaturatedFlowRegistration(
     maximum_specific_flow_p_m_s=1.5,
     physical_mapping=(
         "Vertical section x=8.0m across the 1.6m entry-tail corridor between "
-        "entrance_a and gate_bank_a in alignment_platform_proxy_v1; endpoint order "
+        "entrance_a and entry_gate_bank_a in alignment_platform_proxy_v1; endpoint order "
         "makes station-positive-x travel negative-to-positive."
     ),
 )
@@ -147,8 +159,8 @@ def final_ladder_profile() -> FormalControlProfile:
             "entry-only-600",
             "entry_only",
             "ladder_rung",
-            10,
-            600,
+            15,
+            900,
             10,
             2500,
             0,
@@ -174,8 +186,8 @@ def final_ladder_profile() -> FormalControlProfile:
             "mixed-600",
             "mixed",
             "ladder_rung",
-            10,
-            600,
+            15,
+            900,
             10,
             2500,
             2200,
@@ -200,8 +212,8 @@ def multi_seed_nightly_profile(seed: int) -> FormalControlProfile:
         "mixed-600",
         "mixed",
         "ladder_rung",
-        10,
-        600,
+        15,
+        900,
         10,
         2500,
         2200,

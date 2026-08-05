@@ -10,6 +10,7 @@ from .platform_waiting_geometry import (
     platform_waiting_slot_clears_boarding_crossings,
     platform_waiting_slot_is_intent_eligible,
 )
+
 Point = tuple[float, float]
 
 
@@ -500,6 +501,22 @@ class DecisionHoldingMixin:
         )
 
         def waiting_slot_key(point: Point) -> tuple[float, ...]:
+            if (
+                str(getattr(passenger, "intent", "")) == "enter_and_board"
+                and bool(
+                    getattr(passenger, "_platform_waiting_stall_recovery", False)
+                )
+            ):
+                return (
+                    -1.0,
+                    hypot(
+                        point[0] - passenger.pos[0],
+                        point[1] - passenger.pos[1],
+                    ),
+                    0.0,
+                    point[1],
+                    point[0],
+                )
             if (
                 str(getattr(passenger, "intent", "")) == "exit_station"
                 and exit_staging_anchors

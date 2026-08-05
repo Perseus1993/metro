@@ -7,18 +7,19 @@ from ..planning.goal_commands import GoalCommand, GoalCommandKind
 from ..planning.goal_events import GoalEvent, GoalEventKind
 from ..planning.goal_graph import GoalNodeKind
 from ..planning.goal_state import FacilityInteractionState
-from ..planning.plan import AgentIntent, FacilityStage
+from ..planning.plan import AgentIntent, AgentState, FacilityStage
+from .decision_holding import PlatformWaitingCapacityError
+from .evacuation_journey_rerouting import refresh_evacuation_facility_path
+from .goal_event_ids import runtime_event_id
 from .passenger_goal_command_executor import (
     ProductionGoalCommandContext,
     ProductionGoalCommandExecutor,
 )
-from .passenger_goal_train_observer import PassengerGoalTrainObserver
 from .passenger_goal_service_observer import (
     ProductionGoalServiceEventObserver,
     ProductionServiceObservationContext,
 )
-from .goal_event_ids import runtime_event_id
-from .evacuation_journey_rerouting import refresh_evacuation_facility_path
+from .passenger_goal_train_observer import PassengerGoalTrainObserver
 
 
 class PassengerGoalCoordinator:
@@ -229,6 +230,51 @@ class PassengerGoalCoordinator:
         region_id, stage = active
         router = self.executor.region_router
         base_region = router._base_region(region_id)
+        platform_reservation = self.model._platform_waiting_reservations.get(
+            int(passenger.unique_id)
+        )
+        if (
+            base_region == "boarding_decision"
+            and str(getattr(passenger, "intent", "")) == "enter_and_board"
+        ):
+            platform = self.model.platform_for_passenger(passenger)
+            if platform is not None:
+                if platform_reservation is None:
+                    try:
+                        self.model._reserve_platform_waiting_slot(
+                            passenger,
+                            platform,
+                        )
+                    except PlatformWaitingCapacityError:
+                        pass
+                    platform_reservation = (
+                        self.model._platform_waiting_reservations.get(
+                            int(passenger.unique_id)
+                        )
+                    )
+                if platform_reservation is None:
+                    platform = None
+            if platform is not None:
+                platform.join_waiting(passenger)
+                if passenger.state == AgentState.WAITING_PLATFORM.value:
+                    passenger.set_target(
+                        tuple(passenger.pos),
+                        goal_kind="waiting",
+                        goal_label="stalled platform holding",
+                    )
+                passenger.last_replan_reason = reason
+                self.model.audit.record(
+                    "passenger_parked_stalled_platform_approach",
+                    source="goal_runtime",
+                    step=int(self.model.step_index),
+                    context={
+                        "passenger_id": int(passenger.unique_id),
+                        "region_id": region_id,
+                        "stage": stage,
+                        "reason": reason,
+                    },
+                )
+                return True
         # A finite holding or approach reservation is intentional
         # backpressure, not a stale route.  Releasing it on every crowd-induced
         # stall makes dense passengers synchronously reshuffle finite cells and
@@ -243,25 +289,54 @@ class PassengerGoalCoordinator:
             stage in passenger.facility_approach_slots_by_stage
             and stage in passenger.facility_approach_facility_ids_by_stage
         )
+        if (
+            has_approach_reservation
+            and passenger.last_replan_reason == reason
+        ):
+            self.model._clear_facility_targeting_reservation(passenger, stage)
+            router.clear_decision_context(
+                passenger,
+                region_id,
+                preserve_preference=False,
+            )
+            has_approach_reservation = False
         if not (has_holding_reservation or has_approach_reservation):
+            # Platform storage is intentionally persistent while a passenger
+            # waits for boarding capacity.  During an active region approach,
+            # however, a movement-stalled body must be allowed to exchange an
+            # unreachable reserved cell for a currently body-clear one.  The
+            # exit-flow reservation remains untouched because it licenses
+            # finite alighting admission upstream.
+            if (
+                base_region == "boarding_decision"
+                and str(getattr(passenger, "intent", "")) == "enter_and_board"
+            ):
+                self.model._clear_platform_waiting_reservation(passenger)
             self.model._clear_all_facility_targeting_reservations(passenger)
             router.clear_decision_context(
                 passenger,
                 region_id,
                 preserve_preference=False,
             )
-        self._execute(
-            passenger,
-            (
-                GoalCommand(
-                    kind=GoalCommandKind.WALK_TO_REGION.value,
-                    goal_node_id=state.current_node_id,
-                    stage=stage,
-                    target_region_id=region_id,
-                    reason=reason,
+        # Expose a narrow recovery scope while the route command reserves a
+        # replacement platform cell; a persistent replan reason would also
+        # change later, ordinary platform allocations.
+        passenger._platform_waiting_stall_recovery = True
+        try:
+            self._execute(
+                passenger,
+                (
+                    GoalCommand(
+                        kind=GoalCommandKind.WALK_TO_REGION.value,
+                        goal_node_id=state.current_node_id,
+                        stage=stage,
+                        target_region_id=region_id,
+                        reason=reason,
+                    ),
                 ),
-            ),
-        )
+            )
+        finally:
+            passenger._platform_waiting_stall_recovery = False
         passenger.last_replan_reason = reason
         self.model.audit.record(
             "passenger_replanned_stalled_region_approach",
