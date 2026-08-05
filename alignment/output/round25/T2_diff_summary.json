@@ -1,0 +1,49 @@
+{
+  "schema_version": "alignment_round25_t2_diff_summary.v1",
+  "status": "implemented",
+  "design_sha256": "e029a05941243fa9e3fd0d180af6157a26c0e69fd9e1fa9e4a0f24bcfcb13663",
+  "scene_config_sha256": "ee79aede12fa6e534469360b4ff20bead3bd31fe1e915d721fdfad92a876a020",
+  "metro_runtime_fingerprint": {
+    "package_version": "0.1.0",
+    "python": "CPython 3.12.13",
+    "dependency_versions": {
+      "jupedsim": "1.4.2",
+      "mesa": "3.5.1",
+      "numpy": "2.5.1",
+      "pandas": "3.0.5",
+      "pedpy": "1.5.1",
+      "shapely": "2.1.2"
+    },
+    "python_file_count": 270,
+    "source_tree_sha256": "b933a56e323c3a28e7e44b7c15f4a519ad1257083217dbf67b091975bd1a328c"
+  },
+  "analysis_runtime_fingerprint": {
+    "schema_version": "alignment_analysis_runtime.v1",
+    "python": "CPython 3.12.13",
+    "pedpy_version": "1.5.1",
+    "file_count": 42,
+    "content_sha256": "b686cfad56e5d89241cf4174bf3fee70e5b42c750a89df72450c320d6b6751a1"
+  },
+  "production_files": [
+    "packages/metro_station/src/metro_station/adapters/simulation/facilities/admission_resource.py",
+    "packages/metro_station/src/metro_station/adapters/simulation/runtime/passenger_demand.py",
+    "alignment/src/metro_alignment/admission_tokens.py",
+    "alignment/src/metro_alignment/metro_executor.py"
+  ],
+  "resource_contract": {
+    "flows": [
+      "entry",
+      "exit"
+    ],
+    "geometry_fields": [],
+    "capacity_type": "positive integer",
+    "failure_semantics": "FIFO pending; never drop",
+    "publication": "exact placement before passenger append/counters/frame",
+    "termination": "active owners released as lifecycle_right_censored"
+  },
+  "targeted_tests": {
+    "command": "python -m pytest alignment/tests/test_admission_tokens.py alignment/tests/test_metro_executor.py tests/test_spatial_capacity_certificates.py::test_explicit_source_position_is_rejected_before_publication -q",
+    "latest_result": "pass"
+  },
+  "artifact_sha256": "afbb7c6b7b5016bf99d9ac5efe87c1c92d6a00df5a638290b48223113cf23055"
+}

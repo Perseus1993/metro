@@ -39,8 +39,10 @@ from metro_alignment.metro_contract import (
     verify_scene_config_record,
 )
 from metro_alignment.metro_executor import (
+    AlignmentAdmissionCapacityConflict,
     AlignmentMesaSimulationExecutor,
     AlignmentSourceGeometryConflict,
+    alignment_entry_admission_preflight,
     alignment_source_geometry_preflight,
 )
 from metro_alignment.metro_runtime import metro_source_fingerprint
@@ -56,9 +58,11 @@ from metro_alignment.simulation_evidence import (
     compute_simulated_metrics,
     simulated_trajectory_summary,
 )
+from metro_alignment.source_integrity_gate import require_source_integrity_gate
 
 SIMULATED_ARTIFACT_SCHEMA_VERSION = "alignment_simulation_metrics.v5"
 SOURCE_PREFLIGHT_ARTIFACT_SCHEMA_VERSION = "alignment_source_preflight_artifact.v2"
+ADMISSION_PREFLIGHT_ARTIFACT_SCHEMA_VERSION = "alignment_admission_preflight_artifact.v1"
 
 
 @dataclass(frozen=True)
@@ -104,17 +108,11 @@ def _require_admission_acceptance(
     expected_exit_persons: int,
     expected_departed_trains: int,
 ) -> None:
+    require_source_integrity_gate(final_metrics)
     required_equal = {
-        "spawned_entry_persons": expected_entry_persons,
-        "spawned_exit_persons": expected_exit_persons,
         "alignment_scheduled_entry_persons": expected_entry_persons,
+        "alignment_scheduled_exit_persons": expected_exit_persons,
         "pending_alighting_persons": 0,
-        "alignment_pending_source_groups": 0,
-        "alignment_pending_source_persons": 0,
-        "alignment_pending_entry_groups": 0,
-        "alignment_pending_entry_persons": 0,
-        "alignment_entry_dropped_persons": 0,
-        "alignment_source_dropped_persons": 0,
         "jupedsim_missing_agents": 0,
         "jupedsim_degraded_holds": 0,
         "alignment_active_boardings": 0,
@@ -126,12 +124,6 @@ def _require_admission_acceptance(
         for key, expected in required_equal.items()
         if final_metrics.get(key) != expected
     ]
-    for key in (
-        "alignment_entry_demand_conserved",
-        "alignment_source_demand_conserved",
-    ):
-        if final_metrics.get(key) is not True:
-            failures.append(f"{key}={final_metrics.get(key)!r}, expected True")
     if final_metrics.get("alignment_requested_due_source_persons") != final_metrics.get(
         "alignment_scheduled_source_persons"
     ):
@@ -200,10 +192,24 @@ def _publish_staged_bundle(
     """
 
     token = uuid4().hex
-    # ``write_json_atomic`` adds its own staging suffix. Keep these transaction
-    # names short so nested ladder controls remain below legacy Windows MAX_PATH.
+    # Keep transaction filenames independent of the public manifest name.
+    # ``write_json_atomic`` adds its own staging suffix; repeating a long
+    # manifest name here exceeded legacy Windows MAX_PATH in nested ladder runs.
     staged_manifest = manifest_path.with_name(f".m-{token}.json")
     manifest_backup = manifest_path.with_name(f".b-{token}.json")
+    manifest_atomic_stage = staged_manifest.with_name(
+        f".{staged_manifest.name}.{'f' * 32}.staging"
+    )
+    _require_windows_path_budget(
+        staged_canonical,
+        staged_trace,
+        canonical_path,
+        trace_path,
+        manifest_path,
+        staged_manifest,
+        manifest_backup,
+        manifest_atomic_stage,
+    )
     created: list[Path] = []
     published_manifest = False
     had_manifest = manifest_path.exists()
@@ -318,6 +324,9 @@ def _load_verified_trace_replay(
     preflight = alignment_source_geometry_preflight(scenario)
     if preflight["status"] != "pass":
         raise AlignmentSourceGeometryConflict(preflight)
+    admission_preflight = alignment_entry_admission_preflight(scenario)
+    if admission_preflight["status"] != "pass":
+        raise AlignmentAdmissionCapacityConflict(admission_preflight)
 
     manifest_path = output.parent / f"{config.scene_id}_simulated.json"
     if not manifest_path.exists():
@@ -413,6 +422,35 @@ def _write_source_preflight_blocker(
     return _write_source_preflight_artifact(output=output, config=config, report=report)
 
 
+def _write_admission_preflight_artifact(
+    *,
+    output: Path,
+    config: SceneConfig,
+    report: dict[str, Any],
+) -> Path:
+    _, design_sha256 = build_metro_scenario(config)
+    path = output.parent / f"{config.scene_id}_admission_preflight.json"
+    passed = report.get("status") == "pass"
+    _write_json(
+        path,
+        {
+            "schema_version": ADMISSION_PREFLIGHT_ARTIFACT_SCHEMA_VERSION,
+            "scene_id": config.scene_id,
+            "scene_config_schema_version": SCENE_CONFIG_SCHEMA_VERSION,
+            "scene_config": scene_config_payload(config),
+            "scene_config_sha256": scene_config_sha256(config),
+            "design_sha256": design_sha256,
+            "metro_runtime_fingerprint": metro_source_fingerprint(),
+            "analysis_runtime_fingerprint": analysis_runtime_fingerprint(),
+            "runtime_status": "ready" if passed else "not_started",
+            "blocker": None if passed else "admission_capacity_undersized",
+            "release_eligible": False,
+            "preflight": report,
+        },
+    )
+    return path
+
+
 def _retire_source_preflight_blocker(*, output: Path, config: SceneConfig) -> None:
     """Remove a superseded blocker only after a new bundle is fully published."""
 
@@ -430,6 +468,30 @@ def _staged_output_paths(output: Path, token: str) -> tuple[Path, Path]:
         output.with_name(f".canonical-{token}.tmp"),
         output.with_name(f".trace-{token}.tmp"),
     )
+
+
+def _require_windows_path_budget(
+    *paths: Path,
+    platform_name: str | None = None,
+    max_path_chars: int = 259,
+) -> None:
+    """Fail before publication when a legacy Windows path cannot be represented."""
+
+    platform = os.name if platform_name is None else platform_name
+    if platform != "nt":
+        return
+    offenders = [
+        (path, len(str(path.resolve())))
+        for path in paths
+        if len(str(path.resolve())) > max_path_chars
+    ]
+    if offenders:
+        details = "; ".join(f"{length} chars: {path}" for path, length in offenders)
+        raise RuntimeError(
+            "formal evidence path exceeds the legacy Windows path budget; "
+            "refusing publication before the manifest switch: "
+            + details
+        )
 
 
 def _write_run_outputs(
@@ -479,6 +541,16 @@ def _write_run_outputs(
     output.parent.mkdir(parents=True, exist_ok=True)
     token = uuid4().hex
     staged_canonical, staged_trace = _staged_output_paths(output, token)
+    staged_trace_atomic = staged_trace.with_name(
+        f".{staged_trace.name}.{'f' * 32}.staging"
+    )
+    _require_windows_path_budget(
+        output,
+        metrics_path,
+        staged_canonical,
+        staged_trace,
+        staged_trace_atomic,
+    )
     try:
         write_canonical(canonical_df, staged_canonical)
         _write_json(staged_trace, trace)
@@ -751,6 +823,15 @@ def main() -> None:
         )
         if report["status"] != "pass":
             raise AlignmentSourceGeometryConflict(report)
+        admission_report = alignment_entry_admission_preflight(scenario)
+        admission_path = _write_admission_preflight_artifact(
+            output=args.output,
+            config=config,
+            report=admission_report,
+        )
+        print(f"admission preflight: {admission_path}")
+        if admission_report["status"] != "pass":
+            raise AlignmentAdmissionCapacityConflict(admission_report)
         return
     try:
         if args.reuse_existing_trace:
@@ -776,6 +857,14 @@ def main() -> None:
             report=exc.report,
         )
         print(f"source preflight blocker: {blocker_path}")
+        raise
+    except AlignmentAdmissionCapacityConflict as exc:
+        blocker_path = _write_admission_preflight_artifact(
+            output=args.output,
+            config=config,
+            report=exc.report,
+        )
+        print(f"admission preflight blocker: {blocker_path}")
         raise
     result = _write_run_outputs(
         output=args.output,

@@ -1,0 +1,163 @@
+{
+  "schema_version": "alignment_round25_t3_preflight_sizing.v1",
+  "status": "pass",
+  "design_sha256": "e029a05941243fa9e3fd0d180af6157a26c0e69fd9e1fa9e4a0f24bcfcb13663",
+  "scene_config_sha256": "ee79aede12fa6e534469360b4ff20bead3bd31fe1e915d721fdfad92a876a020",
+  "metro_runtime_fingerprint": {
+    "package_version": "0.1.0",
+    "python": "CPython 3.12.13",
+    "dependency_versions": {
+      "jupedsim": "1.4.2",
+      "mesa": "3.5.1",
+      "numpy": "2.5.1",
+      "pandas": "3.0.5",
+      "pedpy": "1.5.1",
+      "shapely": "2.1.2"
+    },
+    "python_file_count": 270,
+    "source_tree_sha256": "b933a56e323c3a28e7e44b7c15f4a519ad1257083217dbf67b091975bd1a328c"
+  },
+  "analysis_runtime_fingerprint": {
+    "schema_version": "alignment_analysis_runtime.v1",
+    "python": "CPython 3.12.13",
+    "pedpy_version": "1.5.1",
+    "file_count": 42,
+    "content_sha256": "b686cfad56e5d89241cf4174bf3fee70e5b42c750a89df72450c320d6b6751a1"
+  },
+  "normal": {
+    "schema_version": "alignment_admission_preflight_bundle.v1",
+    "status": "pass",
+    "flows": [
+      {
+        "schema_version": "alignment_admission_preflight.v2",
+        "flow_id": "entry",
+        "status": "pass",
+        "count_hour": 2500,
+        "arrival_rate_persons_s": 0.6944444444444444,
+        "registered_residence_seconds": 36.0,
+        "residence_percentile": "p99",
+        "residence_evidence_ref": "alignment/output/round25/T1_residence_time.json#entry.p99",
+        "burst_sigma": 3.0,
+        "deterministic_arrival_envelope": 26,
+        "stochastic_reference_capacity": 40,
+        "sizing_formula": "deterministic maximum arrivals in the registered W window",
+        "required_capacity": 26,
+        "configured_capacity": 26,
+        "resource_semantics": "counting_signal_not_physical_storage",
+        "blockers": []
+      },
+      {
+        "schema_version": "alignment_admission_preflight.v2",
+        "flow_id": "exit",
+        "status": "pass",
+        "count_hour": 2200,
+        "arrival_rate_persons_s": 0.6111111111111112,
+        "registered_residence_seconds": 351.0,
+        "residence_percentile": "p90",
+        "residence_evidence_ref": "alignment/output/round25/T1_residence_time.json#exit.p90",
+        "burst_sigma": 3.0,
+        "deterministic_arrival_envelope": 73,
+        "stochastic_reference_capacity": 259,
+        "sizing_formula": "deterministic maximum arrivals in the registered W window",
+        "required_capacity": 73,
+        "configured_capacity": 73,
+        "resource_semantics": "counting_signal_not_physical_storage",
+        "blockers": []
+      }
+    ],
+    "blockers": []
+  },
+  "residence_evidence_artifact_sha256": "819b05cb917e9b4b3800ac01e1234e8d6225dbb8307f65c6e1f736db2dd5665a",
+  "deterministic_schedule_envelopes": {
+    "entry": {
+      "deterministic_arrival_envelope": 26,
+      "stochastic_reference_capacity": 40,
+      "required_capacity": 26,
+      "sizing_rule": "deterministic maximum arrivals in the registered W window"
+    },
+    "exit": {
+      "deterministic_arrival_envelope": 73,
+      "stochastic_reference_capacity": 259,
+      "required_capacity": 73,
+      "sizing_rule": "deterministic maximum arrivals in the registered W window"
+    }
+  },
+  "underconfigured_counterexample": {
+    "scene_config_sha256": "ede66333279f83625efca69b8409a67d2afeb9f22ef1ceef38f1ca2316f4a992",
+    "configured_entry_capacity": 25,
+    "configured_exit_capacity": 72,
+    "runtime_status": "not_started",
+    "runtime_invocations": 0,
+    "release_eligible": false,
+    "preflight": {
+      "schema_version": "alignment_admission_preflight_bundle.v1",
+      "status": "fail",
+      "flows": [
+        {
+          "schema_version": "alignment_admission_preflight.v2",
+          "flow_id": "entry",
+          "status": "fail",
+          "count_hour": 2500,
+          "arrival_rate_persons_s": 0.6944444444444444,
+          "registered_residence_seconds": 36.0,
+          "residence_percentile": "p99",
+          "residence_evidence_ref": "alignment/output/round25/T1_residence_time.json#entry.p99",
+          "burst_sigma": 3.0,
+          "deterministic_arrival_envelope": 26,
+          "stochastic_reference_capacity": 40,
+          "sizing_formula": "deterministic maximum arrivals in the registered W window",
+          "required_capacity": 26,
+          "configured_capacity": 25,
+          "resource_semantics": "counting_signal_not_physical_storage",
+          "blockers": [
+            {
+              "code": "admission_capacity_undersized",
+              "message": "entry capacity 25 is below required 26"
+            }
+          ]
+        },
+        {
+          "schema_version": "alignment_admission_preflight.v2",
+          "flow_id": "exit",
+          "status": "fail",
+          "count_hour": 2200,
+          "arrival_rate_persons_s": 0.6111111111111112,
+          "registered_residence_seconds": 351.0,
+          "residence_percentile": "p90",
+          "residence_evidence_ref": "alignment/output/round25/T1_residence_time.json#exit.p90",
+          "burst_sigma": 3.0,
+          "deterministic_arrival_envelope": 73,
+          "stochastic_reference_capacity": 259,
+          "sizing_formula": "deterministic maximum arrivals in the registered W window",
+          "required_capacity": 73,
+          "configured_capacity": 72,
+          "resource_semantics": "counting_signal_not_physical_storage",
+          "blockers": [
+            {
+              "code": "admission_capacity_undersized",
+              "message": "exit capacity 72 is below required 73"
+            }
+          ]
+        }
+      ],
+      "blockers": [
+        {
+          "flow_id": "entry",
+          "code": "admission_capacity_undersized",
+          "message": "entry capacity 25 is below required 26"
+        },
+        {
+          "flow_id": "exit",
+          "code": "admission_capacity_undersized",
+          "message": "exit capacity 72 is below required 73"
+        }
+      ]
+    }
+  },
+  "old_bundle_preservation": {
+    "status": "covered",
+    "test": "alignment/tests/test_runner_publication.py::test_admission_preflight_failure_preserves_existing_bundle",
+    "mechanism": "blocker artifact uses a distinct atomic path before runtime; existing simulation bundle is untouched"
+  },
+  "artifact_sha256": "a4f14d4a83a614b4c24b3f2775fc429b1a8cd693d4d653958746f78d64a985e3"
+}

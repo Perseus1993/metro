@@ -101,6 +101,17 @@ def test_formal_output_staging_names_fit_nested_windows_paths() -> None:
     assert len(staged_trace.name) < 64
 
 
+def test_formal_output_fails_closed_above_legacy_windows_path_budget(
+    tmp_path: Path,
+) -> None:
+    runner = _load_runner()
+    oversized = tmp_path / ("x" * 220) / "movement_trace.json"
+    assert len(str(oversized.resolve())) >= 262
+
+    with pytest.raises(RuntimeError, match="legacy Windows path budget"):
+        runner._require_windows_path_budget(oversized, platform_name="nt")
+
+
 def test_formal_runner_uses_alignment_compatibility_executor(monkeypatch) -> None:
     runner = _load_runner()
     captured = {}
@@ -139,6 +150,7 @@ def _accepted_admission_metrics() -> dict:
         "spawned_entry_persons": 417,
         "spawned_exit_persons": 367,
         "alignment_scheduled_entry_persons": 417,
+        "alignment_scheduled_exit_persons": 367,
         "alignment_scheduled_source_persons": 417,
         "alignment_requested_due_source_persons": 417,
         "pending_alighting_persons": 0,
@@ -146,7 +158,14 @@ def _accepted_admission_metrics() -> dict:
         "alignment_pending_source_persons": 0,
         "alignment_pending_entry_groups": 0,
         "alignment_pending_entry_persons": 0,
+        "alignment_pending_exit_groups": 0,
+        "alignment_pending_exit_persons": 0,
+        "alignment_entry_max_pending_residence_steps": 0,
+        "alignment_exit_max_pending_residence_steps": 0,
+        "alignment_entry_admission_exhausted_ratio": 0.0,
+        "alignment_exit_admission_exhausted_ratio": 0.0,
         "alignment_entry_dropped_persons": 0,
+        "alignment_exit_dropped_persons": 0,
         "alignment_source_dropped_persons": 0,
         "jupedsim_missing_agents": 0,
         "jupedsim_degraded_holds": 0,
@@ -154,7 +173,9 @@ def _accepted_admission_metrics() -> dict:
         "alignment_reserved_boarding_persons": 0,
         "departed_trains": 3,
         "alignment_entry_demand_conserved": True,
+        "alignment_exit_demand_conserved": True,
         "alignment_source_demand_conserved": True,
+        "audit_counts": {"passenger_liveness_violation": 0},
     }
 
 
@@ -204,7 +225,11 @@ def test_trace_replay_cannot_bypass_admission_gate(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     runner = _load_runner()
-    config = build_scene_config("platform_boarding")
+    config = replace(
+        build_scene_config("platform_boarding"),
+        minutes=3,
+        demand_minutes=2,
+    )
     _, design_sha256 = runner.build_metro_scenario(config)
     trace_path = tmp_path / "trace.json"
     trace_path.write_text('{"points": []}', encoding="utf-8")
@@ -298,6 +323,52 @@ def test_source_preflight_blocker_is_persisted_as_fail_closed_evidence(
     assert artifact["blocker"] == "alighting_source_geometry_conflict"
     assert artifact["release_eligible"] is False
     assert artifact["preflight"] == report
+
+
+def test_admission_preflight_blocker_is_structured_and_runtime_not_started(
+    tmp_path: Path,
+) -> None:
+    runner = _load_runner()
+    config = replace(
+        build_scene_config("platform_boarding"),
+        entry_admission_token_capacity=1,
+    )
+    scenario, _ = runner.build_metro_scenario(config)
+    report = runner.alignment_entry_admission_preflight(scenario)
+
+    path = runner._write_admission_preflight_artifact(
+        output=tmp_path / "platform_boarding_simulated.parquet",
+        config=config,
+        report=report,
+    )
+
+    artifact = json.loads(path.read_bytes())
+    assert report["status"] == "fail"
+    assert artifact["runtime_status"] == "not_started"
+    assert artifact["blocker"] == "admission_capacity_undersized"
+    assert artifact["preflight"]["blockers"][0]["flow_id"] == "entry"
+
+
+def test_admission_preflight_failure_preserves_existing_bundle(tmp_path: Path) -> None:
+    runner = _load_runner()
+    config = replace(
+        build_scene_config("platform_boarding"),
+        entry_admission_token_capacity=1,
+    )
+    scenario, _ = runner.build_metro_scenario(config)
+    report = runner.alignment_entry_admission_preflight(scenario)
+    bundle = tmp_path / "platform_boarding_simulated.json"
+    bundle.write_bytes(b'{"status":"previous-pass"}')
+    before = bundle.read_bytes()
+
+    runner._write_admission_preflight_artifact(
+        output=bundle,
+        config=config,
+        report=report,
+    )
+
+    assert report["status"] == "fail"
+    assert bundle.read_bytes() == before
 
 
 def test_passed_source_preflight_is_persisted_with_current_scene_contract(
@@ -437,7 +508,12 @@ def test_bundle_publication_supports_fresh_nested_ladder_directory(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     runner = _load_runner()
-    parent = tmp_path / "ladder" / ("r" * 32) / "00-exit-only-350"
+    parent = (
+        tmp_path
+        / "ladder"
+        / ("r" * 32)
+        / "00-exit-only-350"
+    )
     parent.mkdir(parents=True)
     staged_canonical = parent / ".c.parquet"
     staged_trace = parent / ".t.json"

@@ -124,6 +124,9 @@ def execute_final_ladder(
                     "preregistered saturated-flow gate failed; refusing remaining ladder controls"
                 )
 
+        control_status = (
+            "pass" if control.require_final_acceptance else "qualification_pass"
+        )
         control_artifact = ControlRunArtifact(
             schema_version=CONTROL_ARTIFACT_SCHEMA_VERSION,
             run_id=run_id,
@@ -133,7 +136,7 @@ def execute_final_ladder(
             control_spec_sha256=control.sha256,
             role=control.role,
             order_index=index,
-            status="pass",
+            status=control_status,
             runtime_cohort=cohort,
             scene_config_sha256=execution.scene_config_sha256,
             simulation_manifest=simulation_record,
@@ -151,7 +154,7 @@ def execute_final_ladder(
                 control_id=control.control_id,
                 role=control.role,
                 order_index=index,
-                status="pass",
+                status=control_status,
                 control_spec_sha256=control.sha256,
                 scene_config_sha256=execution.scene_config_sha256,
                 control_artifact=control_record,
