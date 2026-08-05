@@ -1,0 +1,77 @@
+{
+  "schema_version": "alignment_calibration_holdout_split.v1",
+  "status": "frozen",
+  "frozen_on": "2026-08-05",
+  "source": {
+    "record": "https://zenodo.org/records/13784588",
+    "doi": "10.5281/zenodo.13784588",
+    "license": "CC-BY-4.0"
+  },
+  "generator": {
+    "module": "metro_alignment.evidence_split",
+    "source_sha256": "13a9e1f78c1d12aa6016cd4d8df73350ceed919b57d997857071a35e386bce08"
+  },
+  "policy": {
+    "calibration_use": "days 01-10 only; parameter/candidate selection permitted",
+    "holdout_use": "days 11-20 only, excluding every object_identifier present in calibration; outcome metrics quarantined until candidate freeze",
+    "holdout_filter": "object_identifier NOT IN calibration.object_identifier",
+    "holdout_content_inspected": "schema, hashes, row count, time range and IDs only",
+    "refreeze_requires_new_schema_or_explicit ADR": true
+  },
+  "calibration": {
+    "dataset_id": "eindhoven_platform_calibration_days01_10_v1",
+    "path": "data/raw/eindhoven_platform_v1/Eindhoven_centraal_trajectories_days_01_10.parquet",
+    "size_bytes": 862133833,
+    "sha256": "9f8fa0f178722bcd4c13ecea2b0435fd3b5c698c671b97098ca758be7e202cd6",
+    "md5": "34f1b0c41d93184f0ae30a45246f82dc",
+    "expected_md5": "34f1b0c41d93184f0ae30a45246f82dc",
+    "row_n": 185234516,
+    "object_identifier_n": 394117,
+    "object_identifier_set_sha256": "f7eb4d2d7a61653fd2cc17b000ccd7ee4f9bf0ef52f67cc45a69df96235b3d41",
+    "time_ms": {
+      "min": 334600,
+      "max": 861680100
+    },
+    "columns": [
+      "time_ms",
+      "object_identifier",
+      "y_position_mm",
+      "x_position_mm"
+    ]
+  },
+  "holdout": {
+    "dataset_id": "eindhoven_platform_holdout_days11_20_v1",
+    "path": "data/holdout_raw/eindhoven_platform_holdout_days11_20_v1/Eindhoven_centraal_trajectories_days_11_20.parquet",
+    "size_bytes": 643174366,
+    "sha256": "0cd1b90bcc799258d220ca4c11e65ef3d8c26a9dd2d73d97e3aba7cb9ba1ada8",
+    "md5": "48dfb09889cca222252ad9fb47913b0e",
+    "expected_md5": "48dfb09889cca222252ad9fb47913b0e",
+    "row_n": 135830105,
+    "object_identifier_n": 316899,
+    "object_identifier_set_sha256": "6031924a6e0f28e1d4956e963a92b95decf37e89cf32fda18858b97196937f28",
+    "time_ms": {
+      "min": 861680200,
+      "max": 1725680100
+    },
+    "columns": [
+      "time_ms",
+      "object_identifier",
+      "y_position_mm",
+      "x_position_mm"
+    ],
+    "effective_object_identifier_n": 316898
+  },
+  "zero_overlap_proof": {
+    "source_file_sha256_distinct": true,
+    "time_ranges_disjoint": true,
+    "raw_object_identifier_overlap_n": 1,
+    "holdout_excluded_object_identifiers": [
+      4523217
+    ],
+    "effective_object_identifier_overlap_n": 0,
+    "row_overlap_n": 0,
+    "zero_overlap_proven": true,
+    "method": "full Parquet scan of time_ms and object_identifier; holdout excludes every identifier present in calibration; row overlap is impossible when time ranges are disjoint"
+  },
+  "split_contract_sha256": "a7523125d56b556d3639faaa9e71643ef964269534cefb05b824d214640943e4"
+}

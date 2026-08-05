@@ -62,15 +62,15 @@
       "pedpy": "1.5.1",
       "shapely": "2.1.2"
     },
-    "python_file_count": 264,
-    "source_tree_sha256": "27b15d94d0714f86f53b697dbe3a02159ca2518e18f6abd4222624ef545e8bc0"
+    "python_file_count": 269,
+    "source_tree_sha256": "2102b2f93c8c8e4baebe7798396e74aa49bf7fef445a4d421a17f0f4fac5f395"
   },
   "analysis_runtime_fingerprint": {
     "schema_version": "alignment_analysis_runtime.v1",
     "python": "CPython 3.12.13",
     "pedpy_version": "1.5.1",
-    "file_count": 32,
-    "content_sha256": "d86f172012061b8dea955903231f0b7af330aaf0fffb0b9353efe67b295ab0b7"
+    "file_count": 34,
+    "content_sha256": "d8d9a95ebed6e856bb5e2387a44cc21252279ffdd0922f0eaf4595f40536bdb8"
   },
   "runtime_status": "ready",
   "scientific_status": "eligible",

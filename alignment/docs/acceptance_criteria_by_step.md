@@ -102,6 +102,17 @@ Step 6 的 `hold` 表示软件闭环可执行但标定/验证没有成功，不�
 Step 5 的 mixed 600 与饱和断面 control 通过只允许生成新的 simulation v5；它不等于 release。当前 geometry=`proxy`、独立 holdout 和多种子收敛证据缺失时，Step 6 必须继续 `hold`。
 顺序固定为：先修机制并完成最终指纹阶梯，再用新 simulation 重建 comparison；只有误差仍存在时才重新讨论 `jupedsim_desired_speed_mps`。当前 1.22 不因旧 v2 的 1.130232 诊断而改变。seeds 41--50 的十个 600-step holdout 与 scale-soak 进入 nightly 档位，不作为每次提交门。
 
+2026-08-05 已冻结数据 split：calibration=`days 01-10`，holdout=`days 11-20`。全量扫描发现原始文件在时间上完全分离，但有一个跨边界 ID `4523217`；因此有效 holdout 合同明确排除所有 calibration ID，并在 `calibration_holdout_split_eindhoven_platform_v1.json` 中同时保留原始交集、排除清单、两份输入 SHA-256 与有效零重叠证明。holdout outcome 在候选冻结前不得计算。
+
+多种子聚合器固定接受且只接受 seeds 41--50 的 simulation v5 内容寻址 manifest；十个运行必须共享去除 seed 后的 SceneConfig、Design、Metro runtime 与 analysis 指纹并逐个满足 Step 5 最终计数。收敛统计使用 df=9 的 Student-t 95% CI，`half_width / abs(mean) <= 0.05` 才置 `converged=true`。`legacy_single_run_replay_smoke` 仅调通序列化与计算路径，即使重复值给出零半宽也必须保持 `converged=false`、`gate_status=smoke_only`。
+
+```powershell
+uv run --project . python scripts/freeze_calibration_holdout_split.py
+uv run --project . python scripts/aggregate_multi_seed.py --input-dir <new-bundle-root> --out data/metrics/multi_seed_platform_boarding.json
+```
+
+几何资格由 [ADR-009](../../docs/architecture/ADR-009-alignment-geometry-evidence-qualification.md) 裁决：现有 `entrance_a` 不得部分升级，geometry 继续 `proxy`。
+
 ## Step 7 参数报告
 
 | 指标 | 通过阈值 | 证据 |

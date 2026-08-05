@@ -1,12 +1,12 @@
 {
   "schema_version": "alignment_parameter_report.v5",
   "scene_id": "platform_boarding",
-  "generated_at": "2026-08-04T15:34:25.725478+00:00",
+  "generated_at": "2026-08-05T03:06:46.661636+00:00",
   "release_decision": "hold",
   "source_artifacts": {
     "comparison": {
       "path": "comparison_platform_boarding.json",
-      "sha256": "03ae1710b21813827575b2d6c629d297cef89c84f6f436bd552e860df63a67c1"
+      "sha256": "4f7e9f64870b787a1d6b482b57c9359efe0dccf41377adf915755bd574e8b0cf"
     }
   },
   "parameter_table": [
@@ -80,11 +80,11 @@
         "comparison_input_hashes": {
           "observed": {
             "path": "eindhoven_platform_v1_observed.json",
-            "sha256": "aa4012e5cb5877be4035fcd0898d5ba1e6e4362e75db54d3633c200b064abe25"
+            "sha256": "74cb113be93836db95a1d87310df15ab00aa5de71f73aacf399292399a1e9ef6"
           },
           "source_preflight": {
             "path": "platform_boarding_source_preflight.json",
-            "sha256": "e475dd61e4ef17e0e32d65c4520520a35b7704b53a39ba0e66fa64cdd0ef94f4"
+            "sha256": "7bc24217f2cc291b3ab190447acc839661486a68dfc816f7eac02a93f2def886"
           }
         }
       }

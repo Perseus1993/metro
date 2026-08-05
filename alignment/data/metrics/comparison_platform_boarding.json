@@ -97,11 +97,11 @@
   "inputs": {
     "observed": {
       "path": "eindhoven_platform_v1_observed.json",
-      "sha256": "aa4012e5cb5877be4035fcd0898d5ba1e6e4362e75db54d3633c200b064abe25"
+      "sha256": "74cb113be93836db95a1d87310df15ab00aa5de71f73aacf399292399a1e9ef6"
     },
     "source_preflight": {
       "path": "platform_boarding_source_preflight.json",
-      "sha256": "e475dd61e4ef17e0e32d65c4520520a35b7704b53a39ba0e66fa64cdd0ef94f4"
+      "sha256": "7bc24217f2cc291b3ab190447acc839661486a68dfc816f7eac02a93f2def886"
     }
   },
   "metrics": {

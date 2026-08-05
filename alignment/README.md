@@ -313,6 +313,24 @@ from pedpy import (
 
 ## 6. 数据集清单
 
+### 冻结 holdout 与多种子 nightly
+
+Eindhoven calibration/holdout 的冻结合同和输入 SHA 由以下命令生成；它会全量扫描时间与 agent ID，发现不独立时 fail closed：
+
+```powershell
+uv run --project . python scripts/freeze_calibration_holdout_split.py
+```
+
+新 mixed-600 bundle 到达后，把 seeds 41–50 的 `alignment_simulation_metrics.v5` manifest 放在同一根目录下（可分子目录），再执行：
+
+```powershell
+uv run --project . python scripts/aggregate_multi_seed.py `
+  --input-dir <new-bundle-root> `
+  --out data/metrics/multi_seed_platform_boarding.json
+```
+
+聚合器验证固定 seed 集、逐种子 Step-5 最终计数和共同 cohort 指纹，并计算 Student-t 95% CI；相对半宽不超过 5% 才收敛。`--legacy-smoke` 只用于旧数据管道 smoke，输出永远不具备 release 资格。
+
 ### 6.1 总览
 
 | 优先级 | 数据集 | 场景 | 大小 | License | 能标定什么 |
