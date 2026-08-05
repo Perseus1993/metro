@@ -26,7 +26,7 @@ if active:
     raise SystemExit(f"active jobs must be drained before recovery test: {active}")
 '
 
-PAYLOAD='{"horizon_minutes":15,"demand_minutes":10,"entry_count_hour":300,"exit_count_hour":0,"transfer_count_hour":0,"trajectory_sample_seconds":10,"label":"systemd-recovery"}'
+PAYLOAD='{"spec_version":"0.1","horizon_minutes":15,"demand_minutes":10,"entry_count_hour":300,"exit_count_hour":0,"transfer_count_hour":0,"trajectory_sample_seconds":10,"label":"systemd-recovery"}'
 RESPONSE="$("${CURL[@]}" -X POST -H 'Content-Type: application/json' -d "${PAYLOAD}" "${API_URL}/v1/jobs")"
 JOB_ID="$(python3 -c 'import json,sys; print(json.load(sys.stdin)["id"])' <<<"${RESPONSE}")"
 

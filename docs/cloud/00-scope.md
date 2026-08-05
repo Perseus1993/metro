@@ -14,6 +14,7 @@ from metro_cloud import Client
 
 with Client("http://127.0.0.1:8000") as c:  # SSH 隧道
     job = c.submit({
+        "spec_version": "0.1",
         "station": "小寨", "hour": 18,
         "horizon_minutes": 15, "demand_minutes": 10,
         "entry_count_hour": 300, "exit_count_hour": 0, "transfer_count_hour": 0,

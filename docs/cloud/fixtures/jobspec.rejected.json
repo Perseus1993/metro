@@ -1,6 +1,7 @@
 {
   "_comment": "以下每个 spec 都必须被 API 拒绝，用作 tests/test_spec.py 的负例",
   "cases": [
+    {"why": "spec_version 必填", "spec": {"entry_count_hour": 300, "exit_count_hour": 0, "transfer_count_hour": 0}},
     {"why": "旧字段名 minutes 已废弃", "spec": {"spec_version": "0.1", "minutes": 30, "entry_count_hour": 300, "exit_count_hour": 0, "transfer_count_hour": 0}},
     {"why": "clearance_minutes 是派生量，不接受输入", "spec": {"spec_version": "0.1", "clearance_minutes": 5, "entry_count_hour": 300, "exit_count_hour": 0, "transfer_count_hour": 0}},
     {"why": "客流字段缺失", "spec": {"spec_version": "0.1", "horizon_minutes": 10}},

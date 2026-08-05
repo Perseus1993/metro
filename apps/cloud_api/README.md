@@ -23,6 +23,7 @@ from metro_cloud import Client
 
 with Client("http://127.0.0.1:8000") as client:
     job = client.submit({
+        "spec_version": "0.1",
         "entry_count_hour": 300,
         "exit_count_hour": 0,
         "transfer_count_hour": 0,

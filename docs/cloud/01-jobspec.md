@@ -58,7 +58,7 @@ StationSandboxScenario(
 
 ## 完整字段表
 
-`spec_version` 必填，其余可选走默认。
+`spec_version` 与三个客流字段必填，其余可选走默认。
 
 ### 元信息
 

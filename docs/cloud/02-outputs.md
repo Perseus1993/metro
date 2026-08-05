@@ -11,11 +11,12 @@
 /data/jobs/{job_id}/
 ├── trajectories.parquet     成功时必有
 ├── events.parquet           成功时必有（可能 0 行）
-├── summary.json             成功/失败都必有 ← P0-6
+├── summary.json             成功/失败/取消都必有 ← P0-6
 └── run.log                  必有
 ```
 
-**`summary.json` 由 worker 写，不是 runner 写**（P0-6 修订，见下）。
+**`summary.json` 不由 runner 写**：执行过的 job 由 worker 写；尚未执行就取消的 queued
+job 由 API 写同构 summary（P0-6 修订，见下）。
 
 **后端同学**：除了 `07-integration.md` 的契约校验脚本，不要解析 parquet 内容。你只负责建目录、传给 runner、列文件、提供下载。
 
