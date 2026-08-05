@@ -52,6 +52,10 @@ class Client:
         if destination.is_file() and expected_sha256 == _sha256(destination):
             return destination
         partial = destination.with_suffix(destination.suffix + ".partial")
+        if partial.is_file() and expected_sha256 == _sha256(partial):
+            destination.parent.mkdir(parents=True, exist_ok=True)
+            partial.replace(destination)
+            return destination
         headers = {"Range": f"bytes={partial.stat().st_size}-"} if partial.exists() else None
         with self._http.stream(
             "GET", f"/v1/jobs/{job_id}/artifacts/{name}", headers=headers

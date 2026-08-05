@@ -79,10 +79,12 @@ def create_app(settings: Settings | None = None) -> FastAPI:
 
     @app.post("/v1/jobs/{job_id}/cancel", status_code=202)
     def cancel_job(job_id: str) -> dict[str, Any]:
-        before = _get_job(store, job_id)
-        job = store.request_cancel(job_id)
-        if before["status"] == "queued" and job["status"] == "cancelled":
+        _get_job(store, job_id)
+
+        def write_queued_summary(job: dict[str, Any]) -> None:
             artifacts.write_summary(job_id, build_summary(job, artifacts.job_dir(job_id)))
+
+        job = store.request_cancel(job_id, on_queued_cancel=write_queued_summary)
         return _job_response(job, store)
 
     @app.get("/v1/jobs/{job_id}/artifacts")

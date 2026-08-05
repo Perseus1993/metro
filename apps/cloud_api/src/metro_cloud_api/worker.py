@@ -9,7 +9,7 @@ from .artifacts import ArtifactStore
 from .artifact_contract import validate_runner_artifacts
 from .config import Settings
 from .spec import runner_spec
-from .store import JobStore
+from .store import JobStore, utc_now
 from .summary import build_summary
 from .worker_process import ChildProcessMonitor, ProcessOutcome
 
@@ -36,11 +36,17 @@ class Worker:
             }
             self.artifacts.remove_private_and_partial(job["id"])
             self.artifacts.remove_failed_results(job["id"])
-            self.store.finish(job["id"], "failed", error=error)
-            recovered_job = self.store.get(job["id"])
+            finished_at = utc_now()
+            recovered_job = {
+                **job,
+                "status": "failed",
+                "finished_at": finished_at,
+                "error": error,
+            }
             self.artifacts.write_summary(
                 job["id"], build_summary(recovered_job, self.artifacts.job_dir(job["id"]))
             )
+            self.store.finish(job["id"], "failed", error=error, finished_at=finished_at)
             recovered += 1
         return recovered
 
@@ -66,26 +72,38 @@ class Worker:
             encoding="utf-8",
         )
         outcome: ProcessOutcome | None = None
+        status = "failed"
+        error: dict[str, Any] | None = None
         try:
             outcome = self.monitor.run(
                 job_id, self.settings.runner_kind, spec_path, output_dir
             )
             status, error = self._classify(outcome, output_dir)
-            self.store.finish(job_id, status, error=error)
         except Exception as exc:  # noqa: BLE001 - preserve a durable job result
             error = {"kind": "worker_error", "message": f"{type(exc).__name__}: {exc}"}
-            self.store.finish(job_id, "failed", error=error)
         finally:
             spec_path.unlink(missing_ok=True)
             refreshed = self.store.get(job_id)
-            if refreshed["status"] != "succeeded":
+            if status != "succeeded":
                 self.artifacts.remove_failed_results(job_id)
             peak_rss = outcome.peak_rss_bytes if outcome is not None else None
+            finished_at = utc_now()
+            terminal_job = {
+                **refreshed,
+                "status": status,
+                "finished_at": finished_at,
+                "error": error,
+            }
             self.artifacts.write_summary(
                 job_id,
-                build_summary(refreshed, self.artifacts.job_dir(job_id), peak_rss_bytes=peak_rss),
+                build_summary(
+                    terminal_job,
+                    self.artifacts.job_dir(job_id),
+                    peak_rss_bytes=peak_rss,
+                ),
             )
             self.artifacts.remove_private_and_partial(job_id)
+            self.store.finish(job_id, status, error=error, finished_at=finished_at)
             succeeded = [
                 item["id"]
                 for item in reversed(self.store.list(limit=10_000))

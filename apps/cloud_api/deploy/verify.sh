@@ -54,7 +54,8 @@ if active:
 "${VENV_DIR}/bin/metro-cloud-spike" --agents 25 50 100 200 \
   --timeout-seconds 14400 \
   --output "${EVIDENCE_DIR}/target-capacity-spike.json"
-"${VENV_DIR}/bin/metro-cloud-soak" --jobs 10 --agents 50 --runner real \
+"${VENV_DIR}/bin/metro-cloud-remote-soak" --url "${API_URL}" \
+  --jobs 10 --agents 50 \
   --horizon-minutes 15 --demand-minutes 10 --timeout-seconds 14400 \
   --output "${EVIDENCE_DIR}/target-real-soak-10x50.json"
 
@@ -62,4 +63,4 @@ df -h /var/lib/metro-cloud | tee "${EVIDENCE_DIR}/disk-after-soak.txt"
 systemctl show metro-cloud-worker.service \
   -p ActiveState -p SubState -p MemoryCurrent -p MemoryPeak -p ControlGroup \
   | tee "${EVIDENCE_DIR}/worker-systemd-state.txt"
-echo "target verification passed; run verify-worker-recovery.sh in a maintenance window"
+echo "target verification passed; run verify-worker-faults.sh and verify-worker-recovery.sh in a maintenance window"

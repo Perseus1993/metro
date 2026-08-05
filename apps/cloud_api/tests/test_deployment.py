@@ -36,13 +36,20 @@ def test_install_requires_locked_real_runner_at_expected_path() -> None:
 def test_target_checks_cover_network_load_and_sigkill_recovery() -> None:
     verify = _read("verify.sh")
     recovery = _read("verify-worker-recovery.sh")
+    faults = _read("verify-worker-faults.sh")
 
     assert "0\\.0\\.0\\.0" in verify
     assert "127\\.0\\.0\\.1:8000" in verify
     assert "active jobs must be drained" in verify
     assert "--agents 25 50 100 200" in verify
-    assert "--jobs 10 --agents 50 --runner real" in verify
+    assert "metro-cloud-remote-soak" in verify
+    assert "--jobs 10 --agents 50" in verify
     assert "--signal=SIGKILL" in recovery
     assert 'summary["error"]["kind"] == "worker_lost"' in recovery
     assert "active jobs must be drained" in recovery
     assert "metro_cloud_api[.]child" in recovery
+    assert "running-cancel" in faults
+    assert "METRO_JOB_TIMEOUT_SECONDS=0.1" in faults
+    assert 'summary["error"]["kind"] == "timeout"' in faults
+    assert "trap restore_worker EXIT" in faults
+    assert "metro_cloud_api[.]child" in faults

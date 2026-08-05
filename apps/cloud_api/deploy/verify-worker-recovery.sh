@@ -50,8 +50,17 @@ for _ in $(seq 1 200); do
 done
 [[ "${STATUS}" == "failed" ]] || { echo "recovered job did not become failed" >&2; exit 1; }
 
-"${CURL[@]}" "${API_URL}/v1/jobs/${JOB_ID}/artifacts/summary.json" \
-  > "${EVIDENCE_DIR}/worker-recovery-summary.json"
+for _ in $(seq 1 100); do
+  if "${CURL[@]}" "${API_URL}/v1/jobs/${JOB_ID}/artifacts/summary.json" \
+    > "${EVIDENCE_DIR}/worker-recovery-summary.json"; then
+    break
+  fi
+  sleep 0.1
+done
+[[ -s "${EVIDENCE_DIR}/worker-recovery-summary.json" ]] || {
+  echo "worker recovery summary did not become downloadable" >&2
+  exit 1
+}
 python3 - "${EVIDENCE_DIR}/worker-recovery-summary.json" <<'PY'
 import json
 import sys

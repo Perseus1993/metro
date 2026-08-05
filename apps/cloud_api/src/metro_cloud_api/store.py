@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import sqlite3
+from collections.abc import Callable
 from contextlib import contextmanager
 from pathlib import Path
 from typing import Any, Iterator
@@ -145,20 +146,35 @@ class JobStore:
                 (kind, version, job_id),
             )
 
-    def request_cancel(self, job_id: str) -> dict[str, Any]:
+    def request_cancel(
+        self,
+        job_id: str,
+        *,
+        on_queued_cancel: Callable[[dict[str, Any]], None] | None = None,
+    ) -> dict[str, Any]:
         with self.connect() as connection:
-            row = connection.execute("SELECT status FROM jobs WHERE id = ?", (job_id,)).fetchone()
+            connection.execute("BEGIN IMMEDIATE")
+            row = connection.execute("SELECT * FROM jobs WHERE id = ?", (job_id,)).fetchone()
             if row is None:
                 raise KeyError(job_id)
             if row["status"] == "queued":
+                finished_at = utc_now()
+                error = {"kind": "cancelled", "message": "cancelled before execution"}
+                if on_queued_cancel is not None:
+                    prospective = deserialize_job(row)
+                    prospective.update(
+                        status="cancelled",
+                        cancel_requested=True,
+                        finished_at=finished_at,
+                        error=error,
+                    )
+                    on_queued_cancel(prospective)
                 connection.execute(
                     """UPDATE jobs SET status = 'cancelled', cancel_requested = 1,
                     finished_at = ?, error_json = ? WHERE id = ?""",
                     (
-                        utc_now(),
-                        compact_json(
-                            {"kind": "cancelled", "message": "cancelled before execution"}
-                        ),
+                        finished_at,
+                        compact_json(error),
                         job_id,
                     ),
                 )
@@ -177,6 +193,7 @@ class JobStore:
         status: str,
         *,
         error: dict[str, Any] | None = None,
+        finished_at: str | None = None,
     ) -> None:
         if status not in TERMINAL_STATUSES:
             raise ValueError(f"invalid terminal status: {status}")
@@ -187,7 +204,8 @@ class JobStore:
                                         ELSE progress_current END
                 WHERE id = ?""",
                 (
-                    status, utc_now(), None if error is None else compact_json(error),
+                    status, finished_at or utc_now(),
+                    None if error is None else compact_json(error),
                     status, job_id,
                 ),
             )

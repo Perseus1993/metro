@@ -28,6 +28,7 @@ metro-cloud-spike = "metro_cloud_api.capacity_spike:main"
 metro-cloud-soak = "metro_cloud_api.soak:main"
 metro-cloud-e2e = "metro_cloud_api.local_e2e:main"
 metro-cloud-remote-e2e = "metro_cloud_api.remote_e2e:main"
+metro-cloud-remote-soak = "metro_cloud_api.remote_soak:main"
 
 [tool.setuptools.packages.find]
 where = ["src"]

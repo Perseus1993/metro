@@ -73,9 +73,11 @@ job、下载 SHA 校验以及磁盘余量检查。任何一项失败都保持 ho
 sudo METRO_REPO_DIR=/opt/metro bash apps/cloud_api/deploy/verify.sh
 ```
 
-维护窗口单独执行强杀恢复演练（会 SIGKILL worker 及其当前 child）：
+维护窗口先执行 cancel/timeout 整树清理演练（会临时重启 worker），再执行强杀恢复
+演练（会 SIGKILL worker 及其当前 child）：
 
 ```bash
+sudo bash apps/cloud_api/deploy/verify-worker-faults.sh
 sudo bash apps/cloud_api/deploy/verify-worker-recovery.sh
 ```
 
