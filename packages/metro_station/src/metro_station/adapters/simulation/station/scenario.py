@@ -8,18 +8,18 @@ from typing import TYPE_CHECKING
 from metro_station.application.control_plans import ControlPlan, validate_control_plan_schedule
 from metro_station.domain.time_boundaries import first_step_not_before
 
+from ..calibration.contracts import CalibrationProfile
+from .demand import DemandSegment, validate_demand_segments, validate_entrance_weights
+from .disruptions import (
+    FacilityAvailabilityEvent,
+    validate_facility_availability_events,
+)
 from .evacuation import (
     EVACUATION_MODE,
     OPERATIONS_MODE,
     SUPPORTED_SCENARIO_MODES,
     EvacuationScenarioConfig,
 )
-from ..calibration.contracts import CalibrationProfile
-from .disruptions import (
-    FacilityAvailabilityEvent,
-    validate_facility_availability_events,
-)
-from .demand import DemandSegment, validate_demand_segments, validate_entrance_weights
 from .train_disruptions import (
     TrainCapacityEvent,
     TrainServiceAvailabilityEvent,
@@ -152,6 +152,16 @@ class StationSandboxScenario:
     platform_capacity_persons: int = 5000
     boarding_persons_per_min: int = 900
     gate_service_persons_per_min: int = 55
+    entry_admission_residence_seconds: float | None = None
+    entry_admission_residence_percentile: str | None = None
+    entry_admission_residence_evidence_ref: str | None = None
+    exit_admission_residence_seconds: float | None = None
+    exit_admission_residence_percentile: str | None = None
+    exit_admission_residence_evidence_ref: str | None = None
+    admission_residence_evidence_seed: int | None = None
+    entry_admission_burst_sigma: float = 3.0
+    entry_admission_token_capacity: int | None = None
+    exit_admission_token_capacity: int | None = None
     initial_train_offset_seconds: int = 75
     walk_units_per_tick: float = 2.0
     movement_backend_name: str = "jupedsim"
@@ -310,6 +320,32 @@ class StationSandboxScenario:
         _require_int_at_least("platform_capacity_persons", self.platform_capacity_persons, 1)
         _require_int_at_least("boarding_persons_per_min", self.boarding_persons_per_min, 0)
         _require_int_at_least("gate_service_persons_per_min", self.gate_service_persons_per_min, 0)
+        for name in (
+            "entry_admission_residence_seconds",
+            "exit_admission_residence_seconds",
+        ):
+            value = getattr(self, name)
+            if value is not None:
+                _require_positive(name, value)
+        for name in (
+            "entry_admission_residence_percentile",
+            "exit_admission_residence_percentile",
+        ):
+            value = getattr(self, name)
+            if value is not None and value not in {"p90", "p99"}:
+                raise ValueError(f"{name} must be p90 or p99 when provided")
+        if (
+            not isfinite(float(self.entry_admission_burst_sigma))
+            or self.entry_admission_burst_sigma < 0.0
+        ):
+            raise ValueError("entry_admission_burst_sigma must be finite and non-negative")
+        for name in (
+            "entry_admission_token_capacity",
+            "exit_admission_token_capacity",
+        ):
+            value = getattr(self, name)
+            if value is not None:
+                _require_int_at_least(name, value, 1)
         _require_positive("walk_units_per_tick", self.walk_units_per_tick)
         _require_positive("escalator_speed_m_s", self.escalator_speed_m_s)
         _require_positive(
@@ -516,7 +552,7 @@ class StationSandboxScenario:
         scenario_count = max(0, int(count_hour)) * (self.demand_duration_minutes / 60.0)
         return max(0, round(scenario_count / self.group_size))
 
-    def with_minutes(self, minutes: int) -> "StationSandboxScenario":
+    def with_minutes(self, minutes: int) -> StationSandboxScenario:
         demand_minutes = self.demand_minutes
         if demand_minutes is not None:
             demand_minutes = min(int(demand_minutes), int(minutes))

@@ -4,14 +4,12 @@ from dataclasses import replace
 from types import SimpleNamespace
 
 import pytest
-from shapely.geometry import LineString, MultiPoint, Point, box
-
+from metro_station.adapters.simulation.agents.passenger import PassengerAgent
 from metro_station.adapters.simulation.compilation.spatial_capacity import (
     CAPACITY_POLICY_VERSION,
     SpatialCapacityCertificate,
     validate_spatial_capacity_certificates,
 )
-from metro_station.adapters.simulation.agents.passenger import PassengerAgent
 from metro_station.adapters.simulation.compilation.validation import (
     validate_compiled_station_design,
 )
@@ -19,20 +17,21 @@ from metro_station.adapters.simulation.design.templates import (
     create_design,
     topology_templates,
 )
-from metro_station.adapters.simulation.station.compiler import DesignCompiler
-from metro_station.adapters.simulation.station.alighting_source_geometry import (
-    alighting_source_raw_candidate,
-)
-from metro_station.adapters.simulation.station.geometry import grid_safe_points
-from metro_station.adapters.simulation.station.scenario import StationSandboxScenario
-from metro_station.adapters.simulation.runtime.mesa_model import MetroStationModel
 from metro_station.adapters.simulation.movement.contracts import MovementResult
 from metro_station.adapters.simulation.movement.movement_backend_contract import MovementBackend
 from metro_station.adapters.simulation.planning.plan import AgentIntent
+from metro_station.adapters.simulation.runtime.mesa_model import MetroStationModel
 from metro_station.adapters.simulation.spatial_capacity_admission import (
     CertifiedPlacementTemporarilyBlocked,
     SpatialCapacityExhausted,
 )
+from metro_station.adapters.simulation.station.alighting_source_geometry import (
+    alighting_source_raw_candidate,
+)
+from metro_station.adapters.simulation.station.compiler import DesignCompiler
+from metro_station.adapters.simulation.station.geometry import grid_safe_points
+from metro_station.adapters.simulation.station.scenario import StationSandboxScenario
+from shapely.geometry import LineString, MultiPoint, Point, box
 
 
 def test_formal_templates_compile_every_finite_spatial_resource() -> None:
@@ -435,6 +434,25 @@ def test_dynamic_release_blocker_defers_and_is_counted() -> None:
     assert model.spatial_capacity_event_counts["placement.dynamic_blocked"] == 1
 
 
+def test_explicit_source_position_is_rejected_before_publication() -> None:
+    document = create_design("visual_demo_station")
+    backend = _BlockingExactPlacementBackend()
+    model = MetroStationModel(_scenario(document), movement_backend=backend)
+    platform = model.layout_graph.station_graph.nodes_matching(kind="platform")[0]
+
+    with pytest.raises(CertifiedPlacementTemporarilyBlocked):
+        model._spawn_passenger(
+            AgentIntent.EXIT_STATION,
+            initial_position=tuple(platform.position),
+            initial_level_id=platform.level_id,
+        )
+
+    assert backend.resolve_calls == 1
+    assert model.passengers == []
+    assert model.spawned_persons == 0
+    assert model.spatial_capacity_event_counts["spawn.dynamic_blocked"] == 1
+
+
 def test_platform_waiting_has_no_coordinate_overflow_fallback() -> None:
     document = create_design("visual_demo_station")
     layout = DesignCompiler.compile(document, _scenario(document))
@@ -527,3 +545,10 @@ class _ExactPlacementBackend(MovementBackend):
         del passenger, level_id
         self.resolve_calls += 1
         return tuple(position)
+
+
+class _BlockingExactPlacementBackend(_ExactPlacementBackend):
+    def resolve_placement(self, passenger, position, *, level_id=None):
+        del passenger, position, level_id
+        self.resolve_calls += 1
+        raise RuntimeError("native placement blocked")

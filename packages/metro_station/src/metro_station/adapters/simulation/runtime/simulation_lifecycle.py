@@ -86,13 +86,15 @@ class SimulationLifecycleMixin:
     ) -> list[dict[str, Any]]:
         self.running = True
         total_steps = int(self.scenario.horizon_steps)
-        if progress_callback is not None:
-            progress_callback(self.step_index, total_steps)
-        while self.running:
-            self.step()
+        try:
             if progress_callback is not None:
                 progress_callback(self.step_index, total_steps)
-        self._finalize_facilities()
+            while self.running:
+                self.step()
+                if progress_callback is not None:
+                    progress_callback(self.step_index, total_steps)
+        finally:
+            self._finalize_facilities()
         return self.frames
 
     def _finalize_facilities(self) -> None:

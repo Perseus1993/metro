@@ -20,6 +20,20 @@ class PlatformBoardingConfig(SceneConfig):
     minutes: int = 10
     entry_count_hour: int = 2500
     exit_count_hour: int = 2200
+    entry_admission_residence_seconds: float = 36.0
+    entry_admission_residence_percentile: str = "p99"
+    entry_admission_residence_evidence_ref: str = (
+        "alignment/output/round25/T1_residence_time.json#entry.p99"
+    )
+    exit_admission_residence_seconds: float = 351.0
+    exit_admission_residence_percentile: str = "p90"
+    exit_admission_residence_evidence_ref: str = (
+        "alignment/output/round25/T1_residence_time.json#exit.p90"
+    )
+    entry_entrance_weights: tuple[tuple[str, float], ...] = (
+        ("entrance_a", 1.0),
+        ("exit_a", 0.0),
+    )
     demand_minutes: int = 10
     jupedsim_desired_speed_mps: float = 1.22
     measurement_bounds_m: tuple[float, float, float, float] = (

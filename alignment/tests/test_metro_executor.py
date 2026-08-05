@@ -4,12 +4,15 @@ from collections import Counter, deque
 from dataclasses import replace
 from random import Random
 from types import SimpleNamespace
-from unittest.mock import patch
+from unittest.mock import Mock, patch
 
 import pytest
 from metro_station.adapters.simulation.agents.passenger import PassengerAgent
 from metro_station.adapters.simulation.compilation.validation import (
     validate_compiled_station_design,
+)
+from metro_station.adapters.simulation.facilities.admission_resource import (
+    AdmissionTokenResource,
 )
 from metro_station.adapters.simulation.planning.plan import AgentIntent
 from metro_station.adapters.simulation.runtime.mesa_model import MetroStationModel
@@ -23,10 +26,12 @@ from shapely.geometry import LineString, Polygon
 from shapely.geometry import Point as ShapelyPoint
 
 from metro_alignment.metro_executor import (
+    AlignmentAdmissionCapacityConflict,
     AlignmentMesaSimulationExecutor,
     AlignmentMetroStationModel,
     PendingSourceDemand,
     SourceAdmission,
+    alignment_entry_admission_preflight,
     alignment_source_geometry_preflight,
 )
 from metro_alignment.metro_scene import build_metro_request
@@ -157,9 +162,14 @@ def _backpressure_model() -> tuple[AlignmentMetroStationModel, SimpleNamespace, 
     model.scenario.jupedsim_agent_radius_units = 0.18
     model.scenario.jupedsim_clearance_multiplier = 2.2
     model.scenario.alighting_source_lateral_offset_m = 0.0
+    model.scenario.group_size = 1
     model.step_index = 0
     model.pending_alighting_groups = 0
     model.max_pending_alighting_groups = 0
+    model.alignment_requested_alighting_persons = 0
+    model.alignment_pending_alighting_scheduled_steps = deque()
+    model.alignment_max_pending_residence_steps_by_flow = Counter()
+    model.spawned_persons_by_intent = Counter()
     model.audit = SimpleNamespace(record=lambda *args, **kwargs: None)
     model.jupedsim_walkable_area = lambda level_id: Polygon(
         [(-5.0, 1.0), (5.0, 1.0), (5.0, -20.0), (-5.0, -20.0)]
@@ -196,12 +206,24 @@ def _backpressure_model() -> tuple[AlignmentMetroStationModel, SimpleNamespace, 
     model._alighting_downstream_admission_evidence = lambda doors: {
         "available": True,
     }
+    model._alighting_source_admission_reservation = lambda doors: {
+        "available": True,
+    }
+    model._release_alighting_source_admission_reservation = (
+        lambda reservation, *, reason: None
+    )
+    model._commit_alighting_source_admission_reservation = (
+        lambda reservation, passenger: (
+            model.alignment_pending_alighting_scheduled_steps.popleft()
+        )
+    )
     due = iter((1, 0))
     model.demand_scheduler = SimpleNamespace(due_alightings=lambda step: next(due))
     spawned: list[SimpleNamespace] = []
 
     def spawn_passenger(intent, *, initial_position, initial_level_id):
         passenger = SimpleNamespace(
+            unique_id=len(spawned) + 1,
             pos=initial_position,
             physical_motion_layer_id=initial_level_id,
             current_level_id=initial_level_id,
@@ -211,6 +233,7 @@ def _backpressure_model() -> tuple[AlignmentMetroStationModel, SimpleNamespace, 
         )
         spawned.append(passenger)
         model.passengers.append(passenger)
+        model.spawned_persons_by_intent[str(intent.value)] += 1
         return passenger
 
     model._spawn_passenger = spawn_passenger
@@ -243,6 +266,78 @@ def test_blocked_alighting_lattice_defers_then_retries_exactly_once() -> None:
     assert spawned[0].pos == pytest.approx((-0.6, -0.35))
 
 
+def test_alighting_without_mapped_doors_remains_pending_and_conserved() -> None:
+    model, _, spawned = _backpressure_model()
+    model.boarding_doors_for_train = lambda selected_train: []
+
+    model.spawn_alighting_passengers()
+
+    assert model.pending_alighting_groups == 1
+    assert model.alignment_requested_alighting_persons == 1
+    assert spawned == []
+
+
+def test_alighting_placement_exception_restores_pending_and_token() -> None:
+    model, _, _ = _backpressure_model()
+    for name in (
+        "_alighting_source_admission_reservation",
+        "_release_alighting_source_admission_reservation",
+        "_commit_alighting_source_admission_reservation",
+    ):
+        delattr(model, name)
+    model.alignment_admission_resources = {
+        "entry": AdmissionTokenResource("entry", 1),
+        "exit": AdmissionTokenResource("exit", 1),
+    }
+    model.alignment_admission_attempts = Counter()
+    model.alignment_admission_exhausted_attempts = Counter()
+    model.alignment_next_source_sequence_id = 0
+    model._alignment_inflight_admission_owner_by_intent = {}
+    model._alighting_spawn_position = Mock(side_effect=RuntimeError("placement failed"))
+
+    with pytest.raises(RuntimeError, match="placement failed"):
+        model.spawn_alighting_passengers()
+
+    assert model.pending_alighting_groups == 1
+    assert model.alignment_admission_resources["exit"].occupancy == 0
+    model._require_alighting_spawn_conservation()
+
+
+def test_alighting_transfer_exception_retires_published_fifo_owner(
+    monkeypatch,
+) -> None:
+    model, _, spawned = _backpressure_model()
+    for name in (
+        "_alighting_source_admission_reservation",
+        "_release_alighting_source_admission_reservation",
+        "_commit_alighting_source_admission_reservation",
+    ):
+        delattr(model, name)
+    resource = AdmissionTokenResource("exit", 1)
+    model.alignment_admission_resources = {
+        "entry": AdmissionTokenResource("entry", 1),
+        "exit": resource,
+    }
+    model.alignment_admission_attempts = Counter()
+    model.alignment_admission_exhausted_attempts = Counter()
+    model.alignment_next_source_sequence_id = 0
+    model._alignment_inflight_admission_owner_by_intent = {}
+    monkeypatch.setattr(
+        resource,
+        "transfer",
+        Mock(side_effect=RuntimeError("transfer failed")),
+    )
+
+    with pytest.raises(RuntimeError, match="transfer failed"):
+        model.spawn_alighting_passengers()
+
+    assert len(spawned) == 1
+    assert model.pending_alighting_groups == 0
+    assert list(model.alignment_pending_alighting_scheduled_steps) == []
+    assert resource.occupancy == 0
+    model._require_alighting_spawn_conservation()
+
+
 def test_alignment_executor_is_a_drop_in_metro_executor() -> None:
     executor = AlignmentMesaSimulationExecutor()
 
@@ -261,10 +356,19 @@ def test_formal_scene_keeps_registered_demand_contract() -> None:
     assert request.scenario.alighting_source_lateral_offset_m == pytest.approx(10.0)
 
 
-def test_post_entry_route_starts_from_completed_paid_portal_not_opposing_facade() -> None:
-    request, _ = build_metro_request(build_scene_config("platform_boarding"))
+def _registered_admission_probe_config():
+    return replace(
+        build_scene_config("platform_boarding"),
+        minutes=3,
+        demand_minutes=2,
+    )
+
+
+def test_post_entry_route_starts_from_fixed_entry_bank_paid_portal() -> None:
+    config = _registered_admission_probe_config()
+    request, _ = build_metro_request(config)
     model = AlignmentMetroStationModel(request.scenario, seed=request.seed)
-    entry_gate = model.gates[3]
+    entry_gate = model.gates[1]
     boarding_door = model.boarding_doors[0]
     with patch.object(model.goal_coordinator, "initialize"):
         passenger = PassengerAgent(
@@ -289,16 +393,114 @@ def test_post_entry_route_starts_from_completed_paid_portal_not_opposing_facade(
         binding.entry_level_id,
     )
 
-    assert [node.node_id for node in candidates] == ["gate:gate_bank_a:paid"]
+    assert [node.node_id for node in candidates] == ["gate:entry_gate_bank_a:paid"]
     route = model._station_graph_route_to_facility(
         passenger,
         boarding_door,
         final_target_override=boarding_door.portal_entry_position,
         include_navigation_waypoints=True,
     )
-    opposing_entry = graph.nodes["gate:gate_bank_a:exit"].position
+    opposing_entry = graph.nodes["gate:exit_gate_bank_a:exit"].position
     assert route
     assert opposing_entry not in route
+
+
+def test_formal_gate_bank_uses_three_fixed_lanes_per_direction() -> None:
+    request, _ = build_metro_request(_registered_admission_probe_config())
+    model = AlignmentMetroStationModel(request.scenario, seed=request.seed)
+
+    assert len(model.gates) == 3
+    assert len(model.exit_gates) == 3
+    assert {gate.portal_direction for gate in model.gates} == {"in"}
+    assert {gate.portal_direction for gate in model.exit_gates} == {"out"}
+    assert {
+        gate.spec.source_element_id for gate in model.gates
+    } == {"entry_gate_bank_a"}
+    assert {
+        gate.spec.source_element_id for gate in model.exit_gates
+    } == {"exit_gate_bank_a"}
+    assert not {
+        gate._physical_lane_key() for gate in model.gates
+    } & {
+        gate._physical_lane_key() for gate in model.exit_gates
+    }
+
+
+def test_formal_entry_and_exit_access_are_physically_separated() -> None:
+    request, _ = build_metro_request(_registered_admission_probe_config())
+    model = AlignmentMetroStationModel(request.scenario, seed=request.seed)
+    graph = model.layout_graph.station_graph
+    entrances = {
+        node.element_id: node for node in graph.nodes_matching(kind="entrance")
+    }
+
+    assert request.scenario.entry_entrance_weights == (
+        ("entrance_a", 1.0),
+        ("exit_a", 0.0),
+    )
+    assert set(entrances) == {"entrance_a", "exit_a"}
+    assert entrances["entrance_a"].position != entrances["exit_a"].position
+
+    exit_gate = model.exit_gates[0]
+    with patch.object(model.goal_coordinator, "initialize"):
+        passenger = PassengerAgent(
+            model,
+            group_size=1,
+            created_step=0,
+            intent=AgentIntent.EXIT_STATION,
+            initial_position=exit_gate.portal_exit_position,
+            initial_level_id=exit_gate.portal_exit_level_id,
+        )
+    passenger.last_completed_facility_id = exit_gate.facility_id
+    passenger.last_completed_facility_position = passenger.pos
+    passenger.last_completed_facility_event_id = "accepted-exit-gate-completion"
+    passenger.last_completed_facility_level_id = passenger.current_level_id
+
+    route = model._station_graph_route_to_exit(passenger)
+
+    assert route
+    assert route[-1] == entrances["exit_a"].position
+    assert entrances["entrance_a"].position not in route
+
+
+def test_formal_fixed_exit_bank_is_reachable_from_platform() -> None:
+    request, _ = build_metro_request(_registered_admission_probe_config())
+    model = AlignmentMetroStationModel(request.scenario, seed=request.seed)
+    graph = model.layout_graph.station_graph
+    platform = graph.nodes[graph.primary_node_by_element_id["platform_edge_a"]]
+
+    for gate in model.exit_gates:
+        with patch.object(model.goal_coordinator, "initialize"):
+            passenger = PassengerAgent(
+                model,
+                group_size=1,
+                created_step=0,
+                intent=AgentIntent.EXIT_STATION,
+                initial_position=platform.position,
+                initial_level_id=platform.level_id,
+            )
+
+        route = model.route_to_facility_queue_slot(passenger, gate, 0)
+
+        assert route
+        assert route[-1] == model._facility_approach_slot_position(gate, 0)
+        assert gate.spec.source_element_id == "exit_gate_bank_a"
+        assert gate.portal_direction == "out"
+
+
+def test_formal_boarding_edge_uses_seven_parallel_train_doors() -> None:
+    request, _ = build_metro_request(_registered_admission_probe_config())
+    model = AlignmentMetroStationModel(request.scenario, seed=request.seed)
+
+    assert len(model.boarding_doors) == 7
+    assert len(model.platforms) == 1
+    assert {
+        door.spec.source_element_id for door in model.boarding_doors
+    } == {f"platform_edge_{suffix}" for suffix in "abcdefg"}
+    assert {
+        door.spec.platform_id for door in model.boarding_doors
+    } == {"platform:default:down"}
+    assert request.scenario.station_design.metadata["boarding_door_count"] == 7
 
 
 @FA2555_GEOMETRY_QUARANTINE
@@ -570,9 +772,9 @@ def test_source_geometry_preflight_accepts_decoupled_queue_lattice() -> None:
     assert queue["minimum_body_clearance_m"] == pytest.approx(0.396)
     assert queue["runtime_candidate_spacing_m"] == pytest.approx(0.4)
     assert queue["maximum_candidate_projection_shift_m"] == pytest.approx(0.0)
-    assert queue["source_candidate_count"] == 67
-    assert queue["unique_source_candidate_count"] == 67
-    assert queue["peak_scheduled_alighting_batch"] == 4
+    assert queue["source_candidate_count"] == 66
+    assert queue["unique_source_candidate_count"] == 66
+    assert queue["peak_scheduled_alighting_batch"] == 3
     assert queue["holding_area_overlap_candidate_count"] == 0
     assert queue["holding_clearance_overlap_candidate_count"] == 0
     assert queue["boarding_door_axis_overlap_candidate_count"] == 0
@@ -598,13 +800,14 @@ def test_metro_compiler_accepts_the_decoupled_source_lattice() -> None:
         for certificate in compiled.spatial_capacity_certificates
         if certificate.resource_kind == "alighting_source"
     )
-    assert len(sources) == 1
-    assert sources[0].certificate_id == (
-        "alighting_source:queue_platform_edge_a_down"
-    )
-    assert len(sources[0].slots) == 67
-    assert sources[0].required_body_capacity == 4
-    assert sources[0].certified_body_capacity == 4
+    assert len(sources) == 7
+    assert {source.certificate_id for source in sources} == {
+        f"alighting_source:queue_platform_edge_{suffix}_down"
+        for suffix in "abcdefg"
+    }
+    assert all(len(source.slots) >= 3 for source in sources)
+    assert all(source.required_body_capacity == 3 for source in sources)
+    assert all(source.certified_body_capacity == 3 for source in sources)
     errors = tuple(
         item
         for item in compiled.issues
@@ -615,7 +818,7 @@ def test_metro_compiler_accepts_the_decoupled_source_lattice() -> None:
 
 def test_executor_starts_model_after_source_geometry_passes(monkeypatch) -> None:
     executor = AlignmentMesaSimulationExecutor()
-    request, _ = build_metro_request(build_scene_config("platform_boarding"))
+    request, _ = build_metro_request(_registered_admission_probe_config())
     model = SimpleNamespace(run=lambda *, progress_callback=None: [{"step": 1}])
     monkeypatch.setattr(
         executor,
@@ -669,16 +872,29 @@ def _source_policy_model() -> AlignmentMetroStationModel:
     model.step_index = 0
     model.random = Random(42)
     model.alignment_pending_source_demands = deque()
+    model.alignment_unresolved_source_demands = deque()
     model.alignment_next_source_sequence_id = 0
     model.alignment_requested_source_persons_by_intent = Counter()
     model.alignment_max_pending_source_groups = 0
     model.alignment_source_deferred_attempts = 0
+    model.alignment_admission_resources = {
+        "entry": AdmissionTokenResource("entry", 30),
+        "exit": AdmissionTokenResource("exit", 30),
+    }
+    model.alignment_admission_attempts = Counter()
+    model.alignment_admission_exhausted_attempts = Counter()
+    model.alignment_max_pending_residence_steps_by_flow = Counter()
+    model._alignment_inflight_admission_owner_by_intent = {}
+    model.alignment_requested_alighting_persons = 0
+    model.alignment_pending_alighting_scheduled_steps = deque()
     model.demand_scheduler = SimpleNamespace(
         due_by_intent=lambda step: Counter(),
         spawn_schedule={},
+        alighting_schedule={},
     )
     model.audit = SimpleNamespace(record=lambda *args, **kwargs: None)
     model.passengers = []
+    model.pending_alighting_groups = 0
     model.passenger_goal_runtimes = {}
     model.spawned_persons = 0
     model.spawned_persons_by_intent = Counter()
@@ -714,6 +930,72 @@ def test_blocked_entry_admission_has_zero_published_side_effects(monkeypatch) ->
     assert dict(model.spawned_persons_by_intent) == before["by_intent"]
     assert dict(model.spawned_persons_by_entrance) == before["by_entrance"]
     assert tuple(model.frames) == before["frames"]
+
+
+def test_entry_admission_exception_restores_pending_and_token(monkeypatch) -> None:
+    model = _source_policy_model()
+    model.demand_scheduler.due_by_intent = lambda step: Counter(
+        {AgentIntent.ENTER_AND_BOARD.value: 1}
+    )
+    monkeypatch.setattr(
+        model,
+        "_alignment_source_admission",
+        Mock(side_effect=RuntimeError("admission failed")),
+    )
+
+    with pytest.raises(RuntimeError, match="admission failed"):
+        model.spawn_passengers()
+
+    assert len(model.alignment_pending_source_demands) == 1
+    assert model.alignment_admission_resources["entry"].occupancy == 0
+    model._require_alignment_source_conservation()
+
+
+def test_source_resolution_exception_retains_unresolved_due_group() -> None:
+    model = _source_policy_model()
+    model.layout_graph = SimpleNamespace(station_graph=None)
+    model.demand_scheduler.due_by_intent = lambda step: Counter(
+        {AgentIntent.ENTER_AND_BOARD.value: 1}
+    )
+
+    with pytest.raises(RuntimeError, match="compiled station graph"):
+        model.spawn_passengers()
+
+    assert model.alignment_requested_source_persons_by_intent["enter_and_board"] == 1
+    assert len(model.alignment_unresolved_source_demands) == 1
+    model._require_alignment_source_conservation()
+
+
+def test_entry_transfer_exception_retains_only_unprocessed_tail(monkeypatch) -> None:
+    model = _source_policy_model()
+    model.demand_scheduler.due_by_intent = lambda step: Counter(
+        {AgentIntent.ENTER_AND_BOARD.value: 2}
+    )
+    monkeypatch.setattr(
+        model,
+        "_alignment_source_admission",
+        lambda demand: SourceAdmission((0.0, 0.0), "l1", "entrance-a"),
+    )
+
+    def publish(intent, *, initial_position, initial_level_id):
+        del initial_position, initial_level_id
+        model.spawned_persons_by_intent[str(intent)] += 1
+        return SimpleNamespace(unique_id=41)
+
+    monkeypatch.setattr(model, "_spawn_passenger", publish)
+    resource = model.alignment_admission_resources["entry"]
+    monkeypatch.setattr(
+        resource,
+        "transfer",
+        Mock(side_effect=RuntimeError("transfer failed")),
+    )
+
+    with pytest.raises(RuntimeError, match="transfer failed"):
+        model.spawn_passengers()
+
+    assert len(model.alignment_pending_source_demands) == 1
+    assert resource.occupancy == 0
+    model._require_alignment_source_conservation()
 
 
 def test_failed_source_sampling_restores_rng_and_uses_512_attempts(monkeypatch) -> None:
@@ -767,7 +1049,7 @@ def test_source_backpressure_is_fifo_and_constructor_errors_propagate(monkeypatc
     assert list(model.alignment_pending_source_demands) == [first, second]
 
 
-def test_source_backpressure_does_not_head_block_an_independent_source(
+def test_source_backpressure_preserves_global_fifo_across_sources(
     monkeypatch,
 ) -> None:
     model = _source_policy_model()
@@ -788,15 +1070,15 @@ def test_source_backpressure_does_not_head_block_an_independent_source(
     def spawn_passenger(intent, *, initial_position, initial_level_id):
         admitted.append(independent.source_id)
         model.spawned_persons_by_intent[intent] += 1
-        return SimpleNamespace(group_size=1)
+        return SimpleNamespace(unique_id=len(admitted), group_size=1)
 
     monkeypatch.setattr(model, "_alignment_source_admission", source_admission)
     monkeypatch.setattr(model, "_spawn_passenger", spawn_passenger)
 
     model.spawn_passengers()
 
-    assert admitted == ["entrance-b"]
-    assert list(model.alignment_pending_source_demands) == [blocked]
+    assert admitted == []
+    assert list(model.alignment_pending_source_demands) == [blocked, independent]
 
 
 def test_source_pending_record_is_stable_and_metrics_expose_conservation() -> None:
@@ -823,3 +1105,76 @@ def test_source_pending_record_is_stable_and_metrics_expose_conservation() -> No
     lost_metrics = model.alignment_source_admission_metrics()
     assert lost_metrics["alignment_entry_demand_conserved"] is False
     assert lost_metrics["alignment_source_dropped_persons"] == 1
+
+
+def test_source_conservation_fails_on_first_unowned_demand() -> None:
+    model = _source_policy_model()
+    model.alignment_requested_source_persons_by_intent[
+        AgentIntent.ENTER_AND_BOARD.value
+    ] = 1
+
+    with pytest.raises(
+        RuntimeError,
+        match="requested=1, admitted=0, pending=0",
+    ):
+        model._require_alignment_source_conservation()
+
+
+def test_admission_preflight_sizes_counting_tokens_from_registered_evidence() -> None:
+    request, _ = build_metro_request(_registered_admission_probe_config())
+
+    report = alignment_entry_admission_preflight(request.scenario)
+
+    assert report["status"] == "pass"
+    by_flow = {item["flow_id"]: item for item in report["flows"]}
+    assert by_flow["entry"]["required_capacity"] == 26
+    assert by_flow["entry"]["configured_capacity"] == 26
+    assert by_flow["exit"]["required_capacity"] == 73
+    assert by_flow["exit"]["configured_capacity"] == 73
+    assert by_flow["exit"]["resource_semantics"] == "counting_signal_not_physical_storage"
+
+
+def test_entry_admission_preflight_rejects_undersized_explicit_pool() -> None:
+    config = replace(
+        build_scene_config("platform_boarding"),
+        minutes=3,
+        demand_minutes=2,
+        entry_admission_token_capacity=25,
+    )
+    request, _ = build_metro_request(config)
+    executor = AlignmentMesaSimulationExecutor(formal_horizon_steps=1)
+
+    with pytest.raises(AlignmentAdmissionCapacityConflict) as exc_info:
+        executor.execute(request)
+
+    entry = next(
+        item for item in exc_info.value.report["flows"] if item["flow_id"] == "entry"
+    )
+    assert entry["required_capacity"] == 26
+    assert entry["configured_capacity"] == 25
+
+
+def test_exceptional_run_finalizes_active_admission_tokens(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    config = replace(
+        _registered_admission_probe_config(),
+        entry_admission_token_capacity=100_000,
+        exit_admission_token_capacity=100_000,
+    )
+    request, _ = build_metro_request(config)
+    model = AlignmentMetroStationModel(request.scenario, seed=request.seed)
+    resource = model.alignment_admission_resources["entry"]
+    assert resource.acquire("exception-owner", model.step_index)
+
+    def fail_step() -> None:
+        raise RuntimeError("injected step failure")
+
+    monkeypatch.setattr(model, "step", fail_step)
+
+    with pytest.raises(RuntimeError, match="injected step failure"):
+        model.run()
+
+    assert resource.occupancy == 0
+    assert resource.completed_residences[-1].owner_id == "exception-owner"
+    assert resource.completed_residences[-1].right_censored is True
