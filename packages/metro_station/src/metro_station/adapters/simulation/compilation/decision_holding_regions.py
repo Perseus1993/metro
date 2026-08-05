@@ -110,6 +110,7 @@ def compile_decision_holding_regions(
         if level_id not in ingress_by_level:
             ingress_by_level[level_id] = _facility_ingress_corridors(
                 binding_set,
+                graph,
                 level_id,
                 spacing,
             )
@@ -296,6 +297,7 @@ def _main_flow_corridors(graph: StationGraph, level_id: str, clearance: float):
 
 def _facility_ingress_corridors(
     bindings: Iterable[FacilityPortalBinding],
+    graph: StationGraph,
     level_id: str,
     clearance: float,
 ):
@@ -333,6 +335,101 @@ def _facility_ingress_corridors(
         corridors.append(
             MultiLineString(((entry, tail), (tail, upstream))).buffer(clearance)
         )
+    gate_banks: dict[tuple[str, str], list[FacilityPortalBinding]] = {}
+    for binding in bindings:
+        if (
+            binding.entry_level_id == level_id
+            and binding.kind == FacilityKind.GATE.value
+            and binding.approach_slots
+        ):
+            gate_banks.setdefault(
+                (binding.stage, str(binding.source_element_id)),
+                [],
+            ).append(binding)
+    for (stage, _source_element_id), bank in gate_banks.items():
+        if len(bank) < 2:
+            continue
+        representative = bank[0]
+        representative_tail = max(
+            representative.approach_slots,
+            key=lambda point: _distance(representative.entry_point, point),
+        )
+        axis = (
+            representative_tail[0] - representative.entry_point[0],
+            representative_tail[1] - representative.entry_point[1],
+        )
+        axis_length = hypot(axis[0], axis[1])
+        if axis_length <= 1e-6:
+            continue
+        axis_unit = (axis[0] / axis_length, axis[1] / axis_length)
+        lateral = (-axis_unit[1], axis_unit[0])
+        tails = tuple(
+            max(
+                binding.approach_slots,
+                key=lambda point: _distance(binding.entry_point, point),
+            )
+            for binding in bank
+        )
+        lateral_projections = tuple(
+            point[0] * lateral[0] + point[1] * lateral[1]
+            for point in tails
+        )
+        longitudinal = sum(
+            point[0] * axis_unit[0] + point[1] * axis_unit[1]
+            for point in tails
+        ) / len(tails) + clearance * 1.5
+        start_projection = min(lateral_projections) - DECISION_HOLDING_RADIUS_M
+        end_projection = max(lateral_projections) + DECISION_HOLDING_RADIUS_M
+        start = (
+            axis_unit[0] * longitudinal + lateral[0] * start_projection,
+            axis_unit[1] * longitudinal + lateral[1] * start_projection,
+        )
+        end = (
+            axis_unit[0] * longitudinal + lateral[0] * end_projection,
+            axis_unit[1] * longitudinal + lateral[1] * end_projection,
+        )
+        # Multi-lane banks need a continuous tail aisle in addition to the
+        # per-lane longitudinal ingress tubes. Holding cells otherwise fill
+        # every gap between queues and turn any lateral lane choice into a
+        # solid-body crossing.
+        corridors.append(LineString((start, end)).buffer(clearance))
+        if stage != FacilityStage.ENTRY_GATE.value:
+            continue
+
+        # Entry demand reaches the bank from authored station entrances, not
+        # from the extension of an individual queue axis. Preserve that
+        # approach as one continuous body-free corridor into the same tail
+        # aisle used by runtime queue routing. Otherwise finite holding cells
+        # can remain valid one by one while closing the entire entrance cross
+        # section and stranding passengers whose gate queues are empty.
+        mouth_longitudinal = sum(
+            point[0] * axis_unit[0] + point[1] * axis_unit[1]
+            for point in tails
+        ) / len(tails) + clearance
+        mouth_min = min(lateral_projections)
+        mouth_max = max(lateral_projections)
+        for entrance in graph.nodes_matching(kind="entrance"):
+            if entrance.level_id != level_id:
+                continue
+            entrance_projection = (
+                entrance.position[0] * lateral[0]
+                + entrance.position[1] * lateral[1]
+            )
+            mouth_projection = min(
+                max(entrance_projection, mouth_min),
+                mouth_max,
+            )
+            bank_entry = (
+                axis_unit[0] * mouth_longitudinal
+                + lateral[0] * mouth_projection,
+                axis_unit[1] * mouth_longitudinal
+                + lateral[1] * mouth_projection,
+            )
+            if _distance(entrance.position, bank_entry) <= 1e-6:
+                continue
+            corridors.append(
+                LineString((entrance.position, bank_entry)).buffer(clearance)
+            )
     if not corridors:
         return GeometryCollection()
     return unary_union(corridors)

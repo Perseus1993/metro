@@ -1054,6 +1054,7 @@ def _platform_waiting_certificates(
             domain = domain.difference(flow_corridors)
         facility_ingress_corridors = _facility_ingress_corridors(
             bindings,
+            graph,
             level_id,
             spacing,
         )
