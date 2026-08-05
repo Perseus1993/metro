@@ -4,6 +4,7 @@
   "design_sha256": "e029a05941243fa9e3fd0d180af6157a26c0e69fd9e1fa9e4a0f24bcfcb13663",
   "scene_config_sha256": "ee79aede12fa6e534469360b4ff20bead3bd31fe1e915d721fdfad92a876a020",
   "metro_runtime_fingerprint": {
+    "schema_version": "metro_source_fingerprint.v2",
     "package_version": "0.1.0",
     "python": "CPython 3.12.13",
     "dependency_versions": {
@@ -15,14 +16,14 @@
       "shapely": "2.1.2"
     },
     "python_file_count": 270,
-    "source_tree_sha256": "b933a56e323c3a28e7e44b7c15f4a519ad1257083217dbf67b091975bd1a328c"
+    "source_tree_sha256": "ec2ecc090713a995667dc089bea0775e948cdbe154a1da302a9b4670cdd321e5"
   },
   "analysis_runtime_fingerprint": {
-    "schema_version": "alignment_analysis_runtime.v1",
+    "schema_version": "alignment_analysis_runtime.v2",
     "python": "CPython 3.12.13",
     "pedpy_version": "1.5.1",
     "file_count": 42,
-    "content_sha256": "b686cfad56e5d89241cf4174bf3fee70e5b42c750a89df72450c320d6b6751a1"
+    "content_sha256": "43cfc72b51343f270f9f4f628f580f93fa6d23e71575a2e62a206d5f23d57512"
   },
   "production_files": [
     "packages/metro_station/src/metro_station/adapters/simulation/facilities/admission_resource.py",
@@ -45,5 +46,5 @@
     "command": "python -m pytest alignment/tests/test_admission_tokens.py alignment/tests/test_metro_executor.py tests/test_spatial_capacity_certificates.py::test_explicit_source_position_is_rejected_before_publication -q",
     "latest_result": "pass"
   },
-  "artifact_sha256": "afbb7c6b7b5016bf99d9ac5efe87c1c92d6a00df5a638290b48223113cf23055"
+  "artifact_sha256": "f10f354573379e00ac09067e16bbd0c0625a6ab35d624d2edca2e8055cc32b3a"
 }

@@ -355,6 +355,7 @@
   "design_sha256": "e029a05941243fa9e3fd0d180af6157a26c0e69fd9e1fa9e4a0f24bcfcb13663",
   "scene_config_sha256": "098459f53e18fff46ce0785a4925aafffd808c8936db3b78b2925f6278a3bcde",
   "metro_runtime_fingerprint": {
+    "schema_version": "metro_source_fingerprint.v2",
     "package_version": "0.1.0",
     "python": "CPython 3.12.13",
     "dependency_versions": {
@@ -366,14 +367,14 @@
       "shapely": "2.1.2"
     },
     "python_file_count": 270,
-    "source_tree_sha256": "b933a56e323c3a28e7e44b7c15f4a519ad1257083217dbf67b091975bd1a328c"
+    "source_tree_sha256": "ec2ecc090713a995667dc089bea0775e948cdbe154a1da302a9b4670cdd321e5"
   },
   "analysis_runtime_fingerprint": {
-    "schema_version": "alignment_analysis_runtime.v1",
+    "schema_version": "alignment_analysis_runtime.v2",
     "python": "CPython 3.12.13",
     "pedpy_version": "1.5.1",
     "file_count": 42,
-    "content_sha256": "b686cfad56e5d89241cf4174bf3fee70e5b42c750a89df72450c320d6b6751a1"
+    "content_sha256": "43cfc72b51343f270f9f4f628f580f93fa6d23e71575a2e62a206d5f23d57512"
   },
   "evidence_scope": {
     "seed": 42,
@@ -400,5 +401,5 @@
     "movement_backend_name": "jupedsim",
     "jupedsim_operational_model": "collision_free_speed"
   },
-  "artifact_sha256": "819b05cb917e9b4b3800ac01e1234e8d6225dbb8307f65c6e1f736db2dd5665a"
+  "artifact_sha256": "6d019bd5a5cd5d61c3878663bfb31963bd1b94b85eb73e727356a9f3d55b43ce"
 }

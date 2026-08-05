@@ -4,6 +4,7 @@
   "design_sha256": "e029a05941243fa9e3fd0d180af6157a26c0e69fd9e1fa9e4a0f24bcfcb13663",
   "scene_config_sha256": "ee79aede12fa6e534469360b4ff20bead3bd31fe1e915d721fdfad92a876a020",
   "metro_runtime_fingerprint": {
+    "schema_version": "metro_source_fingerprint.v2",
     "package_version": "0.1.0",
     "python": "CPython 3.12.13",
     "dependency_versions": {
@@ -15,14 +16,14 @@
       "shapely": "2.1.2"
     },
     "python_file_count": 270,
-    "source_tree_sha256": "b933a56e323c3a28e7e44b7c15f4a519ad1257083217dbf67b091975bd1a328c"
+    "source_tree_sha256": "ec2ecc090713a995667dc089bea0775e948cdbe154a1da302a9b4670cdd321e5"
   },
   "analysis_runtime_fingerprint": {
-    "schema_version": "alignment_analysis_runtime.v1",
+    "schema_version": "alignment_analysis_runtime.v2",
     "python": "CPython 3.12.13",
     "pedpy_version": "1.5.1",
     "file_count": 42,
-    "content_sha256": "b686cfad56e5d89241cf4174bf3fee70e5b42c750a89df72450c320d6b6751a1"
+    "content_sha256": "43cfc72b51343f270f9f4f628f580f93fa6d23e71575a2e62a206d5f23d57512"
   },
   "normal": {
     "schema_version": "alignment_admission_preflight_bundle.v1",
@@ -67,7 +68,7 @@
     ],
     "blockers": []
   },
-  "residence_evidence_artifact_sha256": "819b05cb917e9b4b3800ac01e1234e8d6225dbb8307f65c6e1f736db2dd5665a",
+  "residence_evidence_artifact_sha256": "6d019bd5a5cd5d61c3878663bfb31963bd1b94b85eb73e727356a9f3d55b43ce",
   "deterministic_schedule_envelopes": {
     "entry": {
       "deterministic_arrival_envelope": 26,
@@ -159,5 +160,5 @@
     "test": "alignment/tests/test_runner_publication.py::test_admission_preflight_failure_preserves_existing_bundle",
     "mechanism": "blocker artifact uses a distinct atomic path before runtime; existing simulation bundle is untouched"
   },
-  "artifact_sha256": "a4f14d4a83a614b4c24b3f2775fc429b1a8cd693d4d653958746f78d64a985e3"
+  "artifact_sha256": "861550d6e15c1d5b3cf511c14ef064f1f3ed09f1f25d9ad641fa4da80ed5cc1f"
 }

@@ -127,6 +127,7 @@
         "jupedsim_operational_model": "collision_free_speed"
       },
       "metro_runtime_fingerprint": {
+        "schema_version": "metro_source_fingerprint.v2",
         "package_version": "0.1.0",
         "python": "CPython 3.12.13",
         "dependency_versions": {
@@ -138,23 +139,23 @@
           "shapely": "2.1.2"
         },
         "python_file_count": 270,
-        "source_tree_sha256": "b933a56e323c3a28e7e44b7c15f4a519ad1257083217dbf67b091975bd1a328c"
+        "source_tree_sha256": "ec2ecc090713a995667dc089bea0775e948cdbe154a1da302a9b4670cdd321e5"
       },
       "analysis_runtime_fingerprint": {
-        "schema_version": "alignment_analysis_runtime.v1",
+        "schema_version": "alignment_analysis_runtime.v2",
         "python": "CPython 3.12.13",
         "pedpy_version": "1.5.1",
         "file_count": 42,
-        "content_sha256": "b686cfad56e5d89241cf4174bf3fee70e5b42c750a89df72450c320d6b6751a1"
+        "content_sha256": "43cfc72b51343f270f9f4f628f580f93fa6d23e71575a2e62a206d5f23d57512"
       },
       "residence_evidence_artifacts": {
         "entry": {
           "reference": "alignment/output/round25/T1_residence_time.json#entry.p99",
-          "artifact_sha256": "819b05cb917e9b4b3800ac01e1234e8d6225dbb8307f65c6e1f736db2dd5665a"
+          "artifact_sha256": "6d019bd5a5cd5d61c3878663bfb31963bd1b94b85eb73e727356a9f3d55b43ce"
         },
         "exit": {
           "reference": "alignment/output/round25/T1_residence_time.json#exit.p90",
-          "artifact_sha256": "819b05cb917e9b4b3800ac01e1234e8d6225dbb8307f65c6e1f736db2dd5665a"
+          "artifact_sha256": "6d019bd5a5cd5d61c3878663bfb31963bd1b94b85eb73e727356a9f3d55b43ce"
         }
       },
       "metrics": {
@@ -780,6 +781,7 @@
         "jupedsim_operational_model": "collision_free_speed"
       },
       "metro_runtime_fingerprint": {
+        "schema_version": "metro_source_fingerprint.v2",
         "package_version": "0.1.0",
         "python": "CPython 3.12.13",
         "dependency_versions": {
@@ -791,23 +793,23 @@
           "shapely": "2.1.2"
         },
         "python_file_count": 270,
-        "source_tree_sha256": "b933a56e323c3a28e7e44b7c15f4a519ad1257083217dbf67b091975bd1a328c"
+        "source_tree_sha256": "ec2ecc090713a995667dc089bea0775e948cdbe154a1da302a9b4670cdd321e5"
       },
       "analysis_runtime_fingerprint": {
-        "schema_version": "alignment_analysis_runtime.v1",
+        "schema_version": "alignment_analysis_runtime.v2",
         "python": "CPython 3.12.13",
         "pedpy_version": "1.5.1",
         "file_count": 42,
-        "content_sha256": "b686cfad56e5d89241cf4174bf3fee70e5b42c750a89df72450c320d6b6751a1"
+        "content_sha256": "43cfc72b51343f270f9f4f628f580f93fa6d23e71575a2e62a206d5f23d57512"
       },
       "residence_evidence_artifacts": {
         "entry": {
           "reference": "alignment/output/round25/T1_residence_time.json#entry.p99",
-          "artifact_sha256": "819b05cb917e9b4b3800ac01e1234e8d6225dbb8307f65c6e1f736db2dd5665a"
+          "artifact_sha256": "6d019bd5a5cd5d61c3878663bfb31963bd1b94b85eb73e727356a9f3d55b43ce"
         },
         "exit": {
           "reference": "alignment/output/round25/T1_residence_time.json#exit.p90",
-          "artifact_sha256": "819b05cb917e9b4b3800ac01e1234e8d6225dbb8307f65c6e1f736db2dd5665a"
+          "artifact_sha256": "6d019bd5a5cd5d61c3878663bfb31963bd1b94b85eb73e727356a9f3d55b43ce"
         }
       },
       "metrics": {
@@ -1329,6 +1331,7 @@
   },
   "runtime_cohort": {
     "metro_runtime_fingerprint": {
+      "schema_version": "metro_source_fingerprint.v2",
       "package_version": "0.1.0",
       "python": "CPython 3.12.13",
       "dependency_versions": {
@@ -1340,60 +1343,16 @@
         "shapely": "2.1.2"
       },
       "python_file_count": 270,
-      "source_tree_sha256": "b933a56e323c3a28e7e44b7c15f4a519ad1257083217dbf67b091975bd1a328c"
+      "source_tree_sha256": "ec2ecc090713a995667dc089bea0775e948cdbe154a1da302a9b4670cdd321e5"
     },
     "analysis_runtime_fingerprint": {
-      "schema_version": "alignment_analysis_runtime.v1",
+      "schema_version": "alignment_analysis_runtime.v2",
       "python": "CPython 3.12.13",
       "pedpy_version": "1.5.1",
       "file_count": 42,
-      "content_sha256": "b686cfad56e5d89241cf4174bf3fee70e5b42c750a89df72450c320d6b6751a1"
+      "content_sha256": "43cfc72b51343f270f9f4f628f580f93fa6d23e71575a2e62a206d5f23d57512"
     }
   },
-  "runtime_cohort_sha256": "8604926d8fe1406d6172b23e1cf0988b6dafaf4dc8985c6ad579f34078a6b0cc",
-  "historical_round24_baseline": {
-    "schema_version": "alignment_round24_handoff_baseline.v1",
-    "provenance_status": "committed_handoff_claim",
-    "source": {
-      "path": "alignment/docs/reviews/round_24_step5_conservation_handoff.md",
-      "commit": "0b938dcdea9a117d7d3fe96cbb30c8f9520d811f",
-      "git_blob_sha1": "801735a1ae5299b2fa5bebd9a38179ee3abac179",
-      "file_sha256": "bc634d85ffc6b0e7418dcba3b17ccd504629adb37c86a3984f3f631a0a3cf496"
-    },
-    "frozen_inputs": {
-      "seed": 42,
-      "entry_count_hour": 2500,
-      "exit_count_hour": 2200,
-      "demand_steps": 120,
-      "horizon_steps": 120,
-      "design": "fixed-direction gates and seven train doors"
-    },
-    "controlled_difference": "downstream finite-admission evidence reported effectively unbounded capacity",
-    "arms": {
-      "finite_admission": {
-        "scheduled_entry": 83,
-        "spawned_entry": 75,
-        "pending_entry": 8,
-        "dropped": 0,
-        "conserved": true,
-        "admission_exhausted": 90,
-        "deferred_downstream": 89,
-        "dynamic_blocked": 12,
-        "passenger_liveness_violation": 0
-      },
-      "unbounded_admission_probe": {
-        "scheduled_entry": 83,
-        "spawned_entry": 83,
-        "pending_entry": 0,
-        "dropped": 0,
-        "conserved": true,
-        "admission_exhausted": 0,
-        "deferred_downstream": 0,
-        "dynamic_blocked": 16,
-        "passenger_liveness_violation": 0
-      }
-    },
-    "interpretation": "Historical pre-refactor observation anchored to the committed Round 24 handoff; current replay results are stored separately in this T0 artifact."
-  },
-  "artifact_sha256": "aef0988b8be27b48d429cfdb31da29bd08f64a7d8cf327817163507f526c975d"
+  "runtime_cohort_sha256": "5f5ca0c0aaec1ae2bd36dc3455288afefe97aed6eee43803f16ab92cd716498c",
+  "artifact_sha256": "ef870449f059b316a9acfd07f5ea51fd763ddda05f3bfda8ddb2e1fd99e87201"
 }

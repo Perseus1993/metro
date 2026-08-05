@@ -3,6 +3,7 @@
   "status": "pass",
   "runtime_cohort": {
     "metro_runtime_fingerprint": {
+      "schema_version": "metro_source_fingerprint.v2",
       "package_version": "0.1.0",
       "python": "CPython 3.12.13",
       "dependency_versions": {
@@ -14,17 +15,17 @@
         "shapely": "2.1.2"
       },
       "python_file_count": 270,
-      "source_tree_sha256": "b933a56e323c3a28e7e44b7c15f4a519ad1257083217dbf67b091975bd1a328c"
+      "source_tree_sha256": "ec2ecc090713a995667dc089bea0775e948cdbe154a1da302a9b4670cdd321e5"
     },
     "analysis_runtime_fingerprint": {
-      "schema_version": "alignment_analysis_runtime.v1",
+      "schema_version": "alignment_analysis_runtime.v2",
       "python": "CPython 3.12.13",
       "pedpy_version": "1.5.1",
       "file_count": 42,
-      "content_sha256": "b686cfad56e5d89241cf4174bf3fee70e5b42c750a89df72450c320d6b6751a1"
+      "content_sha256": "43cfc72b51343f270f9f4f628f580f93fa6d23e71575a2e62a206d5f23d57512"
     }
   },
-  "runtime_cohort_sha256": "8604926d8fe1406d6172b23e1cf0988b6dafaf4dc8985c6ad579f34078a6b0cc",
+  "runtime_cohort_sha256": "5f5ca0c0aaec1ae2bd36dc3455288afefe97aed6eee43803f16ab92cd716498c",
   "arm": {
     "mode": "enlarged_capacity_control",
     "seed": 42,
@@ -132,6 +133,7 @@
       "jupedsim_operational_model": "collision_free_speed"
     },
     "metro_runtime_fingerprint": {
+      "schema_version": "metro_source_fingerprint.v2",
       "package_version": "0.1.0",
       "python": "CPython 3.12.13",
       "dependency_versions": {
@@ -143,23 +145,23 @@
         "shapely": "2.1.2"
       },
       "python_file_count": 270,
-      "source_tree_sha256": "b933a56e323c3a28e7e44b7c15f4a519ad1257083217dbf67b091975bd1a328c"
+      "source_tree_sha256": "ec2ecc090713a995667dc089bea0775e948cdbe154a1da302a9b4670cdd321e5"
     },
     "analysis_runtime_fingerprint": {
-      "schema_version": "alignment_analysis_runtime.v1",
+      "schema_version": "alignment_analysis_runtime.v2",
       "python": "CPython 3.12.13",
       "pedpy_version": "1.5.1",
       "file_count": 42,
-      "content_sha256": "b686cfad56e5d89241cf4174bf3fee70e5b42c750a89df72450c320d6b6751a1"
+      "content_sha256": "43cfc72b51343f270f9f4f628f580f93fa6d23e71575a2e62a206d5f23d57512"
     },
     "residence_evidence_artifacts": {
       "entry": {
         "reference": "alignment/output/round25/T1_residence_time.json#entry.p99",
-        "artifact_sha256": "f3b6c3fe94ff60a7688c47103937e017176b15b3d66e84393d5d9f8889d3da30"
+        "artifact_sha256": "819b05cb917e9b4b3800ac01e1234e8d6225dbb8307f65c6e1f736db2dd5665a"
       },
       "exit": {
         "reference": "alignment/output/round25/T1_residence_time.json#exit.p90",
-        "artifact_sha256": "f3b6c3fe94ff60a7688c47103937e017176b15b3d66e84393d5d9f8889d3da30"
+        "artifact_sha256": "819b05cb917e9b4b3800ac01e1234e8d6225dbb8307f65c6e1f736db2dd5665a"
       }
     },
     "metrics": {
@@ -713,5 +715,5 @@
       }
     }
   },
-  "artifact_sha256": "b7fed96454cdbe79f37edb93956622eaff9e9df3f847d9e4cdacc9ee48d3bfdd"
+  "artifact_sha256": "5246222bdfb25a41b316ddd87f44fbc4926242f2f63de714fe17c017db3f7cc2"
 }
