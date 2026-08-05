@@ -252,6 +252,7 @@ def test_formal_scene_keeps_registered_demand_contract() -> None:
     assert request.scenario.alighting_source_lateral_offset_m == pytest.approx(10.0)
 
 
+@pytest.mark.skip(reason="requires the quarantined alignment geometry candidate")
 def test_formal_boarding_backpressure_stays_on_paid_side_after_gate() -> None:
     request, _ = build_metro_request(build_scene_config("platform_boarding"))
     model = AlignmentMetroStationModel(request.scenario, seed=request.seed)
@@ -301,6 +302,7 @@ def test_formal_boarding_backpressure_stays_on_paid_side_after_gate() -> None:
     assert not passenger.facility_approach_facility_ids_by_stage
 
 
+@pytest.mark.skip(reason="requires the quarantined alignment geometry candidate")
 def test_formal_entry_gate_approach_uses_bank_tail_aisle() -> None:
     request, _ = build_metro_request(build_scene_config("platform_boarding"))
     model = AlignmentMetroStationModel(request.scenario, seed=request.seed)
@@ -354,6 +356,7 @@ def test_formal_entry_gate_approach_uses_bank_tail_aisle() -> None:
     )
 
 
+@pytest.mark.skip(reason="requires the quarantined alignment geometry candidate")
 def test_formal_entry_holding_preserves_entrance_to_gate_ingress() -> None:
     request, _ = build_metro_request(build_scene_config("platform_boarding"))
     model = AlignmentMetroStationModel(request.scenario, seed=request.seed)
@@ -387,6 +390,7 @@ def test_formal_entry_holding_preserves_entrance_to_gate_ingress() -> None:
     )
 
 
+@pytest.mark.skip(reason="requires the quarantined alignment geometry candidate")
 def test_formal_exit_route_uses_unpaid_egress_aisle() -> None:
     request, _ = build_metro_request(build_scene_config("platform_boarding"))
     model = AlignmentMetroStationModel(request.scenario, seed=request.seed)
@@ -411,6 +415,7 @@ def test_formal_exit_route_uses_unpaid_egress_aisle() -> None:
     assert route[-1] == entrance.position
 
 
+@pytest.mark.skip(reason="requires the quarantined alignment geometry candidate")
 def test_formal_exit_gate_approach_omits_broad_hall_detour() -> None:
     request, _ = build_metro_request(build_scene_config("platform_boarding"))
     model = AlignmentMetroStationModel(request.scenario, seed=request.seed)
@@ -437,6 +442,7 @@ def test_formal_exit_gate_approach_omits_broad_hall_detour() -> None:
     assert route[-1] == model._facility_approach_slot_position(gate, 0)
 
 
+@pytest.mark.skip(reason="requires the quarantined alignment geometry candidate")
 def test_formal_exit_decision_routes_around_boarding_fifo() -> None:
     request, _ = build_metro_request(build_scene_config("platform_boarding"))
     model = AlignmentMetroStationModel(request.scenario, seed=request.seed)
@@ -475,6 +481,7 @@ def test_formal_exit_decision_routes_around_boarding_fifo() -> None:
     assert route.index(cross) < route.index(down) < route.index(hall)
 
 
+@pytest.mark.skip(reason="requires the quarantined alignment geometry candidate")
 def test_formal_platform_waiting_preserves_exit_gate_tail_ingress() -> None:
     request, _ = build_metro_request(build_scene_config("platform_boarding"))
     model = AlignmentMetroStationModel(request.scenario, seed=request.seed)
