@@ -72,6 +72,10 @@
 
 当前解锁合同（2026-08-05）：先修 entry gate 的 slot-1 到 slot-0 压紧，再处理有物理依据的 release ownership/clearance 回收；任何时序参数改动必须在 PR 中注明人体过闸或让开动线的物理映射，不得以 417/417 反调。最终候选必须在同一冻结 SceneConfig/Design/Metro/analysis/dependency 指纹下，由正式 runner 连续完成 exit-only 350、entry-only 600、mixed 600，并另过固定断面/净宽/窗口的饱和比流量双边门 `1.2～1.5 人/(m·s)`；低于下沿和高于上沿均失败。只有 mixed 可原子发布 simulation v5，且只解锁 Alignment Step 5；geometry proxy 与独立多种子 holdout 未解除前 Step 6/release 继续 hold。seeds 41～50 和 scale-soak 属 nightly 预算，不进入每次提交门。
 
+`fa2555` 几何候选的 7 项 quarantine 只允许维持到冻结设计的正式 entry-only 首次达到 `admitted=417/417, pending=0, dropped=0`。该证据出现后的同一变更周期内必须二选一：按 proxy 几何变更流程正式立项 `fa2555`，冻结新 SceneConfig/Design 指纹并重跑 preflight 与三段正式证据；或关闭候选分支、移除全部 7 项 quarantine，并让合同继续约束冻结设计。不得默认续期，也不得在没有记录该二选一决定时合并 417/417 证据。
+
+几何资格裁决（2026-08-05）：[ADR-009](../architecture/ADR-009-alignment-geometry-evidence-qualification.md) 已确认 ProRail/Zenodo/楼梯实测论文足以建立入口楼梯—扶梯组的 `observed_reference_only` 参考模型，但不足以把当前单层 `entrance_a` 矩形或其任一子集升级为 `observed_matched`；缺口是两层拓扑、构件化楼梯/平台/双扶梯以及带误差界的 source-to-scene 注册。全局 geometry 状态继续 `proxy`，mixed 600 不得覆盖该 hold。
+
 ## 接口分层规则
 
 以下是四个独立产品边界，禁止出现统一 `AlgorithmPlugin`：
