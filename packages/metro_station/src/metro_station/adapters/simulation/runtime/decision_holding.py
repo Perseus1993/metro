@@ -168,6 +168,24 @@ class DecisionHoldingMixin:
             ):
                 continue
             available.append(point)
+        passenger_position = None if passenger is None else getattr(passenger, "pos", None)
+        if passenger_position is not None and live_body_points:
+            dynamic_points = (*live_body_points, *platform_waiting_points)
+            available = [
+                point
+                for _index, point in sorted(
+                    enumerate(available),
+                    key=lambda item: (
+                        platform_waiting_path_blocker_count(
+                            tuple(passenger_position),
+                            item[1],
+                            dynamic_points,
+                            clearance=minimum_center_distance,
+                        ),
+                        item[0],
+                    ),
+                )
+            ]
         return tuple(available)
 
     def _boarding_holding_slot_is_upstream(
