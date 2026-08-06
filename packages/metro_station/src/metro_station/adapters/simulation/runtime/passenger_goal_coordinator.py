@@ -220,6 +220,19 @@ class PassengerGoalCoordinator:
         if active is None:
             return False
         region_id, stage = active
+        before_replan = {
+            "state": str(passenger.state),
+            "position": [float(passenger.pos[0]), float(passenger.pos[1])],
+            "target": [float(passenger.target[0]), float(passenger.target[1])],
+            "route": [[float(point[0]), float(point[1])] for point in passenger.route],
+            "holding_regions": sorted(passenger.decision_holding_target_by_region),
+            "approach_facilities": dict(
+                sorted(passenger.facility_approach_facility_ids_by_stage.items())
+            ),
+            "preferred_facility_id": (
+                passenger.decision_preferred_facility_id_by_region.get(region_id)
+            ),
+        }
         router = self.executor.region_router
         base_region = router._base_region(region_id)
         platform_reservation = self.model._platform_waiting_reservations.get(
@@ -333,6 +346,9 @@ class PassengerGoalCoordinator:
                 "region_id": region_id,
                 "stage": stage,
                 "reason": reason,
+                "before_replan": before_replan,
+                "after_target": [float(passenger.target[0]), float(passenger.target[1])],
+                "after_route": [[float(point[0]), float(point[1])] for point in passenger.route],
             },
         )
         return True

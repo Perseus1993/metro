@@ -193,6 +193,7 @@ def _arm(
     audits = dict(metrics.get("audit_counts", {}))
     replan_by_passenger: Counter[str] = Counter()
     replan_by_region: Counter[str] = Counter()
+    replan_events: list[dict[str, Any]] = []
     blocked_regions: Counter[str] = Counter()
     blocked_codes: Counter[str] = Counter()
     for event in runtime.audit.events:
@@ -208,6 +209,13 @@ def _arm(
                     )
                 )
             ] += int(event.count)
+            replan_events.append(
+                {
+                    "step": int(event.step),
+                    "count": int(event.count),
+                    "context": dict(event.context),
+                }
+            )
         if event.code not in {"placement.dynamic_blocked", "spawn.dynamic_blocked"}:
             continue
         context = event.context
@@ -331,6 +339,7 @@ def _arm(
             "by_region": dict(
                 sorted(replan_by_region.items(), key=lambda item: (-item[1], item[0]))
             ),
+            "events": replan_events,
         },
         "terminal_admission_owners": _terminal_admission_owner_diagnostics(runtime),
         "source_integrity_gate": evaluate_source_integrity_gate(metrics),
