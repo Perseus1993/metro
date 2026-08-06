@@ -122,6 +122,9 @@ Additional contracts:
 - Alighting infeasibility becomes a physically meaningful run result instead of silent retention.
 - Existing Round-25 source-integrity checks must split into dynamic conservation and clearance
   completion contracts; fixed-horizon `spawned == scheduled` is no longer universal.
+- A stale token-residence artifact no longer blocks runtime startup. Its last deterministic envelope
+  may remain as a finite diagnostic credit, explicitly marked `stale_or_unavailable`; it is neither
+  a physical-storage proof nor eligible for a dynamic floor or clearance prediction.
 - Historical 18.9x nominal exit-service calibration, real entrance geometry, and Step 6 remain
   separate credibility work rather than hidden release gates for this runtime contract.
 

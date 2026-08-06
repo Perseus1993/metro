@@ -51,6 +51,8 @@ class TrainExchangeCloseResult:
     def as_dict(self) -> dict[str, object]:
         payload = asdict(self)
         payload["train_run_id"] = self.train_run_id.as_dict()
+        payload["departure_status"] = payload.pop("status")
+        payload["alighting_release_complete_step"] = payload.pop("release_complete_step")
         return payload
 
 

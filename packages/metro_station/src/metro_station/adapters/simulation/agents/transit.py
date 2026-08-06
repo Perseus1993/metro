@@ -34,6 +34,7 @@ class TrainAgent(StationAgent):
             scenario.tick_seconds,
         )
         self.close_step: int | None = None
+        self.arrival_step: int | None = None
         self.current_load_persons = 0
         self.reserved_boarding_persons = 0
         self.last_departed_load_persons = 0
@@ -73,6 +74,7 @@ class TrainAgent(StationAgent):
             if self.reserved_boarding_persons:
                 raise RuntimeError("new train arrived with stale boarding reservations")
             self.arrival_sequence += 1
+            self.arrival_step = step
             self.close_step = step + self._dwell_steps()
             self._record_train_event("record_train_arrival")
             return
@@ -85,6 +87,9 @@ class TrainAgent(StationAgent):
                 # completes; no new boarding can pass the close-time preflight.
                 self.departure_safety_hold_steps += 1
                 return
+            close_exchange = getattr(self.model, "close_train_exchange_for_departure", None)
+            if callable(close_exchange) and not close_exchange(self, step=step):
+                return
             self.state = "away"
             self.last_departed_load_persons = self.current_load_persons
             self.current_load_persons = 0
@@ -92,6 +97,7 @@ class TrainAgent(StationAgent):
             self.last_departure_step = step
             self.next_arrival_step = step + self._layover_steps()
             self.close_step = None
+            self.arrival_step = None
 
     def _has_active_door_crossing(self) -> bool:
         doors_for_train = getattr(self.model, "boarding_doors_for_train", None)

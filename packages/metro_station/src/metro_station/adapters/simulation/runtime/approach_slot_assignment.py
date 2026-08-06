@@ -7,6 +7,10 @@ from ..facilities.process import FacilityKind
 from ..planning.plan import AgentGoal, FacilityStage
 
 
+class ApproachNavigationCommitDeferred(RuntimeError):
+    """A safe compaction could not retarget an in-flight navigation episode."""
+
+
 @dataclass(frozen=True)
 class _NavigationSnapshot:
     passenger: object
@@ -244,19 +248,59 @@ def compact_existing_approach_slots(model, facility) -> bool:
             proposed_slot_by_passenger_id,
             prepared_navigation,
         )
+    except ApproachNavigationCommitDeferred:
+        _restore_rebalance_state(
+            model,
+            facility,
+            passengers,
+            stage,
+            assigned,
+            previous_slot_by_passenger_id,
+            ownership_snapshot,
+            reservation_state,
+            navigation_snapshots,
+        )
+        counters = getattr(model, "service_chain_event_counts", None)
+        if counters is not None:
+            counters["waiting_capacity_retry"] += 1
+        return False
     except Exception:
-        for snapshot in navigation_snapshots:
-            _restore_navigation_snapshot(snapshot)
-        for passenger in passengers:
-            passenger_id = int(passenger.unique_id)
-            old_index = previous_slot_by_passenger_id[passenger_id]
-            assigned[passenger_id] = old_index
-            passenger.facility_approach_slots_by_stage[stage] = old_index
-            key = (passenger_id, stage)
-            model._facility_approach_reservation_registry[key] = ownership_snapshot[key]
-        facility.queue.restore_approach_reservation_state(reservation_state)
+        _restore_rebalance_state(
+            model,
+            facility,
+            passengers,
+            stage,
+            assigned,
+            previous_slot_by_passenger_id,
+            ownership_snapshot,
+            reservation_state,
+            navigation_snapshots,
+        )
         raise
     return True
+
+
+def _restore_rebalance_state(
+    model,
+    facility,
+    passengers,
+    stage,
+    assigned,
+    previous_slot_by_passenger_id,
+    ownership_snapshot,
+    reservation_state,
+    navigation_snapshots,
+) -> None:
+    for snapshot in navigation_snapshots:
+        _restore_navigation_snapshot(snapshot)
+    for passenger in passengers:
+        passenger_id = int(passenger.unique_id)
+        old_index = previous_slot_by_passenger_id[passenger_id]
+        assigned[passenger_id] = old_index
+        passenger.facility_approach_slots_by_stage[stage] = old_index
+        key = (passenger_id, stage)
+        model._facility_approach_reservation_registry[key] = ownership_snapshot[key]
+    facility.queue.restore_approach_reservation_state(reservation_state)
 
 
 def rebalance_same_step_approach_slots(model, facility) -> None:
@@ -567,7 +611,7 @@ def _assert_rebalance_committed(
             terminal[0] - prepared.expected_terminal[0],
             terminal[1] - prepared.expected_terminal[1],
         ) > 1e-6:
-            raise RuntimeError(
+            raise ApproachNavigationCommitDeferred(
                 f"passenger {prepared.passenger.unique_id} navigation did not commit "
                 "the rebalanced approach slot"
             )

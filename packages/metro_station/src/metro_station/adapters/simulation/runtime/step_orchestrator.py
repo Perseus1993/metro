@@ -27,6 +27,7 @@ class SimulationStepOrchestrator:
         if not self._evacuation_stops_trains(model):
             for train in model.trains:
                 train.step()
+            model.sync_train_exchange_manifests()
             model.spawn_alighting_passengers()
 
         model._rebalance_current_step_approach_slots()

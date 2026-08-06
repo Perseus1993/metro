@@ -27,6 +27,9 @@ from metro_station_experiments.acceptance import (  # noqa: E402
     assess_production_scenario,
 )
 from sandbox.metro_station_sandbox.runtime.mesa_model import MetroStationModel  # noqa: E402
+from metro_station.adapters.simulation.runtime.external_demand_reservoir import (  # noqa: E402
+    DemandSourceKind,
+)
 from sandbox.metro_station_sandbox.station.scenario import StationSandboxScenario  # noqa: E402
 from sandbox.metro_station_sandbox.station.disruptions import (  # noqa: E402
     FacilityAvailabilityEvent,
@@ -89,6 +92,7 @@ FIELDNAMES = (
     "spawned_persons",
     "scheduled_demand_persons",
     "unspawned_alighting_persons_final",
+    "not_alighted_persons_final",
     "demand_accounting_error_persons",
     "spawned_entry_persons",
     "spawned_exit_persons",
@@ -710,13 +714,20 @@ def summarize_run(
     completed = boarded + exited
     scheduled_demand = spawned
     unspawned_alighting = 0
+    not_alighted = 0
     demand_accounting_error = 0
     if model is not None:
         scenario = model.scenario
         scheduled_demand = (
             scenario.entry_groups + scenario.exit_groups + scenario.transfer_groups
         ) * scenario.group_size
-        unspawned_alighting = model.pending_alighting_groups * scenario.group_size
+        pending_alighting = model.external_demand_reservoir.pending_persons(
+            DemandSourceKind.TRAIN_ALIGHTING
+        )
+        not_alighted = int(model.unbound_not_alighted_persons) + sum(
+            int(result.not_alighted_persons) for result in model.train_exchange_results
+        )
+        unspawned_alighting = pending_alighting + not_alighted
         demand_accounting_error = scheduled_demand - spawned - unspawned_alighting
     completion_rate = (
         round(completed / scheduled_demand, 4) if scheduled_demand else None
@@ -798,6 +809,7 @@ def summarize_run(
         "spawned_persons": spawned,
         "scheduled_demand_persons": scheduled_demand,
         "unspawned_alighting_persons_final": unspawned_alighting,
+        "not_alighted_persons_final": not_alighted,
         "demand_accounting_error_persons": demand_accounting_error,
         "spawned_entry_persons": metric_int(final_metrics, "spawned_entry_persons"),
         "spawned_exit_persons": metric_int(final_metrics, "spawned_exit_persons"),

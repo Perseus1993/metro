@@ -31,6 +31,7 @@ from .control_timeline import ControlTimelineController
 from .demand_scheduler import DemandScheduler
 from .disruptions import FacilityDisruptionController
 from .evacuation_routing_runtime import RuntimeEvacuationRoutingService
+from .external_demand_reservoir import ExternalDemandReservoir
 from .goal_parity import GoalParityRecorder
 from .metrics import (
     average_system_minutes,
@@ -49,6 +50,7 @@ from .snapshots import SnapshotBuilder
 from .step_orchestrator import SimulationStepOrchestrator
 from .terminal_events import PassengerTerminalEvent
 from .train_disruptions import TrainDisruptionController
+from .train_exchange_manifest import TrainExchangeCloseResult, TrainExchangeManifest
 
 if TYPE_CHECKING:
     from metro_station.application.routing_plugins import EvacuationRoutingPort
@@ -106,7 +108,15 @@ def _initialize_base_state(
     model.walking_cost_evaluation_count = 0
     model.pending_alighting_groups = 0
     model.pending_spawn_groups: Counter[str] = Counter()
+    model._mirrored_pending_spawn_groups: Counter[str] = Counter()
     model.max_pending_alighting_groups = 0
+    model.external_demand_reservoir = ExternalDemandReservoir()
+    model.train_exchange_manifests: dict[str, TrainExchangeManifest] = {}
+    model.train_exchange_results: list[TrainExchangeCloseResult] = []
+    model.run_outcome_code: str | None = None
+    model.unbound_not_alighted_persons = 0
+    model.train_exchange_failure_rows: list[dict[str, Any]] = []
+    model.failed_nominal_alighting_arrivals: set[int] = set()
     model.frames: list[dict[str, Any]] = []
     model.facility_motion_trace_recorder = FacilityMotionTraceRecorder(
         sample_interval_seconds=scenario.movement_trace_sample_seconds,
@@ -292,6 +302,7 @@ def _initialize_runtime_services(
     model.demand_scheduler = DemandScheduler.from_scenario(scenario, model.random)
     model.spawn_schedule = model.demand_scheduler.spawn_schedule
     model.alighting_schedule = model.demand_scheduler.alighting_schedule
+    model.planned_train_alightings = model.demand_scheduler.planned_train_alightings
     model.datacollector = mesa.DataCollector(
         model_reporters={
             "station_persons": station_persons,

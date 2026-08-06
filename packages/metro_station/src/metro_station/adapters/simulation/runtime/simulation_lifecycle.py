@@ -6,6 +6,8 @@ from typing import Any
 from ..agents.passenger import PassengerAgent
 from ..facilities.runtime import FacilityProcessAgent
 from ..movement.backend import MovementResult
+from .external_demand_reservoir import DemandSourceKind
+from .source_boundary_metrics import source_boundary_metrics
 
 
 class SimulationLifecycleMixin:
@@ -67,14 +69,14 @@ class SimulationLifecycleMixin:
             self.step_index >= self.scenario.demand_steps
             and not self.passengers
             and not self._has_pending_alighting_demand()
-            and not any(self.pending_spawn_groups.values())
+            and not self.external_demand_reservoir.pending_tickets(DemandSourceKind.ENTRY)
             and not self.disruption_controller.has_pending_events
             and not self.train_disruption_controller.has_pending_events
             and not self.control_timeline_controller.has_pending_events
         )
 
     def _has_pending_alighting_demand(self) -> bool:
-        if self.pending_alighting_groups > 0:
+        if self.external_demand_reservoir.pending_tickets(DemandSourceKind.TRAIN_ALIGHTING):
             return True
         return any(
             step >= self.step_index and count > 0 for step, count in self.alighting_schedule.items()
@@ -123,4 +125,6 @@ class SimulationLifecycleMixin:
             self,
             include_events=False,
         )
+        payload["run_outcome_code"] = self.run_outcome_code
+        payload["source_boundaries"] = source_boundary_metrics(self)
         return payload

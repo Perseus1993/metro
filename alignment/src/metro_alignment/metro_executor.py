@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import hashlib
 import json
-from collections import Counter, deque
+from collections import Counter
 from dataclasses import dataclass, replace
 from math import cos, hypot, radians, sin
 from pathlib import Path
@@ -23,7 +23,15 @@ from metro_station.adapters.simulation.movement.dynamic_body_clearance import (
 )
 from metro_station.adapters.simulation.planning.plan import AgentIntent
 from metro_station.adapters.simulation.runtime.demand_scheduler import DemandScheduler
+from metro_station.adapters.simulation.runtime.external_demand_reservoir import (
+    DemandSourceKind,
+    DemandTicketState,
+    TemporaryDemandBlockReason,
+)
 from metro_station.adapters.simulation.runtime.mesa_model import MetroStationModel
+from metro_station.adapters.simulation.runtime.source_publication_transaction import (
+    rollback_published_passenger,
+)
 from metro_station.adapters.simulation.spatial_capacity_admission import (
     SpatialCapacityAdmissionError,
     SpatialCapacityEvidence,
@@ -100,13 +108,6 @@ class PendingSourceDemand:
     source_id: str
     level_id: str
     local_radius: float
-
-
-@dataclass(frozen=True)
-class PendingUnresolvedSourceDemand:
-    scheduled_step: int
-    intent: str
-    group_size: int
 
 
 class AlignmentSourceGeometryConflict(RuntimeError):
@@ -549,8 +550,7 @@ class AlignmentMetroStationModel(MetroStationModel):
         ):
             raise ValueError("formal horizon must be within the scenario horizon")
         self.formal_horizon_steps = formal_horizon_steps
-        self.alignment_pending_source_demands: deque[PendingSourceDemand] = deque()
-        self.alignment_unresolved_source_demands: deque[PendingUnresolvedSourceDemand] = deque()
+        self.alignment_source_spec_by_ticket: dict[int, PendingSourceDemand] = {}
         self.alignment_next_source_sequence_id = 0
         self.alignment_requested_source_persons_by_intent: Counter[str] = Counter()
         self.alignment_max_pending_source_groups = 0
@@ -571,7 +571,6 @@ class AlignmentMetroStationModel(MetroStationModel):
         self.alignment_max_pending_residence_steps_by_flow: Counter[str] = Counter()
         self._alignment_inflight_admission_owner_by_intent: dict[str, object] = {}
         self.alignment_requested_alighting_persons = 0
-        self.alignment_pending_alighting_scheduled_steps: deque[int] = deque()
         self.alignment_time_attribution = AdmissionTimeAttribution()
 
     def step(self) -> None:
@@ -587,26 +586,24 @@ class AlignmentMetroStationModel(MetroStationModel):
         self.alignment_requested_alighting_persons += int(newly_due_groups) * int(
             self.scenario.group_size
         )
-        self.alignment_pending_alighting_scheduled_steps.extend(
-            int(self.step_index) for _ in range(int(newly_due_groups))
-        )
 
     def _require_alighting_spawn_conservation(self) -> None:
         requested = int(self.alignment_requested_alighting_persons)
         admitted = int(self.spawned_persons_by_intent[AgentIntent.EXIT_STATION.value])
-        pending = int(self.pending_alighting_groups) * int(self.scenario.group_size)
-        if len(self.alignment_pending_alighting_scheduled_steps) != int(
-            self.pending_alighting_groups
-        ):
-            raise RuntimeError(
-                "alignment alighting pending ownership failed: "
-                f"owners={len(self.alignment_pending_alighting_scheduled_steps)}, "
-                f"pending_groups={self.pending_alighting_groups}"
-            )
+        pending_tickets = self.external_demand_reservoir.pending_tickets(
+            DemandSourceKind.TRAIN_ALIGHTING
+        )
+        pending = sum(ticket.group_size for ticket in pending_tickets)
+        not_alighted = int(getattr(self, "unbound_not_alighted_persons", 0)) + sum(
+            item.ticket.group_size
+            for item in self.external_demand_reservoir.residences
+            if item.ticket.source_kind == DemandSourceKind.TRAIN_ALIGHTING
+            and item.outcome == DemandTicketState.NOT_ALIGHTED
+        )
         oldest_pending_residence = max(
             (
-                int(self.step_index) - scheduled_step
-                for scheduled_step in self.alignment_pending_alighting_scheduled_steps
+                int(self.step_index) - int(ticket.scheduled_step)
+                for ticket in pending_tickets
             ),
             default=0,
         )
@@ -614,25 +611,35 @@ class AlignmentMetroStationModel(MetroStationModel):
             self.alignment_max_pending_residence_steps_by_flow["exit"],
             oldest_pending_residence,
         )
-        if requested != admitted + pending:
+        if requested != admitted + pending + not_alighted:
             raise RuntimeError(
                 "alignment alighting-demand conservation failed: "
-                f"requested={requested}, admitted={admitted}, pending={pending}"
+                f"requested={requested}, admitted={admitted}, pending={pending}, "
+                f"not_alighted={not_alighted}"
             )
 
     def _alighting_source_admission_reservation(
         self,
         doors: list[FacilityProcessAgent],
     ) -> dict[str, object]:
-        del doors
         flow = "exit"
         resource = self.alignment_admission_resources[flow]
         self.alignment_admission_attempts[flow] += 1
+        physical = self._alighting_downstream_admission_evidence(doors)
+        if not bool(physical["available"]):
+            return {
+                **physical,
+                "available": False,
+                "admission_resource": resource.resource_id,
+                "resource_semantics": "counting_credit_and_physical_owner_required",
+                "admission_token_available": resource.available,
+            }
         provisional_owner = f"alighting:{self.alignment_next_source_sequence_id}"
         self.alignment_next_source_sequence_id += 1
         if not resource.acquire(provisional_owner, self.step_index):
             self._defer_exhausted_admission_token(flow)
             return {
+                **physical,
                 "available": False,
                 "admission_resource": resource.resource_id,
                 "resource_semantics": "counting_signal_not_physical_storage",
@@ -643,6 +650,7 @@ class AlignmentMetroStationModel(MetroStationModel):
             provisional_owner
         )
         return {
+            **physical,
             "available": True,
             "admission_resource": resource.resource_id,
             "resource_semantics": "counting_signal_not_physical_storage",
@@ -681,8 +689,6 @@ class AlignmentMetroStationModel(MetroStationModel):
         )
         if owner is None:
             raise RuntimeError("alighting admission reservation owner is missing")
-        if not self.alignment_pending_alighting_scheduled_steps:
-            raise RuntimeError("alighting pending FIFO is empty at publication commit")
         resource = self.alignment_admission_resources["exit"]
         try:
             resource.transfer(owner, int(passenger.unique_id))
@@ -694,47 +700,48 @@ class AlignmentMetroStationModel(MetroStationModel):
                     reason="publication_commit_exception",
                 )
             raise
-        finally:
-            self.alignment_pending_alighting_scheduled_steps.popleft()
 
     def spawn_passengers(self) -> None:
         self._release_completed_source_admission_tokens()
         due_by_intent = self.demand_scheduler.due_by_intent(self.step_index)
-        new_unresolved_demands: list[PendingUnresolvedSourceDemand] = []
-        requested_increments: Counter[str] = Counter()
         for intent, count in due_by_intent.items():
-            requested_increments[str(intent)] += int(count) * int(self.scenario.group_size)
-            new_unresolved_demands.extend(
-                PendingUnresolvedSourceDemand(
+            self.alignment_requested_source_persons_by_intent[str(intent)] += (
+                int(count) * int(self.scenario.group_size)
+            )
+            for _ in range(int(count)):
+                self.external_demand_reservoir.enqueue(
                     scheduled_step=int(self.step_index),
                     intent=str(intent),
                     group_size=int(self.scenario.group_size),
+                    source_kind=DemandSourceKind.ENTRY,
+                    source_ref=str(intent),
                 )
-                for _ in range(int(count))
-            )
-        self.alignment_unresolved_source_demands.extend(new_unresolved_demands)
-        self.alignment_requested_source_persons_by_intent.update(requested_increments)
-        try:
-            while self.alignment_unresolved_source_demands:
-                unresolved = self.alignment_unresolved_source_demands[0]
-                resolved = replace(
-                    self._alignment_schedule_source_demand(unresolved.intent),
-                    scheduled_step=unresolved.scheduled_step,
-                    group_size=unresolved.group_size,
-                )
-                self.alignment_pending_source_demands.append(resolved)
-                self.alignment_unresolved_source_demands.popleft()
-        except BaseException:
-            self._finalize_alignment_source_phase()
-            raise
-
+        pending_round = self.external_demand_reservoir.pending_tickets(DemandSourceKind.ENTRY)
         self.alignment_max_pending_source_groups = max(
             self.alignment_max_pending_source_groups,
-            len(self.alignment_pending_source_demands),
+            len(pending_round),
         )
-        pending_round = list(self.alignment_pending_source_demands)
-        self.alignment_pending_source_demands.clear()
-        for index, demand in enumerate(pending_round):
+        for ticket in pending_round:
+            try:
+                demand = self.alignment_source_spec_by_ticket.get(ticket.sequence_id)
+                if demand is None:
+                    demand = replace(
+                        self._alignment_schedule_source_demand(ticket.intent),
+                        sequence_id=ticket.sequence_id,
+                        scheduled_step=ticket.scheduled_step,
+                        group_size=ticket.group_size,
+                    )
+                    self.alignment_source_spec_by_ticket[ticket.sequence_id] = demand
+            except BaseException:
+                self._finalize_alignment_source_phase()
+                raise
+            claim = self.external_demand_reservoir.claim_next(
+                DemandSourceKind.ENTRY,
+                ticket.source_ref,
+                step=int(self.step_index),
+            )
+            if claim is None:
+                continue
             flow = self._alignment_admission_flow(demand.intent)
             provisional_owner = None
             if flow is not None:
@@ -742,8 +749,11 @@ class AlignmentMetroStationModel(MetroStationModel):
                 provisional_owner = f"demand:{demand.sequence_id}"
                 resource = self.alignment_admission_resources[flow]
                 if not resource.acquire(provisional_owner, self.step_index):
-                    self.alignment_pending_source_demands.append(demand)
-                    self.alignment_pending_source_demands.extend(pending_round[index + 1 :])
+                    self.external_demand_reservoir.defer(
+                        claim,
+                        step=int(self.step_index),
+                        reason=TemporaryDemandBlockReason.ADMISSION_CREDIT_EXHAUSTED,
+                    )
                     try:
                         self._defer_exhausted_admission_token(flow)
                     finally:
@@ -758,8 +768,11 @@ class AlignmentMetroStationModel(MetroStationModel):
                         self.step_index,
                         reason="source_admission_exception",
                     )
-                self.alignment_pending_source_demands.append(demand)
-                self.alignment_pending_source_demands.extend(pending_round[index + 1 :])
+                self.external_demand_reservoir.defer(
+                    claim,
+                    step=int(self.step_index),
+                    reason=TemporaryDemandBlockReason.SOURCE_PLACEMENT_BLOCKED,
+                )
                 self._finalize_alignment_source_phase()
                 raise
             if admission is None:
@@ -770,8 +783,11 @@ class AlignmentMetroStationModel(MetroStationModel):
                         reason="source_placement_blocked",
                     )
                 self.alignment_source_deferred_attempts += 1
-                self.alignment_pending_source_demands.append(demand)
-                self.alignment_pending_source_demands.extend(pending_round[index + 1 :])
+                self.external_demand_reservoir.defer(
+                    claim,
+                    step=int(self.step_index),
+                    reason=TemporaryDemandBlockReason.SOURCE_PLACEMENT_BLOCKED,
+                )
                 try:
                     self.audit.record(
                         "alignment_source_demand_deferred_without_clear_spawn_cell",
@@ -783,7 +799,9 @@ class AlignmentMetroStationModel(MetroStationModel):
                             "scheduled_step": demand.scheduled_step,
                             "intent": demand.intent,
                             "source_id": demand.source_id,
-                            "pending_groups": len(self.alignment_pending_source_demands),
+                            "pending_groups": self.external_demand_reservoir.pending_groups(
+                                DemandSourceKind.ENTRY
+                            ),
                         },
                     )
                 finally:
@@ -808,8 +826,11 @@ class AlignmentMetroStationModel(MetroStationModel):
                         reason="physical_placement_retry",
                     )
                 self.alignment_source_deferred_attempts += 1
-                self.alignment_pending_source_demands.append(demand)
-                self.alignment_pending_source_demands.extend(pending_round[index + 1 :])
+                self.external_demand_reservoir.defer(
+                    claim,
+                    step=int(self.step_index),
+                    reason=TemporaryDemandBlockReason.SOURCE_PLACEMENT_BLOCKED,
+                )
                 self._finalize_alignment_source_phase()
                 return
             except BaseException:
@@ -819,8 +840,11 @@ class AlignmentMetroStationModel(MetroStationModel):
                         self.step_index,
                         reason="spawn_exception",
                     )
-                self.alignment_pending_source_demands.append(demand)
-                self.alignment_pending_source_demands.extend(pending_round[index + 1 :])
+                self.external_demand_reservoir.defer(
+                    claim,
+                    step=int(self.step_index),
+                    reason=TemporaryDemandBlockReason.DOWNSTREAM_CAPACITY_EXHAUSTED,
+                )
                 self._finalize_alignment_source_phase()
                 raise
             finally:
@@ -839,10 +863,15 @@ class AlignmentMetroStationModel(MetroStationModel):
                     if provisional_owner in resource.owners:
                         resource.release(
                             provisional_owner,
-                            self.step_index,
-                            reason="publication_commit_exception",
-                        )
-                    self.alignment_pending_source_demands.extend(pending_round[index + 1 :])
+                        self.step_index,
+                        reason="publication_commit_exception",
+                    )
+                    rollback_published_passenger(self, passenger)
+                    self.external_demand_reservoir.defer(
+                        claim,
+                        step=int(self.step_index),
+                        reason=TemporaryDemandBlockReason.DOWNSTREAM_CAPACITY_EXHAUSTED,
+                    )
                     self._finalize_alignment_source_phase()
                     raise
             try:
@@ -851,27 +880,37 @@ class AlignmentMetroStationModel(MetroStationModel):
                     self.spawned_persons_by_entrance[admission.source_element_id] += (
                         passenger.group_size
                     )
+                self.external_demand_reservoir.commit(
+                    claim,
+                    passenger_id=int(passenger.unique_id),
+                    published_step=int(self.step_index),
+                )
+                self.alignment_source_spec_by_ticket.pop(ticket.sequence_id, None)
             except BaseException:
-                self.alignment_pending_source_demands.extend(pending_round[index + 1 :])
+                if flow is not None and int(passenger.unique_id) in resource.owners:
+                    resource.release(
+                        int(passenger.unique_id),
+                        self.step_index,
+                        reason="reservoir_commit_exception",
+                    )
+                rollback_published_passenger(self, passenger)
                 self._finalize_alignment_source_phase()
                 raise
         self._finalize_alignment_source_phase()
 
     def _finalize_alignment_source_phase(self) -> None:
         for intent, (flow, _release_prefix) in _SOURCE_ADMISSION_FLOWS.items():
+            pending = [
+                ticket
+                for ticket in self.external_demand_reservoir.pending_tickets(
+                    DemandSourceKind.ENTRY
+                )
+                if ticket.intent == intent
+            ]
             self.alignment_max_pending_residence_steps_by_flow[flow] = max(
                 self.alignment_max_pending_residence_steps_by_flow[flow],
                 max(
-                    [
-                        int(self.step_index) - demand.scheduled_step
-                        for demand in self.alignment_pending_source_demands
-                        if demand.intent == intent
-                    ]
-                    + [
-                        int(self.step_index) - demand.scheduled_step
-                        for demand in self.alignment_unresolved_source_demands
-                        if demand.intent == intent
-                    ],
+                    [int(self.step_index) - ticket.scheduled_step for ticket in pending],
                     default=0,
                 ),
             )
@@ -911,17 +950,20 @@ class AlignmentMetroStationModel(MetroStationModel):
                 intent,
                 release_levels=release_levels,
             )
+        physical = super()._source_admission_evidence(
+            intent,
+            release_levels=release_levels,
+        )
         resource = self.alignment_admission_resources[flow]
         provisional_owner = self._alignment_inflight_admission_owner_by_intent.get(str(intent))
         owns_credit = provisional_owner in resource.owners
         return {
-            "available": owns_credit or resource.available > 0,
-            "downstream_stage": f"{flow}_gate",
-            "decision_region_id": f"{flow}_gate_decision",
-            "certified_downstream_slots": resource.capacity,
-            "occupied_downstream_slots": resource.occupancy,
+            **physical,
+            "available": bool(physical["available"]) and owns_credit,
             "admission_resource": resource.resource_id,
-            "resource_semantics": "counting_signal_not_physical_storage",
+            "resource_semantics": "counting_credit_and_physical_owner_required",
+            "admission_token_capacity": resource.capacity,
+            "admission_token_occupancy": resource.occupancy,
         }
 
     @staticmethod
@@ -972,8 +1014,11 @@ class AlignmentMetroStationModel(MetroStationModel):
             int(self.spawned_persons_by_intent[intent])
             for intent in self.alignment_requested_source_persons_by_intent
         )
-        pending = sum(demand.group_size for demand in self.alignment_pending_source_demands) + sum(
-            demand.group_size for demand in self.alignment_unresolved_source_demands
+        pending = sum(
+            ticket.group_size
+            for ticket in self.external_demand_reservoir.pending_tickets(
+                DemandSourceKind.ENTRY
+            )
         )
         if requested != admitted + pending:
             raise RuntimeError(
@@ -1005,7 +1050,7 @@ class AlignmentMetroStationModel(MetroStationModel):
             raise RuntimeError(f"no source node is available for intent {intent_value!r}")
 
         demand = PendingSourceDemand(
-            sequence_id=self.alignment_next_source_sequence_id,
+            sequence_id=-1,
             scheduled_step=int(self.step_index),
             intent=intent_value,
             group_size=int(self.scenario.group_size),
@@ -1014,7 +1059,6 @@ class AlignmentMetroStationModel(MetroStationModel):
             level_id=str(node.level_id),
             local_radius=local_radius,
         )
-        self.alignment_next_source_sequence_id += 1
         return demand
 
     def _alignment_source_admission(
@@ -1140,40 +1184,27 @@ class AlignmentMetroStationModel(MetroStationModel):
         horizon = self.formal_horizon_steps or self.scenario.horizon_steps
         if self.step_index >= horizon:
             return True
-        return (
-            super()._should_stop()
-            and not self.alignment_pending_source_demands
-            and not self.alignment_unresolved_source_demands
-        )
+        return super()._should_stop()
 
     def alignment_source_admission_metrics(self) -> dict[str, object]:
         group_size = int(self.scenario.group_size)
         evidence_horizon = int(
             getattr(self, "formal_horizon_steps", None) or self.scenario.horizon_steps
         )
-        pending_source_groups = len(self.alignment_pending_source_demands) + len(
-            self.alignment_unresolved_source_demands
+        pending_entry_tickets = self.external_demand_reservoir.pending_tickets(
+            DemandSourceKind.ENTRY
         )
+        pending_source_groups = len(pending_entry_tickets)
         pending_entry_groups = sum(
-            demand.intent == AgentIntent.ENTER_AND_BOARD.value
-            for demand in (
-                *self.alignment_pending_source_demands,
-                *self.alignment_unresolved_source_demands,
-            )
+            ticket.intent == AgentIntent.ENTER_AND_BOARD.value
+            for ticket in pending_entry_tickets
         )
         pending_direct_exit_groups = sum(
-            demand.intent == AgentIntent.EXIT_STATION.value
-            for demand in (
-                *self.alignment_pending_source_demands,
-                *self.alignment_unresolved_source_demands,
-            )
+            ticket.intent == AgentIntent.EXIT_STATION.value
+            for ticket in pending_entry_tickets
         )
         pending_source_persons = sum(
-            demand.group_size
-            for demand in (
-                *self.alignment_pending_source_demands,
-                *self.alignment_unresolved_source_demands,
-            )
+            ticket.group_size for ticket in pending_entry_tickets
         )
         requested_due_source_persons = sum(
             self.alignment_requested_source_persons_by_intent.values()
@@ -1298,12 +1329,9 @@ class AlignmentMetroStationModel(MetroStationModel):
             residence_lower_bound_steps = completed_residence_steps + censored_residence_steps
             pending_residence = max(
                 (
-                    int(self.step_index) - demand.scheduled_step
-                    for demand in (
-                        *self.alignment_pending_source_demands,
-                        *self.alignment_unresolved_source_demands,
-                    )
-                    if demand.intent == intent
+                    int(self.step_index) - ticket.scheduled_step
+                    for ticket in pending_entry_tickets
+                    if ticket.intent == intent
                 ),
                 default=0,
             )
@@ -1312,8 +1340,10 @@ class AlignmentMetroStationModel(MetroStationModel):
                     pending_residence,
                     max(
                         (
-                            int(self.step_index) - scheduled_step
-                            for scheduled_step in (self.alignment_pending_alighting_scheduled_steps)
+                            int(self.step_index) - int(ticket.scheduled_step)
+                            for ticket in self.external_demand_reservoir.pending_tickets(
+                                DemandSourceKind.TRAIN_ALIGHTING
+                            )
                         ),
                         default=0,
                     ),

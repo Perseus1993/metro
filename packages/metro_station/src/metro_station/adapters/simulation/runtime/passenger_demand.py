@@ -18,65 +18,22 @@ from ..spatial_capacity_admission import (
 from ..station.alighting_source_geometry import ALIGHTING_SOURCE_SEARCH_WINDOW
 from ..station.evacuation import EVACUATION_MODE
 from .downstream_admission_evidence import downstream_admission_evidence
+from .external_demand_reservoir import (
+    DemandSourceKind,
+    TemporaryDemandBlockReason,
+)
+from .source_publication_transaction import rollback_published_passenger
+from .source_demand_runtime import spawn_alighting_demand, spawn_entry_demand
 
 
 class PassengerDemandMixin:
     """Scheduled passenger creation, alighting distribution, and evacuation conversion."""
 
     def spawn_passengers(self) -> None:
-        due_by_intent = Counter(self.pending_spawn_groups)
-        self.pending_spawn_groups.clear()
-        due_by_intent.update(self.demand_scheduler.due_by_intent(self.step_index))
-        for intent, count in due_by_intent.items():
-            for attempt in range(count):
-                try:
-                    self._spawn_passenger(intent)
-                except SpatialCapacityAdmissionError:
-                    # Admission is upstream of PassengerAgent ownership. Keep
-                    # the deterministic demand pending instead of creating an
-                    # overlapping body or losing the group.
-                    self.pending_spawn_groups[str(intent)] += count - attempt
-                    break
+        spawn_entry_demand(self)
 
     def spawn_alighting_passengers(self) -> None:
-        newly_due = self.demand_scheduler.due_alightings(self.step_index)
-        self._record_alighting_demand_due(newly_due)
-        due = self.pending_alighting_groups + newly_due
-        try:
-            if due <= 0:
-                return
-
-            boarding_trains = [train for train in self.trains if train.is_boarding]
-            if not boarding_trains:
-                self.pending_alighting_groups = due
-                self.max_pending_alighting_groups = max(
-                    self.max_pending_alighting_groups,
-                    self.pending_alighting_groups,
-                )
-                self.audit.record(
-                    "alighting_demand_deferred_without_boarding_train",
-                    source="demand_scheduler",
-                    severity="warning",
-                    step=self.step_index,
-                    context={
-                        "newly_due_groups": newly_due,
-                        "pending_groups": self.pending_alighting_groups,
-                    },
-                )
-                return
-
-            self.pending_alighting_groups = 0
-            for train, count in zip(
-                boarding_trains,
-                self._split_count(due, len(boarding_trains)),
-                strict=True,
-            ):
-                if self.pending_alighting_groups > 0:
-                    self._defer_alighting_groups(count)
-                    continue
-                self._spawn_alighting_passengers_for_train(train, count)
-        finally:
-            self._require_alighting_spawn_conservation()
+        spawn_alighting_demand(self)
 
     def _record_alighting_demand_due(self, newly_due_groups: int) -> None:
         del newly_due_groups
@@ -459,49 +416,65 @@ class PassengerDemandMixin:
         if count <= 0:
             return
 
-        doors = self.boarding_doors_for_train(train)
-        if not doors:
-            self.pending_alighting_groups += count
+        run_ref = self._train_run_ref(train)
+        if run_ref not in self.train_exchange_manifests:
+            # Compatibility-only direct helper calls predate train manifests.
+            # The orchestrated runtime always syncs a manifest before entering
+            # this method and never uses this scalar as demand ownership.
+            self.pending_alighting_groups += int(count)
             self.max_pending_alighting_groups = max(
                 self.max_pending_alighting_groups,
                 self.pending_alighting_groups,
             )
             self.audit.record(
-                "alighting_train_has_no_doors",
-                source="demand_scheduler",
-                severity="error",
+                "alighting_demand_deferred_without_downstream_admission",
+                source="legacy_direct_alighting_helper",
+                severity="warning",
+                count=int(count),
                 step=self.step_index,
-                context={
-                    "train_id": train.unique_id,
-                    "platform_id": train.platform_id,
-                    "due_persons": count,
-                    "pending_groups": self.pending_alighting_groups,
-                },
+                context={"pending_groups": self.pending_alighting_groups},
             )
             return
+        doors = self.boarding_doors_for_train(train)
+        if not doors:
+            raise RuntimeError(f"model_invalid: train {run_ref} has no mapped doors")
 
         door_spawn_counts: Counter[str] = Counter()
         reserved_positions: list[tuple[tuple[float, float], str]] = []
         for index in range(count):
+            claim = self.external_demand_reservoir.claim_next(
+                DemandSourceKind.TRAIN_ALIGHTING,
+                run_ref,
+                step=int(self.step_index),
+            )
+            if claim is None:
+                break
             try:
                 downstream = self._alighting_source_admission_reservation(doors)
             except BaseException:
-                self._defer_alighting_groups(count - index)
+                self.external_demand_reservoir.defer(
+                    claim,
+                    step=int(self.step_index),
+                    reason=TemporaryDemandBlockReason.DOWNSTREAM_CAPACITY_EXHAUSTED,
+                )
                 raise
             if not downstream["available"]:
-                deferred = count - index
-                self._defer_alighting_groups(deferred)
+                self.external_demand_reservoir.defer(
+                    claim,
+                    step=int(self.step_index),
+                    reason=TemporaryDemandBlockReason.ADMISSION_CREDIT_EXHAUSTED,
+                )
                 self.audit.record(
                     "alighting_demand_deferred_without_downstream_admission",
                     source="demand_scheduler",
                     severity="warning",
-                    count=deferred,
+                    count=1,
                     step=self.step_index,
                     context={
                         "train_id": train.unique_id,
                         "platform_id": train.platform_id,
-                        "deferred_groups": deferred,
-                        "pending_groups": self.pending_alighting_groups,
+                        "deferred_groups": 1,
+                        "pending_groups": count - index,
                         **downstream,
                     },
                 )
@@ -528,15 +501,22 @@ class PassengerDemandMixin:
                     downstream,
                     reason="source_placement_exception",
                 )
-                self._defer_alighting_groups(count - index)
+                self.external_demand_reservoir.defer(
+                    claim,
+                    step=int(self.step_index),
+                    reason=TemporaryDemandBlockReason.SOURCE_PLACEMENT_BLOCKED,
+                )
                 raise
             if placement is None:
                 self._release_alighting_source_admission_reservation(
                     downstream,
                     reason="source_placement_blocked",
                 )
-                deferred = count - index
-                self._defer_alighting_groups(deferred)
+                self.external_demand_reservoir.defer(
+                    claim,
+                    step=int(self.step_index),
+                    reason=TemporaryDemandBlockReason.SOURCE_PLACEMENT_BLOCKED,
+                )
                 self.audit.record(
                     "alighting_demand_deferred_without_clear_spawn_cell",
                     source="demand_scheduler",
@@ -545,8 +525,8 @@ class PassengerDemandMixin:
                     context={
                         "train_id": train.unique_id,
                         "platform_id": train.platform_id,
-                        "deferred_groups": deferred,
-                        "pending_groups": self.pending_alighting_groups,
+                        "deferred_groups": 1,
+                        "pending_groups": count - index,
                     },
                 )
                 break
@@ -564,14 +544,22 @@ class PassengerDemandMixin:
                     downstream,
                     reason="physical_placement_retry",
                 )
-                self._defer_alighting_groups(count - index)
+                self.external_demand_reservoir.defer(
+                    claim,
+                    step=int(self.step_index),
+                    reason=TemporaryDemandBlockReason.SOURCE_PLACEMENT_BLOCKED,
+                )
                 break
             except BaseException:
                 self._release_alighting_source_admission_reservation(
                     downstream,
                     reason="spawn_exception",
                 )
-                self._defer_alighting_groups(count - index)
+                self.external_demand_reservoir.defer(
+                    claim,
+                    step=int(self.step_index),
+                    reason=TemporaryDemandBlockReason.SOURCE_PLACEMENT_BLOCKED,
+                )
                 raise
             try:
                 self._commit_alighting_source_admission_reservation(
@@ -579,18 +567,32 @@ class PassengerDemandMixin:
                     passenger,
                 )
             except BaseException:
-                self._defer_alighting_groups(count - index - 1)
+                rollback_published_passenger(self, passenger)
+                self.external_demand_reservoir.defer(
+                    claim,
+                    step=int(self.step_index),
+                    reason=TemporaryDemandBlockReason.DOWNSTREAM_CAPACITY_EXHAUSTED,
+                )
+                raise
+            try:
+                self.external_demand_reservoir.commit(
+                    claim,
+                    passenger_id=int(passenger.unique_id),
+                    published_step=int(self.step_index),
+                )
+                self.train_exchange_manifests[run_ref].release_alighting_group(
+                    int(passenger.group_size),
+                    at_step=int(self.step_index),
+                )
+            except BaseException:
+                rollback_published_passenger(self, passenger)
                 raise
             passenger.assigned_platform_id = train.platform_id
             passenger.assigned_line_id = train.line_id
             passenger.assigned_direction = train.direction
 
     def _defer_alighting_groups(self, count: int) -> None:
-        self.pending_alighting_groups += int(count)
-        self.max_pending_alighting_groups = max(
-            self.max_pending_alighting_groups,
-            self.pending_alighting_groups,
-        )
+        del count
 
     def _alighting_source_admission_reservation(
         self,

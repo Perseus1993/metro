@@ -284,6 +284,10 @@ class ExternalDemandReservoir:
     def deferrals(self) -> tuple[DemandDeferral, ...]:
         return tuple(self._deferrals)
 
+    @property
+    def residences(self) -> tuple[DemandResidence, ...]:
+        return tuple(self._residences)
+
     def residences_for(
         self,
         source_kind: DemandSourceKind,
@@ -291,6 +295,29 @@ class ExternalDemandReservoir:
     ) -> tuple[DemandResidence, ...]:
         boundary = (source_kind, source_ref)
         return tuple(item for item in self._residences if item.ticket.boundary == boundary)
+
+    def pending_tickets(
+        self,
+        source_kind: DemandSourceKind | None = None,
+        *,
+        source_ref: str | None = None,
+        match_source_ref: bool = False,
+    ) -> tuple[DemandTicket, ...]:
+        """Return immutable pending ownership, optionally scoped to one boundary."""
+
+        ticket_ids = sorted(ticket_id for queue in self._queues.values() for ticket_id in queue)
+        tickets = tuple(self._tickets[ticket_id] for ticket_id in ticket_ids)
+        if source_kind is not None:
+            tickets = tuple(ticket for ticket in tickets if ticket.source_kind == source_kind)
+        if match_source_ref:
+            tickets = tuple(ticket for ticket in tickets if ticket.source_ref == source_ref)
+        return tickets
+
+    def pending_groups(self, source_kind: DemandSourceKind | None = None) -> int:
+        return len(self.pending_tickets(source_kind))
+
+    def pending_persons(self, source_kind: DemandSourceKind | None = None) -> int:
+        return sum(ticket.group_size for ticket in self.pending_tickets(source_kind))
 
     def _validate_configuration(
         self,

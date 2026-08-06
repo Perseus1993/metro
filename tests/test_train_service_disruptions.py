@@ -127,7 +127,7 @@ class TrainServiceDisruptionTests(unittest.TestCase):
         self.assertEqual("fail", decision["acceptance_status"])
         self.assertIn("suspended", decision["acceptance_issues"][0])
 
-    def test_deferred_alighting_demand_releases_on_first_recovered_train(self) -> None:
+    def test_cancelled_train_alighting_does_not_move_to_recovered_train(self) -> None:
         args = self._args(
             "--pairs",
             "0:60",
@@ -144,14 +144,16 @@ class TrainServiceDisruptionTests(unittest.TestCase):
         )
 
         self._step_through(model, 600)
-        self.assertEqual(3, model.pending_alighting_groups)
+        self.assertEqual(0, model.pending_alighting_groups)
         self.assertEqual(0, model.spawned_persons)
+        self.assertEqual(3, model.unbound_not_alighted_persons)
+        self.assertEqual("train_alighting_manifest_unavailable", model.run_outcome_code)
 
         self._step_through(model, 795)
 
         self.assertEqual(0, model.pending_alighting_groups)
-        self.assertEqual(3, model.spawned_persons)
-        self.assertEqual(3, model.max_pending_alighting_groups)
+        self.assertEqual(0, model.spawned_persons)
+        self.assertEqual(3, model.unbound_not_alighted_persons)
 
     def test_unrecovered_alighting_demand_reduces_completion_rate(self) -> None:
         args = self._args(
@@ -184,6 +186,7 @@ class TrainServiceDisruptionTests(unittest.TestCase):
 
         self.assertEqual(3, row["scheduled_demand_persons"])
         self.assertEqual(3, row["unspawned_alighting_persons_final"])
+        self.assertEqual(3, row["not_alighted_persons_final"])
         self.assertEqual(0, row["demand_accounting_error_persons"])
         self.assertEqual(0.0, row["completion_rate"])
         self.assertEqual("fail", row["acceptance_status"])

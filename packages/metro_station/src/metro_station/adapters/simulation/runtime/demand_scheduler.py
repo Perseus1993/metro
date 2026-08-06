@@ -6,7 +6,7 @@ from typing import Any
 from metro_station.domain.time_boundaries import first_step_not_before
 
 from ..planning.plan import AgentIntent
-from ..station.alighting_demand import build_alighting_schedule
+from ..station.alighting_demand import build_alighting_schedule, planned_train_alightings
 from ..station.scenario import StationSandboxScenario
 from ..station.evacuation import EVACUATION_MODE
 
@@ -19,6 +19,7 @@ class DemandScheduler:
         self.random = rng
         self.spawn_schedule = self._build_spawn_schedule()
         self.alighting_schedule = self._build_alighting_schedule()
+        self.planned_train_alightings = planned_train_alightings(scenario)
 
     @classmethod
     def from_scenario(cls, scenario: StationSandboxScenario, rng: Any) -> "DemandScheduler":

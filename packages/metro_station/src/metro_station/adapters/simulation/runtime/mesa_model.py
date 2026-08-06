@@ -24,6 +24,7 @@ from .facility_queue_routing import FacilityQueueRoutingMixin
 from .decision_holding import DecisionHoldingMixin
 from .facility_event_runtime import FacilityEventRuntimeMixin
 from .simulation_lifecycle import SimulationLifecycleMixin
+from .train_exchange_runtime import TrainExchangeRuntimeMixin
 from .model_initialization import initialize_metro_station_model
 
 if TYPE_CHECKING:
@@ -32,6 +33,7 @@ if TYPE_CHECKING:
 
 class MetroStationModel(
     SimulationLifecycleMixin,
+    TrainExchangeRuntimeMixin,
     FacilityEventRuntimeMixin,
     PhysicalRoutingRuntimeMixin,
     DecisionHoldingMixin,

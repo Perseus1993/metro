@@ -15,6 +15,7 @@ from .metrics import (
     station_persons,
     vertical_queue_persons,
 )
+from .external_demand_reservoir import DemandSourceKind
 
 if TYPE_CHECKING:
     from ..agents.passenger import PassengerAgent
@@ -283,7 +284,11 @@ class MetricSnapshot:
             vertical_queue_persons=vertical_queue_persons(model),
             door_queue_persons=sum(door.queue_persons for door in model.boarding_doors),
             platform_waiting_persons=platform_waiting_persons(model),
-            pending_alighting_persons=int(model.pending_alighting_groups * scenario.group_size),
+            pending_alighting_persons=int(
+                model.external_demand_reservoir.pending_persons(
+                    DemandSourceKind.TRAIN_ALIGHTING
+                )
+            ),
             boarded_persons=int(model.boarded_persons),
             departed_persons=int(model.departed_persons),
             evacuated_persons=int(model.evacuated_persons),

@@ -54,7 +54,13 @@ class AdmissionTokenPolicy:
     def effective_capacity(self) -> int | None:
         if self.configured_capacity is not None:
             return int(self.configured_capacity)
-        return self.required_capacity
+        if self.required_capacity is not None:
+            return self.required_capacity
+        # Round 27 no longer treats a counting credit as physical storage or
+        # as a release gate.  A stale residence artifact therefore cannot
+        # prevent the reservoir runtime from starting; retain its deterministic
+        # envelope only as a finite diagnostic credit until requalification.
+        return max(1, int(self.deterministic_arrival_envelope))
 
     def preflight(self) -> dict[str, Any]:
         required = self.required_capacity
@@ -75,7 +81,7 @@ class AdmissionTokenPolicy:
                     ),
                 }
             )
-        blockers.extend(dict(item) for item in self.evidence_validation_errors)
+        diagnostics = [dict(item) for item in self.evidence_validation_errors]
         if required is not None and capacity is not None and capacity < required:
             blockers.append(
                 {
@@ -108,7 +114,11 @@ class AdmissionTokenPolicy:
             "sizing_formula": "deterministic maximum arrivals in the registered W window",
             "required_capacity": required,
             "configured_capacity": capacity,
-            "resource_semantics": "counting_signal_not_physical_storage",
+            "resource_semantics": "diagnostic_counting_credit_not_physical_storage",
+            "evidence_status": (
+                "validated" if self.has_registered_residence_evidence else "stale_or_unavailable"
+            ),
+            "diagnostics": diagnostics,
             "blockers": blockers,
         }
 

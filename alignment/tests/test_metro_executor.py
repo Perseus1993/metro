@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from collections import Counter, deque
+from collections import Counter
 from dataclasses import replace
 from random import Random
 from types import SimpleNamespace
@@ -16,6 +16,14 @@ from metro_station.adapters.simulation.facilities.admission_resource import (
 )
 from metro_station.adapters.simulation.planning.plan import AgentIntent
 from metro_station.adapters.simulation.runtime.mesa_model import MetroStationModel
+from metro_station.adapters.simulation.runtime.external_demand_reservoir import (
+    DemandSourceKind,
+    ExternalDemandReservoir,
+)
+from metro_station.adapters.simulation.runtime.train_exchange_manifest import (
+    TrainExchangeManifest,
+    TrainRunId,
+)
 from metro_station.adapters.simulation.runtime.passenger_goal_region_router import (
     PassengerGoalRegionRouter,
 )
@@ -26,7 +34,6 @@ from shapely.geometry import LineString, Polygon
 from shapely.geometry import Point as ShapelyPoint
 
 from metro_alignment.metro_executor import (
-    AlignmentAdmissionCapacityConflict,
     AlignmentMesaSimulationExecutor,
     AlignmentMetroStationModel,
     PendingSourceDemand,
@@ -166,10 +173,19 @@ def _backpressure_model() -> tuple[AlignmentMetroStationModel, SimpleNamespace, 
     model.step_index = 0
     model.pending_alighting_groups = 0
     model.max_pending_alighting_groups = 0
+    model.external_demand_reservoir = ExternalDemandReservoir()
+    model.train_exchange_manifests = {}
+    model.train_exchange_results = []
+    model.train_exchange_failure_rows = []
+    model.unbound_not_alighted_persons = 0
+    model.run_outcome_code = None
+    model.running = True
     model.alignment_requested_alighting_persons = 0
-    model.alignment_pending_alighting_scheduled_steps = deque()
     model.alignment_max_pending_residence_steps_by_flow = Counter()
     model.spawned_persons_by_intent = Counter()
+    model.spawned_persons_by_entrance = Counter()
+    model.spawned_persons = 0
+    model.passenger_goal_runtimes = {}
     model.audit = SimpleNamespace(record=lambda *args, **kwargs: None)
     model.jupedsim_walkable_area = lambda level_id: Polygon(
         [(-5.0, 1.0), (5.0, 1.0), (5.0, -20.0), (-5.0, -20.0)]
@@ -197,8 +213,21 @@ def _backpressure_model() -> tuple[AlignmentMetroStationModel, SimpleNamespace, 
         platform_id="platform-a",
         line_id="line-a",
         direction="outbound",
+        arrival_sequence=1,
+        arrival_step=0,
+        close_step=10,
     )
     model.trains = [train]
+    run_ref = model._train_run_ref(train)
+    model.train_exchange_manifests[run_ref] = TrainExchangeManifest(
+        train_run_id=TrainRunId("platform-a", 1),
+        arrival_step=0,
+        scheduled_close_step=10,
+        capacity_persons=10,
+        inbound_load_persons=1,
+        planned_alight_persons=1,
+        through_load_persons=0,
+    )
     model.boarding_doors_for_train = lambda selected_train: [door]
     model._alighting_downstream_admission_evidence = lambda doors: {
         "available": True,
@@ -207,9 +236,11 @@ def _backpressure_model() -> tuple[AlignmentMetroStationModel, SimpleNamespace, 
         "available": True,
     }
     model._release_alighting_source_admission_reservation = lambda reservation, *, reason: None
-    model._commit_alighting_source_admission_reservation = lambda reservation, passenger: (
-        model.alignment_pending_alighting_scheduled_steps.popleft()
-    )
+    model._commit_alighting_source_admission_reservation = lambda reservation, passenger: None
+    model.movement_backend = SimpleNamespace(remove_passenger=lambda passenger: None)
+    model._clear_all_facility_targeting_reservations = lambda passenger: None
+    model._clear_all_decision_holding_reservations = lambda passenger: None
+    model._remove_from_station_holding_areas = lambda passenger: None
     due = iter((1, 0))
     model.demand_scheduler = SimpleNamespace(due_alightings=lambda step: next(due))
     spawned: list[SimpleNamespace] = []
@@ -223,10 +254,15 @@ def _backpressure_model() -> tuple[AlignmentMetroStationModel, SimpleNamespace, 
             assigned_platform_id=None,
             assigned_line_id=None,
             assigned_direction=None,
+            group_size=1,
+            intent=AgentIntent.EXIT_STATION.value,
+            spawn_source_element_id=None,
+            remove=lambda: None,
         )
         spawned.append(passenger)
         model.passengers.append(passenger)
         model.spawned_persons_by_intent[str(intent.value)] += 1
+        model.spawned_persons += 1
         return passenger
 
     model._spawn_passenger = spawn_passenger
@@ -263,7 +299,8 @@ def test_alighting_without_mapped_doors_remains_pending_and_conserved() -> None:
     model, _, spawned = _backpressure_model()
     model.boarding_doors_for_train = lambda selected_train: []
 
-    model.spawn_alighting_passengers()
+    with pytest.raises(RuntimeError, match="model_invalid"):
+        model.spawn_alighting_passengers()
 
     assert model.pending_alighting_groups == 1
     assert model.alignment_requested_alighting_persons == 1
@@ -325,8 +362,11 @@ def test_alighting_transfer_exception_retires_published_fifo_owner(
         model.spawn_alighting_passengers()
 
     assert len(spawned) == 1
-    assert model.pending_alighting_groups == 0
-    assert list(model.alignment_pending_alighting_scheduled_steps) == []
+    assert spawned[0] not in model.passengers
+    assert model.pending_alighting_groups == 1
+    assert model.external_demand_reservoir.pending_groups(
+        DemandSourceKind.TRAIN_ALIGHTING
+    ) == 1
     assert resource.occupancy == 0
     model._require_alighting_spawn_conservation()
 
@@ -877,8 +917,8 @@ def _source_policy_model() -> AlignmentMetroStationModel:
     )
     model.step_index = 0
     model.random = Random(42)
-    model.alignment_pending_source_demands = deque()
-    model.alignment_unresolved_source_demands = deque()
+    model.external_demand_reservoir = ExternalDemandReservoir()
+    model.alignment_source_spec_by_ticket = {}
     model.alignment_next_source_sequence_id = 0
     model.alignment_requested_source_persons_by_intent = Counter()
     model.alignment_max_pending_source_groups = 0
@@ -892,7 +932,6 @@ def _source_policy_model() -> AlignmentMetroStationModel:
     model.alignment_max_pending_residence_steps_by_flow = Counter()
     model._alignment_inflight_admission_owner_by_intent = {}
     model.alignment_requested_alighting_persons = 0
-    model.alignment_pending_alighting_scheduled_steps = deque()
     model.demand_scheduler = SimpleNamespace(
         due_by_intent=lambda step: Counter(),
         spawn_schedule={},
@@ -911,13 +950,35 @@ def _source_policy_model() -> AlignmentMetroStationModel:
     model.frames = []
     model.boarding_doors = []
     model.trains = []
+    model.movement_backend = SimpleNamespace(remove_passenger=lambda passenger: None)
+    model._clear_all_facility_targeting_reservations = lambda passenger: None
+    model._clear_all_decision_holding_reservations = lambda passenger: None
+    model._remove_from_station_holding_areas = lambda passenger: None
     return model
+
+
+def _enqueue_source_demand(
+    model: AlignmentMetroStationModel,
+    demand: PendingSourceDemand,
+):
+    ticket = model.external_demand_reservoir.enqueue(
+        scheduled_step=demand.scheduled_step,
+        intent=demand.intent,
+        group_size=demand.group_size,
+        source_kind=DemandSourceKind.ENTRY,
+        source_ref=demand.intent,
+    )
+    model.alignment_source_spec_by_ticket[ticket.sequence_id] = replace(
+        demand,
+        sequence_id=ticket.sequence_id,
+    )
+    return ticket
 
 
 def test_blocked_entry_admission_has_zero_published_side_effects(monkeypatch) -> None:
     model = _source_policy_model()
     demand = model._alignment_schedule_source_demand("enter_and_board")
-    model.alignment_pending_source_demands.append(demand)
+    ticket = _enqueue_source_demand(model, demand)
     model.alignment_requested_source_persons_by_intent["enter_and_board"] = 1
     model.demand_scheduler.due_by_intent = lambda step: Counter()
     monkeypatch.setattr(model, "_alignment_source_admission", lambda pending: None)
@@ -932,7 +993,9 @@ def test_blocked_entry_admission_has_zero_published_side_effects(monkeypatch) ->
 
     model.spawn_passengers()
 
-    assert list(model.alignment_pending_source_demands) == [demand]
+    assert model.external_demand_reservoir.pending_tickets(DemandSourceKind.ENTRY) == (
+        ticket,
+    )
     assert tuple(model.passengers) == before["passengers"]
     assert dict(model.passenger_goal_runtimes) == before["goal_runtimes"]
     assert model.spawned_persons == before["spawned"]
@@ -955,7 +1018,7 @@ def test_entry_admission_exception_restores_pending_and_token(monkeypatch) -> No
     with pytest.raises(RuntimeError, match="admission failed"):
         model.spawn_passengers()
 
-    assert len(model.alignment_pending_source_demands) == 1
+    assert model.external_demand_reservoir.pending_groups(DemandSourceKind.ENTRY) == 1
     assert model.alignment_admission_resources["entry"].occupancy == 0
     model._require_alignment_source_conservation()
 
@@ -971,7 +1034,7 @@ def test_source_resolution_exception_retains_unresolved_due_group() -> None:
         model.spawn_passengers()
 
     assert model.alignment_requested_source_persons_by_intent["enter_and_board"] == 1
-    assert len(model.alignment_unresolved_source_demands) == 1
+    assert model.external_demand_reservoir.pending_groups(DemandSourceKind.ENTRY) == 1
     model._require_alignment_source_conservation()
 
 
@@ -989,7 +1052,16 @@ def test_entry_transfer_exception_retains_only_unprocessed_tail(monkeypatch) -> 
     def publish(intent, *, initial_position, initial_level_id):
         del initial_position, initial_level_id
         model.spawned_persons_by_intent[str(intent)] += 1
-        return SimpleNamespace(unique_id=41)
+        model.spawned_persons += 1
+        passenger = SimpleNamespace(
+            unique_id=41,
+            group_size=1,
+            intent=str(intent),
+            spawn_source_element_id=None,
+            remove=lambda: None,
+        )
+        model.passengers.append(passenger)
+        return passenger
 
     monkeypatch.setattr(model, "_spawn_passenger", publish)
     resource = model.alignment_admission_resources["entry"]
@@ -1002,7 +1074,7 @@ def test_entry_transfer_exception_retains_only_unprocessed_tail(monkeypatch) -> 
     with pytest.raises(RuntimeError, match="transfer failed"):
         model.spawn_passengers()
 
-    assert len(model.alignment_pending_source_demands) == 1
+    assert model.external_demand_reservoir.pending_groups(DemandSourceKind.ENTRY) == 2
     assert resource.occupancy == 0
     model._require_alignment_source_conservation()
 
@@ -1030,7 +1102,8 @@ def test_source_backpressure_is_fifo_and_constructor_errors_propagate(monkeypatc
     model = _source_policy_model()
     first = model._alignment_schedule_source_demand("enter_and_board")
     second = model._alignment_schedule_source_demand("enter_and_board")
-    model.alignment_pending_source_demands = deque((first, second))
+    first_ticket = _enqueue_source_demand(model, first)
+    second_ticket = _enqueue_source_demand(model, second)
     model.alignment_requested_source_persons_by_intent["enter_and_board"] = 2
     model.demand_scheduler.due_by_intent = lambda step: Counter()
     attempted: list[int] = []
@@ -1040,8 +1113,11 @@ def test_source_backpressure_is_fifo_and_constructor_errors_propagate(monkeypatc
 
     monkeypatch.setattr(model, "_alignment_source_admission", blocked_head)
     model.spawn_passengers()
-    assert attempted == [first.sequence_id]
-    assert list(model.alignment_pending_source_demands) == [first, second]
+    assert attempted == [first_ticket.sequence_id]
+    assert model.external_demand_reservoir.pending_tickets(DemandSourceKind.ENTRY) == (
+        first_ticket,
+        second_ticket,
+    )
 
     monkeypatch.setattr(
         model,
@@ -1055,7 +1131,10 @@ def test_source_backpressure_is_fifo_and_constructor_errors_propagate(monkeypatc
     )
     with pytest.raises(RuntimeError, match="constructor defect"):
         model.spawn_passengers()
-    assert list(model.alignment_pending_source_demands) == [first, second]
+    assert model.external_demand_reservoir.pending_tickets(DemandSourceKind.ENTRY) == (
+        first_ticket,
+        second_ticket,
+    )
 
 
 def test_source_backpressure_preserves_global_fifo_across_sources(
@@ -1067,7 +1146,8 @@ def test_source_backpressure_preserves_global_fifo_across_sources(
         model._alignment_schedule_source_demand("enter_and_board"),
         source_id="entrance-b",
     )
-    model.alignment_pending_source_demands = deque((blocked, independent))
+    blocked_ticket = _enqueue_source_demand(model, blocked)
+    independent_ticket = _enqueue_source_demand(model, independent)
     model.alignment_requested_source_persons_by_intent["enter_and_board"] = 2
     admitted: list[str] = []
 
@@ -1087,7 +1167,10 @@ def test_source_backpressure_preserves_global_fifo_across_sources(
     model.spawn_passengers()
 
     assert admitted == []
-    assert list(model.alignment_pending_source_demands) == [blocked, independent]
+    assert model.external_demand_reservoir.pending_tickets(DemandSourceKind.ENTRY) == (
+        blocked_ticket,
+        independent_ticket,
+    )
 
 
 def test_source_pending_record_is_stable_and_metrics_expose_conservation() -> None:
@@ -1103,7 +1186,7 @@ def test_source_pending_record_is_stable_and_metrics_expose_conservation() -> No
         0: Counter({"enter_and_board": 1}),
     }
     model.alignment_requested_source_persons_by_intent["enter_and_board"] = 1
-    model.alignment_pending_source_demands.append(demand)
+    ticket = _enqueue_source_demand(model, demand)
     metrics = model.alignment_source_admission_metrics()
     assert metrics["alignment_pending_entry_groups"] == 1
     assert metrics["alignment_pending_entry_persons"] == model.scenario.group_size
@@ -1114,7 +1197,17 @@ def test_source_pending_record_is_stable_and_metrics_expose_conservation() -> No
     assert metrics["alignment_stalled_platform_parking_ratio"] == 0.0
     assert metrics["alignment_service_time_attribution"] == {}
 
-    model.alignment_pending_source_demands.clear()
+    claim = model.external_demand_reservoir.claim_next(
+        DemandSourceKind.ENTRY,
+        ticket.source_ref,
+        step=model.step_index,
+    )
+    assert claim is not None
+    model.external_demand_reservoir.commit(
+        claim,
+        passenger_id=999,
+        published_step=model.step_index,
+    )
     lost_metrics = model.alignment_source_admission_metrics()
     assert lost_metrics["alignment_entry_demand_conserved"] is False
     assert lost_metrics["alignment_source_dropped_persons"] == 1
@@ -1131,21 +1224,29 @@ def test_source_conservation_fails_on_first_unowned_demand() -> None:
         model._require_alignment_source_conservation()
 
 
-def test_admission_preflight_sizes_counting_tokens_from_registered_evidence() -> None:
+def test_admission_preflight_keeps_stale_counting_capacity_diagnostic() -> None:
     request, _ = build_metro_request(_registered_admission_probe_config())
 
     report = alignment_entry_admission_preflight(request.scenario)
 
     assert report["status"] == "pass"
     by_flow = {item["flow_id"]: item for item in report["flows"]}
-    assert by_flow["entry"]["required_capacity"] == 26
+    assert by_flow["entry"]["required_capacity"] is None
     assert by_flow["entry"]["configured_capacity"] == 26
-    assert by_flow["exit"]["required_capacity"] == 73
+    assert by_flow["entry"]["evidence_status"] == "stale_or_unavailable"
+    assert any(
+        item["code"] == "admission_residence_evidence_metro_runtime_mismatch"
+        for item in by_flow["entry"]["diagnostics"]
+    )
+    assert by_flow["exit"]["required_capacity"] is None
     assert by_flow["exit"]["configured_capacity"] == 73
-    assert by_flow["exit"]["resource_semantics"] == "counting_signal_not_physical_storage"
+    assert (
+        by_flow["exit"]["resource_semantics"]
+        == "diagnostic_counting_credit_not_physical_storage"
+    )
 
 
-def test_entry_admission_preflight_rejects_undersized_explicit_pool() -> None:
+def test_stale_token_sizing_does_not_block_external_source_runtime() -> None:
     config = replace(
         build_scene_config("platform_boarding"),
         minutes=3,
@@ -1155,11 +1256,15 @@ def test_entry_admission_preflight_rejects_undersized_explicit_pool() -> None:
     request, _ = build_metro_request(config)
     executor = AlignmentMesaSimulationExecutor(formal_horizon_steps=1)
 
-    with pytest.raises(AlignmentAdmissionCapacityConflict) as exc_info:
-        executor.execute(request)
+    result = executor.execute(request)
+    entry = next(
+        item
+        for item in alignment_entry_admission_preflight(request.scenario)["flows"]
+        if item["flow_id"] == "entry"
+    )
 
-    entry = next(item for item in exc_info.value.report["flows"] if item["flow_id"] == "entry")
-    assert entry["required_capacity"] == 26
+    assert result.runtime.step_index == 1
+    assert entry["required_capacity"] is None
     assert entry["configured_capacity"] == 25
 
 
