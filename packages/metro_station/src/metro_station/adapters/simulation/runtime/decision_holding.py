@@ -9,6 +9,7 @@ from ..movement.dynamic_body_clearance import minimum_body_clearance
 from .platform_waiting_geometry import (
     platform_waiting_slot_clears_boarding_crossings,
     platform_waiting_slot_is_intent_eligible,
+    platform_waiting_slot_sort_key,
 )
 
 Point = tuple[float, float]
@@ -20,6 +21,7 @@ class DecisionHoldingCapacityError(RuntimeError):
 
 class PlatformWaitingCapacityError(RuntimeError):
     """No body-clear standing position remains in a platform waiting area."""
+
 
 @dataclass(frozen=True)
 class DecisionHoldingReservation:
@@ -67,12 +69,9 @@ class DecisionHoldingMixin:
         if existing is not None and existing.level_id == level_id:
             revision = int(getattr(self, "_walkable_area_revision", 0))
             area = self.jupedsim_walkable_area(level_id)
-            if (
-                existing.walkable_area_revision == revision
-                and area.buffer(-float(self.scenario.jupedsim_agent_radius_units)).covers(
-                    ShapelyPoint(existing.point)
-                )
-            ):
+            if existing.walkable_area_revision == revision and area.buffer(
+                -float(self.scenario.jupedsim_agent_radius_units)
+            ).covers(ShapelyPoint(existing.point)):
                 return existing.point
 
         # Keep a still-occupied former slot through a tactical handoff.  The
@@ -97,9 +96,7 @@ class DecisionHoldingMixin:
                 level_id=level_id,
                 region_id=region,
                 point=point,
-                walkable_area_revision=int(
-                    getattr(self, "_walkable_area_revision", 0)
-                ),
+                walkable_area_revision=int(getattr(self, "_walkable_area_revision", 0)),
             )
             self._decision_holding_reservations[owner_key] = reservation
             self._decision_holding_slot_owners[spatial_key] = passenger_id
@@ -165,8 +162,7 @@ class DecisionHoldingMixin:
             if spatial_key in self._decision_holding_slot_owners:
                 continue
             if any(
-                hypot(point[0] - other[0], point[1] - other[1])
-                < minimum_center_distance - 1e-9
+                hypot(point[0] - other[0], point[1] - other[1]) < minimum_center_distance - 1e-9
                 for other in (*live_body_points, *platform_waiting_points)
             ):
                 continue
@@ -208,9 +204,7 @@ class DecisionHoldingMixin:
             dx = tail[0] - binding.entry_point[0]
             dy = tail[1] - binding.entry_point[1]
             length = hypot(dx, dy)
-            upstream_progress = (
-                (point[0] - tail[0]) * dx + (point[1] - tail[1]) * dy
-            ) / length
+            upstream_progress = ((point[0] - tail[0]) * dx + (point[1] - tail[1]) * dy) / length
             if upstream_progress >= -tolerance:
                 return True
         return False
@@ -243,9 +237,7 @@ class DecisionHoldingMixin:
         )
         radius = max(0.02, float(self.scenario.jupedsim_agent_radius_units))
         current_domain = self.jupedsim_walkable_area(level_id).buffer(-radius)
-        cached = tuple(
-            point for point in cached if current_domain.covers(ShapelyPoint(point))
-        )
+        cached = tuple(point for point in cached if current_domain.covers(ShapelyPoint(point)))
 
         anchor_points = anchors or (tuple(self.layout_graph.geometry.platform_center),)
         return tuple(
@@ -302,18 +294,12 @@ class DecisionHoldingMixin:
         *,
         level_id: str,
     ) -> tuple[Point, ...]:
-        passenger_id = (
-            None if passenger is None else int(passenger.unique_id)
-        )
+        passenger_id = None if passenger is None else int(passenger.unique_id)
         points: list[Point] = []
         for other in tuple(getattr(self, "passengers", ())):
             if (
-                (
-                    passenger_id is not None
-                    and int(other.unique_id) == passenger_id
-                )
-                or other.current_level_id != level_id
-            ):
+                passenger_id is not None and int(other.unique_id) == passenger_id
+            ) or other.current_level_id != level_id:
                 continue
             points.append(tuple(other.pos))
             target = getattr(other, "target", None)
@@ -500,88 +486,16 @@ class DecisionHoldingMixin:
             )
         )
 
-        def waiting_slot_key(point: Point) -> tuple[float, ...]:
-            if (
-                str(getattr(passenger, "intent", "")) == "enter_and_board"
-                and bool(
-                    getattr(passenger, "_platform_waiting_stall_recovery", False)
-                )
-            ):
-                return (
-                    -1.0,
-                    hypot(
-                        point[0] - passenger.pos[0],
-                        point[1] - passenger.pos[1],
-                    ),
-                    0.0,
-                    point[1],
-                    point[0],
-                )
-            if (
-                str(getattr(passenger, "intent", "")) == "exit_station"
-                and exit_staging_anchors
-            ):
-                return (
-                    0.0,
-                    min(
-                        hypot(point[0] - anchor[0], point[1] - anchor[1])
-                        for anchor in exit_staging_anchors
-                    ),
-                    0.0,
-                    point[1],
-                    point[0],
-                )
-            if boarding_staging_anchors:
-                return (
-                    0.0,
-                    min(
-                        hypot(point[0] - anchor[0], point[1] - anchor[1])
-                        for anchor in boarding_staging_anchors
-                    ),
-                    0.0,
-                    point[1],
-                    point[0],
-                )
-            access_keys: list[tuple[float, float, float]] = []
-            for tail, axis in queue_access_axes:
-                axis_length = hypot(axis[0], axis[1])
-                progress_toward_service = (
-                    (point[0] - tail[0]) * axis[0]
-                    + (point[1] - tail[1]) * axis[1]
-                ) / axis_length
-                access_keys.append(
-                    (
-                        0.0 if progress_toward_service <= 0.0 else 1.0,
-                        hypot(point[0] - tail[0], point[1] - tail[1]),
-                        max(0.0, progress_toward_service),
-                    )
-                )
-            if access_keys:
-                upstream, tail_distance, downstream_progress = min(access_keys)
-                return (
-                    upstream,
-                    tail_distance,
-                    downstream_progress,
-                    point[1],
-                    point[0],
-                )
-            return (
-                0.0,
-                min(
-                    (
-                        hypot(point[0] - anchor[0], point[1] - anchor[1])
-                        for anchor in anchors
-                    ),
-                    default=0.0,
-                ),
-                0.0,
-                point[1],
-                point[0],
-            )
-
         distance_ordered = sorted(
             slots,
-            key=waiting_slot_key,
+            key=lambda point: platform_waiting_slot_sort_key(
+                point,
+                passenger=passenger,
+                exit_staging_anchors=tuple(exit_staging_anchors),
+                boarding_staging_anchors=tuple(boarding_staging_anchors),
+                queue_access_axes=tuple(queue_access_axes),
+                fallback_anchors=tuple(anchors),
+            ),
         )
         # Certificates retain a dense body-clear fallback lattice, but
         # consuming that lattice as one contiguous prefix creates an
@@ -609,8 +523,7 @@ class DecisionHoldingMixin:
                 )
             )
             if any(
-                hypot(point[0] - other[0], point[1] - other[1])
-                < operational_spacing - 1e-9
+                hypot(point[0] - other[0], point[1] - other[1]) < operational_spacing - 1e-9
                 for other in neighbors
             ):
                 dense.append(point)
@@ -644,8 +557,7 @@ class DecisionHoldingMixin:
             if spatial_key in self._platform_waiting_slot_owners:
                 continue
             if any(
-                hypot(point[0] - other[0], point[1] - other[1])
-                < minimum_distance - 1e-9
+                hypot(point[0] - other[0], point[1] - other[1]) < minimum_distance - 1e-9
                 for other in (
                     *static_protected,
                     *decision_protected,
@@ -712,8 +624,7 @@ class DecisionHoldingMixin:
             if spatial_key in self._platform_waiting_slot_owners:
                 continue
             if any(
-                hypot(point[0] - other[0], point[1] - other[1])
-                < minimum_distance - 1e-9
+                hypot(point[0] - other[0], point[1] - other[1]) < minimum_distance - 1e-9
                 for other in (
                     *static_protected,
                     *decision_protected,

@@ -7,7 +7,6 @@ from ..agents.passenger import PassengerAgent
 from ..agents.transit import TrainAgent
 from ..facilities.runtime import FacilityProcessAgent
 from ..planning.goal_events import GoalEventKind
-from ..planning.goal_graph import GoalNodeKind
 from ..planning.plan import AgentIntent, FacilityStage
 from ..spatial_capacity_admission import (
     CertifiedPlacementTemporarilyBlocked,
@@ -18,6 +17,7 @@ from ..spatial_capacity_admission import (
 )
 from ..station.alighting_source_geometry import ALIGHTING_SOURCE_SEARCH_WINDOW
 from ..station.evacuation import EVACUATION_MODE
+from .downstream_admission_evidence import downstream_admission_evidence
 
 
 class PassengerDemandMixin:
@@ -107,8 +107,7 @@ class PassengerDemandMixin:
             if not downstream["available"]:
                 evidence = SpatialCapacityEvidence(
                     certificate_id=(
-                        f"downstream_admission:{intent_value}:"
-                        f"{downstream['decision_region_id']}"
+                        f"downstream_admission:{intent_value}:{downstream['decision_region_id']}"
                     ),
                     resource_kind="stage_storage",
                     owner_id=str(
@@ -116,12 +115,8 @@ class PassengerDemandMixin:
                         or downstream["downstream_stage"]
                         or intent_value
                     ),
-                    certified_body_capacity=int(
-                        downstream["certified_downstream_slots"]
-                    ),
-                    current_occupancy_bodies=int(
-                        downstream["occupied_downstream_slots"]
-                    ),
+                    certified_body_capacity=int(downstream["certified_downstream_slots"]),
+                    current_occupancy_bodies=int(downstream["occupied_downstream_slots"]),
                     requested_bodies=1,
                     passenger_id=None,
                 )
@@ -175,9 +170,7 @@ class PassengerDemandMixin:
                 else f"{intent_value}_source"
             )
             certified_body_capacity = (
-                spawn_certificate.certified_body_capacity
-                if spawn_certificate is not None
-                else 1
+                spawn_certificate.certified_body_capacity if spawn_certificate is not None else 1
             )
             current_occupancy_bodies = (
                 self._spawn_reservoir_occupancy(spawn_certificate)
@@ -243,9 +236,7 @@ class PassengerDemandMixin:
             if item.resource_kind == "spawn_reservoir"
         }
         candidates = tuple(
-            (node, certificates[node.node_id])
-            for node in nodes
-            if node.node_id in certificates
+            (node, certificates[node.node_id]) for node in nodes if node.node_id in certificates
         )
         if not candidates:
             evidence = SpatialCapacityEvidence(
@@ -401,22 +392,17 @@ class PassengerDemandMixin:
         disabled_ids = {
             facility.facility_id
             for facility in self.facilities
-            if isinstance(facility, FacilityProcessAgent)
-            and facility.is_forced_disabled
+            if isinstance(facility, FacilityProcessAgent) and facility.is_forced_disabled
         }
         refreshed = 0
         for passenger in tuple(self.passengers):
             path = tuple(passenger.evacuation_facility_path)
-            if (
-                passenger.intent != AgentIntent.EVACUATE_STATION.value
-                or (
-                    not force_all
-                    and (
-                        not path
-                        or not (
-                            disabled_ids.intersection(path)
-                            or changed_facility_ids.intersection(path)
-                        )
+            if passenger.intent != AgentIntent.EVACUATE_STATION.value or (
+                not force_all
+                and (
+                    not path
+                    or not (
+                        disabled_ids.intersection(path) or changed_facility_ids.intersection(path)
                     )
                 )
             ):
@@ -520,9 +506,7 @@ class PassengerDemandMixin:
                     },
                 )
                 break
-            preferred_door_index = (
-                index + self.step_index + train.departed_trains
-            ) % len(doors)
+            preferred_door_index = (index + self.step_index + train.departed_trains) % len(doors)
             placement: tuple[FacilityProcessAgent, tuple[float, float], str] | None = None
             try:
                 for door_offset in range(len(doors)):
@@ -653,8 +637,7 @@ class PassengerDemandMixin:
         release_levels = {
             str(level_id)
             for door in doors
-            if (level_id := door.spec.exit_level_id or door.spec.entry_level_id)
-            is not None
+            if (level_id := door.spec.exit_level_id or door.spec.entry_level_id) is not None
         }
         return self._downstream_admission_evidence(
             AgentIntent.EXIT_STATION.value,
@@ -667,139 +650,11 @@ class PassengerDemandMixin:
         *,
         release_levels: set[str],
     ) -> dict[str, object]:
-        graph = self.goal_graph_catalog.graph_for_intent(str(intent))
-        first_facility_node = next(
-            (
-                node
-                for node in graph.nodes
-                if node.kind == GoalNodeKind.USE_FACILITY_STAGE.value
-                and node.facility_stage is not None
-            ),
-            None,
+        return downstream_admission_evidence(
+            self,
+            intent,
+            release_levels=release_levels,
         )
-        stage = (
-            None
-            if first_facility_node is None
-            else first_facility_node.facility_stage
-        )
-        decision_region_id = (
-            None
-            if first_facility_node is None
-            else first_facility_node.decision_region_id
-        )
-        facilities = [] if stage is None else self._facilities_for_stage(stage)
-        physical = [
-            facility
-            for facility in facilities
-            if self.facility_portal_binding(facility.facility_id).entry_level_id
-            in release_levels
-        ]
-        enabled = [
-            facility
-            for facility in physical
-            if not bool(getattr(facility, "is_forced_disabled", False))
-        ]
-        # Existing station bodies may wait at a physical decision anchor
-        # during a temporary total closure.  Train-side demand is stricter:
-        # do not publish a new body unless at least one enabled downstream
-        # facility can ultimately consume that holding/approach ownership.
-        eligible = enabled
-        available_slots = sum(
-            len(self._available_facility_approach_slot_indices(facility))
-            for facility in eligible
-            if facility.is_available_for_choice
-        )
-        certified_approach_slots = sum(
-            len(self._facility_approach_slot_indices(facility))
-            for facility in eligible
-        )
-        anchors_by_level: dict[str, list[tuple[float, float]]] = {
-            level_id: [] for level_id in release_levels
-        }
-        for facility in eligible:
-            binding = self.facility_portal_binding(facility.facility_id)
-            if binding.entry_level_id in anchors_by_level:
-                anchors_by_level[binding.entry_level_id].extend(
-                    self._facility_approach_positions(facility)
-                )
-        available_holding_points: tuple[tuple[float, float], ...] = ()
-        available_holding_slots = 0
-        certified_holding_slots = 0
-        additional_region_ids = self._decision_holding_upstream_region_ids(
-            str(intent),
-            str(decision_region_id),
-        )
-        if decision_region_id is not None:
-            available_holding_points = tuple(
-                point
-                for level_id, anchors in anchors_by_level.items()
-                if anchors
-                for point in self._available_decision_holding_slots(
-                        level_id=level_id,
-                        region_id=decision_region_id,
-                        anchors=tuple(anchors),
-                        additional_region_ids=additional_region_ids,
-                    )
-            )
-            available_holding_slots = len(available_holding_points)
-        available_platform_staging_slots = 0
-        certified_platform_staging_slots = 0
-        if eligible:
-            certified_holding_slots = sum(
-                len(
-                    self._decision_holding_candidates(
-                        level_id,
-                        region_id=decision_region_id,
-                        anchors=tuple(anchors),
-                        additional_region_ids=additional_region_ids,
-                    )
-                )
-                for level_id, anchors in anchors_by_level.items()
-                if anchors
-            )
-        if eligible and str(intent) == AgentIntent.EXIT_STATION.value:
-            available_platform_staging_slots = sum(
-                self._available_platform_waiting_slot_count(
-                    level_id=level_id,
-                    limit=1,
-                )
-                for level_id in release_levels
-            )
-            certified_platform_staging_slots = len(
-                tuple(self.layout_graph.platform_waiting_slots())
-            )
-        # Source admission is intentionally stricter than in-system recovery.
-        # Entry demand must own a first-stage approach; a remote holding cell
-        # can lie behind the occupied holding lattice and is not a publication
-        # licence. Alighting is different: a compiler-certified platform cell
-        # is the finite source-side storage that lets a train unload before a
-        # fare-gate approach opens. In both cases every published body owns a
-        # concrete downstream cell; no current-position fallback is allowed.
-        if str(intent) == AgentIntent.EXIT_STATION.value:
-            available_total = available_slots + available_platform_staging_slots
-            certified_total = (
-                certified_approach_slots + certified_platform_staging_slots
-            )
-        else:
-            available_total = available_slots
-            certified_total = certified_approach_slots
-        return {
-            "available": available_total > 0,
-            "downstream_stage": stage,
-            "decision_region_id": decision_region_id,
-            "release_level_ids": sorted(release_levels),
-            "eligible_facility_count": len(eligible),
-            "available_approach_slots": available_slots,
-            "available_holding_slots": available_holding_slots,
-            "available_holding_position": (
-                available_holding_points[0] if available_holding_points else None
-            ),
-            "certified_holding_slots": certified_holding_slots,
-            "available_platform_staging_slots": available_platform_staging_slots,
-            "certified_platform_staging_slots": certified_platform_staging_slots,
-            "certified_downstream_slots": certified_total,
-            "occupied_downstream_slots": max(0, certified_total - available_total),
-        }
 
     def _source_admission_evidence(
         self,
@@ -871,9 +726,7 @@ class PassengerDemandMixin:
         for position, occupied_level_id in (*reserved_positions, *occupied):
             if occupied_level_id != level_id:
                 continue
-            if hypot(candidate[0] - position[0], candidate[1] - position[1]) < (
-                minimum_distance
-            ):
+            if hypot(candidate[0] - position[0], candidate[1] - position[1]) < (minimum_distance):
                 return False
         return True
 
