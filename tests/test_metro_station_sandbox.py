@@ -8,6 +8,9 @@ from time import monotonic, sleep
 from types import SimpleNamespace
 from unittest.mock import patch
 
+from metro_station.adapters.simulation.runtime.stalled_gate_ingress_recovery import (
+    advance_stalled_gate_ingress_turn,
+)
 from metro_station_designer.server import (
     build_design_payload,
     compile_react_flow_payload,
@@ -3081,6 +3084,61 @@ class PassengerFlowTests(unittest.TestCase):
         )
         self.assertIsNone(
             gate.queue.approach_slot_reservation(int(passenger.unique_id))
+        )
+
+    def test_movement_stall_advances_reached_gate_ingress_turn_without_replan(
+        self,
+    ) -> None:
+        model = MetroStationModel(
+            replace(
+                scenario_for("visual_demo_station"),
+                audit_enabled=True,
+                audit_print_events=False,
+            ),
+            seed=204,
+            movement_backend=InstantMovementBackend(),
+        )
+        model.spawn_schedule.clear()
+        passenger = PassengerAgent(
+            model,
+            group_size=1,
+            created_step=0,
+            intent=AgentIntent.ENTER_AND_BOARD,
+        )
+        model.passengers.append(passenger)
+        gate = model.gates[1]
+        slot_index = model._reserve_facility_approach_slot(passenger, gate)
+        ingress = model._gate_queue_ingress_anchors(passenger, gate, slot_index)
+        self.assertGreaterEqual(len(ingress), 2)
+        final_target = model._facility_approach_slot_position(gate, slot_index)
+        passenger.set_route(
+            (*ingress, final_target),
+            goal_kind="queue_approach",
+            goal_label="test gate queue approach",
+            facility_id=gate.facility_id,
+            stage=gate.spec.stage,
+        )
+        reached_turn = tuple(passenger.target)
+        passenger.pos = (
+            reached_turn[0],
+            reached_turn[1] + model.scenario.jupedsim_target_radius_units * 0.75,
+        )
+
+        advanced = advance_stalled_gate_ingress_turn(
+            model,
+            passenger,
+            reason="movement_stalled",
+        )
+
+        self.assertTrue(advanced)
+        self.assertEqual(ingress[1], passenger.target)
+        self.assertEqual(
+            1,
+            model.audit.counts.get("passenger_advanced_stalled_gate_ingress_turn", 0),
+        )
+        self.assertEqual(
+            0,
+            model.audit.counts.get("passenger_replanned_stalled_region_approach", 0),
         )
 
     def test_movement_stall_preserves_owned_decision_holding_target(self) -> None:

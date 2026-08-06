@@ -25,6 +25,7 @@ from .service_chain_counters import (
     WAITING_CAPACITY_RETRY,
     increment_service_chain_counter,
 )
+from .stalled_gate_ingress_recovery import advance_stalled_gate_ingress_turn
 
 
 class PassengerGoalCoordinator:
@@ -158,6 +159,10 @@ class PassengerGoalCoordinator:
         changed = passenger.goal_runtime.state.retry_count > before
         if not changed and reason == "movement_stalled":
             changed = self._restore_stalled_committed_work(
+                passenger,
+                reason=reason,
+            ) or advance_stalled_gate_ingress_turn(
+                self.model,
                 passenger,
                 reason=reason,
             ) or self._reroute_stalled_region_approach(passenger, reason=reason)

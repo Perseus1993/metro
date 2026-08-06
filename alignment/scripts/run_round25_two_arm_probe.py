@@ -333,6 +333,10 @@ def _arm(
                     + int(metrics.get("spawned_exit_persons", 0) or 0),
                 )
             ),
+            "advanced_stalled_gate_ingress_turn_attempts": audits.get(
+                "passenger_advanced_stalled_gate_ingress_turn",
+                0,
+            ),
             "service_time_attribution": metrics.get("alignment_service_time_attribution"),
         },
         "stalled_replan_attribution": {
