@@ -1064,7 +1064,9 @@ def test_train_door_boarding_body_shares_the_live_jupedsim_collision_world() -> 
     assert train is not None
     train.state = "boarding"
     train.arrival_sequence = 1
+    train.arrival_step = 0
     train.close_step = 100
+    assert model.sync_train_exchange_manifests() is True
     rider = PassengerAgent(
         model,
         group_size=1,
@@ -1132,7 +1134,9 @@ def test_train_door_native_body_reaches_declared_endpoint_before_commit(
     assert train is not None
     train.state = "boarding"
     train.arrival_sequence = 1
+    train.arrival_step = 0
     train.close_step = 100
+    assert model.sync_train_exchange_manifests() is True
     rider = PassengerAgent(
         model,
         group_size=1,

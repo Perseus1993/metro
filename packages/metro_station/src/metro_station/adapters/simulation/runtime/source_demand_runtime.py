@@ -79,7 +79,10 @@ def spawn_alighting_demand(model: Any) -> None:
         pending = model.external_demand_reservoir.pending_tickets(
             DemandSourceKind.TRAIN_ALIGHTING
         )
-        model.pending_alighting_groups = len(pending)
+        model.max_pending_alighting_groups = max(
+            model.max_pending_alighting_groups,
+            len(pending),
+        )
         if not pending:
             return
 
@@ -98,9 +101,6 @@ def spawn_alighting_demand(model: Any) -> None:
                 )
             )
             model._spawn_alighting_passengers_for_train(train, count)
-        model.pending_alighting_groups = model.external_demand_reservoir.pending_groups(
-            DemandSourceKind.TRAIN_ALIGHTING
-        )
         model.max_pending_alighting_groups = max(
             model.max_pending_alighting_groups,
             model.pending_alighting_groups,
@@ -130,6 +130,9 @@ def _enqueue_due_alighting_tickets(model: Any, newly_due: int) -> bool:
             return False
         model.failed_nominal_alighting_arrivals.add(arrival_step)
         groups = int(newly_due if nominal is None else nominal.planned_groups)
+        model._record_unavailable_alighting_manifest_remainder(
+            max(0, groups - int(newly_due))
+        )
         persons = groups * int(model.scenario.group_size)
         model.unbound_not_alighted_persons += persons
         failure = {

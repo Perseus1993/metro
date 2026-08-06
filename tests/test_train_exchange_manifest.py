@@ -7,6 +7,7 @@ from metro_station.adapters.simulation.runtime.train_exchange_manifest import (
     MANIFEST_DEPARTED,
     MANIFEST_FAILED,
     TRAIN_ALIGHTING_CAPACITY_INSUFFICIENT,
+    TrainExchangeCapacityError,
     TrainExchangeLifecycleError,
     TrainExchangeManifest,
     TrainRunId,
@@ -44,6 +45,18 @@ def test_manifest_validates_train_run_and_physical_load_relationships() -> None:
         _manifest(inbound=80, planned_alight=30, through=49)
 
 
+def test_planned_alighting_above_capacity_has_typed_failure_context() -> None:
+    with pytest.raises(TrainExchangeCapacityError) as exc_info:
+        _manifest(capacity=1, inbound=2, planned_alight=2, through=0)
+
+    assert exc_info.value.as_dict() == {
+        "failure_code": TRAIN_ALIGHTING_CAPACITY_INSUFFICIENT,
+        "capacity_persons": 1,
+        "inbound_load_persons": 2,
+        "planned_alight_persons": 2,
+    }
+
+
 def test_release_persons_and_groups_cannot_exceed_manifest() -> None:
     manifest = _manifest(planned_alight=10, through=70)
 
@@ -55,6 +68,34 @@ def test_release_persons_and_groups_cannot_exceed_manifest() -> None:
     assert manifest.release_complete_step == 12
     with pytest.raises(ValueError, match="must not exceed"):
         manifest.release_alighting_group(1, at_step=13)
+
+
+def test_alighting_preflight_is_side_effect_free_and_latest_release_is_reversible() -> None:
+    manifest = _manifest(planned_alight=10, through=70)
+    before = (
+        manifest.released_alight_persons,
+        manifest.not_alighted_persons,
+        manifest.release_complete_step,
+    )
+
+    manifest.preflight_alighting_release(4, at_step=11)
+
+    assert (
+        manifest.released_alight_persons,
+        manifest.not_alighted_persons,
+        manifest.release_complete_step,
+    ) == before
+    manifest.release_alighting_group(4, at_step=11)
+    manifest.release_alighting_group(6, at_step=12)
+    with pytest.raises(TrainExchangeLifecycleError, match="latest committed release"):
+        manifest.rollback_latest_alighting_release(4, at_step=11)
+
+    manifest.rollback_latest_alighting_release(6, at_step=12)
+    assert manifest.released_alight_persons == 4
+    assert manifest.not_alighted_persons == 6
+    assert manifest.release_complete_step is None
+    manifest.release_alighting_group(6, at_step=13)
+    assert manifest.release_complete_step == 13
 
 
 def test_successful_close_requires_complete_release_before_departure() -> None:
@@ -135,6 +176,37 @@ def test_boarding_cannot_use_capacity_before_alighters_are_released() -> None:
     manifest.release_alighting(10, at_step=11)
     manifest.record_boarding(10)
     assert manifest.departure_load_persons == 80
+
+
+def test_boarding_reserve_and_commit_share_live_manifest_capacity() -> None:
+    manifest = _manifest(capacity=100, inbound=100, planned_alight=30, through=70)
+    assert manifest.current_onboard_persons == 100
+    assert manifest.capacity_remaining == 0
+
+    manifest.release_alighting(10, at_step=11)
+    manifest.reserve_boarding(10)
+
+    assert manifest.current_onboard_persons == 90
+    assert manifest.reserved_boarding_persons == 10
+    assert manifest.capacity_remaining == 0
+    with pytest.raises(ValueError, match="onboard load"):
+        manifest.reserve_boarding(1)
+
+    manifest.commit_boarding(10)
+    assert manifest.current_onboard_persons == 100
+    assert manifest.reserved_boarding_persons == 0
+    assert manifest.boarded_persons == 10
+    assert manifest.departure_load_persons == 80
+
+
+def test_boarding_commit_requires_reservation_and_close_rejects_outstanding_reservation() -> None:
+    manifest = _manifest(planned_alight=0, through=80)
+    with pytest.raises(TrainExchangeLifecycleError, match="equal manifest reservation"):
+        manifest.commit_boarding(1)
+
+    manifest.reserve_boarding(1)
+    with pytest.raises(TrainExchangeLifecycleError, match="outstanding boarding reservations"):
+        manifest.close(actual_departure_step=20)
 
 
 def test_exchange_events_respect_arrival_close_timeline() -> None:

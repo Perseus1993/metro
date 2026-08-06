@@ -13,6 +13,15 @@ from .source_boundary_metrics import source_boundary_metrics
 class SimulationLifecycleMixin:
     """Expose run/step lifecycle, stopping, evidence frames, and snapshots."""
 
+    @property
+    def pending_alighting_groups(self) -> int:
+        """Compatibility view backed exclusively by the external reservoir."""
+
+        reservoir = getattr(self, "external_demand_reservoir", None)
+        if reservoir is None:
+            return 0
+        return reservoir.pending_groups(DemandSourceKind.TRAIN_ALIGHTING)
+
     def step(self) -> None:
         self.step_orchestrator.step(self)
 
@@ -100,6 +109,7 @@ class SimulationLifecycleMixin:
         return self.frames
 
     def _finalize_facilities(self) -> None:
+        self.external_demand_reservoir.close(int(self.step_index))
         for facility in self.facilities:
             finalize = getattr(facility, "finalize", None)
             if not callable(finalize):

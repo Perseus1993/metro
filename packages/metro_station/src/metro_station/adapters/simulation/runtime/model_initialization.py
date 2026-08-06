@@ -106,7 +106,6 @@ def _initialize_base_state(
     model.spatial_capacity_event_counts: Counter[str] = Counter()
     model.service_chain_event_counts: Counter[str] = Counter()
     model.walking_cost_evaluation_count = 0
-    model.pending_alighting_groups = 0
     model.pending_spawn_groups: Counter[str] = Counter()
     model._mirrored_pending_spawn_groups: Counter[str] = Counter()
     model.max_pending_alighting_groups = 0

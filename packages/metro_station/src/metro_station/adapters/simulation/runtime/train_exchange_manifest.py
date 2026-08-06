@@ -15,6 +15,36 @@ class TrainExchangeLifecycleError(RuntimeError):
     """Raised when a terminal train-exchange manifest is mutated again."""
 
 
+class TrainExchangeCapacityError(ValueError):
+    """Typed manifest-construction failure for impossible alighting capacity."""
+
+    failure_code = TRAIN_ALIGHTING_CAPACITY_INSUFFICIENT
+
+    def __init__(
+        self,
+        *,
+        capacity_persons: int,
+        inbound_load_persons: int,
+        planned_alight_persons: int,
+    ) -> None:
+        self.capacity_persons = int(capacity_persons)
+        self.inbound_load_persons = int(inbound_load_persons)
+        self.planned_alight_persons = int(planned_alight_persons)
+        super().__init__(
+            f"{self.failure_code}: planned_alight_persons="
+            f"{self.planned_alight_persons} exceeds capacity_persons="
+            f"{self.capacity_persons}"
+        )
+
+    def as_dict(self) -> dict[str, object]:
+        return {
+            "failure_code": self.failure_code,
+            "capacity_persons": self.capacity_persons,
+            "inbound_load_persons": self.inbound_load_persons,
+            "planned_alight_persons": self.planned_alight_persons,
+        }
+
+
 @dataclass(frozen=True, order=True)
 class TrainRunId:
     platform_id: str
@@ -78,10 +108,16 @@ class TrainExchangeManifest:
     release_complete_step: int | None = field(default=None, init=False)
     actual_departure_step: int | None = field(default=None, init=False)
     boarded_persons: int = field(default=0, init=False)
+    reserved_boarding_persons: int = field(default=0, init=False)
     departure_load_persons: int = field(init=False)
     status: str = field(default=MANIFEST_OPEN, init=False)
     failure_code: str | None = field(default=None, init=False)
     _last_release_step: int | None = field(default=None, init=False, repr=False)
+    _alighting_release_history: list[tuple[int, int]] = field(
+        default_factory=list,
+        init=False,
+        repr=False,
+    )
 
     def __post_init__(self) -> None:
         _require_int_at_least("arrival_step", self.arrival_step, 0)
@@ -94,6 +130,12 @@ class TrainExchangeManifest:
         _require_int_at_least("through_load_persons", self.through_load_persons, 0)
         if self.planned_alight_persons > self.inbound_load_persons:
             raise ValueError("planned_alight_persons must not exceed inbound_load_persons")
+        if self.planned_alight_persons > self.capacity_persons:
+            raise TrainExchangeCapacityError(
+                capacity_persons=self.capacity_persons,
+                inbound_load_persons=self.inbound_load_persons,
+                planned_alight_persons=self.planned_alight_persons,
+            )
         if self.inbound_load_persons > self.capacity_persons:
             raise ValueError("inbound_load_persons must not exceed capacity_persons")
         expected_through = self.inbound_load_persons - self.planned_alight_persons
@@ -114,8 +156,33 @@ class TrainExchangeManifest:
     def pending_alight_persons(self) -> int:
         return self.not_alighted_persons
 
+    @property
+    def current_onboard_persons(self) -> int:
+        return self.through_load_persons + self.not_alighted_persons + self.boarded_persons
+
+    @property
+    def capacity_remaining(self) -> int:
+        return max(
+            0,
+            self.capacity_persons
+            - self.current_onboard_persons
+            - self.reserved_boarding_persons,
+        )
+
     def release_alighting(self, persons: int, *, at_step: int) -> None:
         """Release one person count into certified station-side ownership."""
+
+        self.preflight_alighting_release(persons, at_step=at_step)
+
+        self.released_alight_persons += persons
+        self.not_alighted_persons = self.planned_alight_persons - self.released_alight_persons
+        self._last_release_step = at_step
+        self._alighting_release_history.append((persons, at_step))
+        if self.not_alighted_persons == 0:
+            self.release_complete_step = at_step
+
+    def preflight_alighting_release(self, persons: int, *, at_step: int) -> None:
+        """Validate one release without changing any manifest ledger field."""
 
         self._ensure_open("release alighting")
         _require_int_at_least("persons", persons, 1)
@@ -127,30 +194,65 @@ class TrainExchangeManifest:
         if self.released_alight_persons + persons > self.planned_alight_persons:
             raise ValueError("alighting release must not exceed planned_alight_persons")
 
-        self.released_alight_persons += persons
+    def rollback_latest_alighting_release(self, persons: int, *, at_step: int) -> None:
+        """Compensate exactly the latest release after a downstream transaction abort."""
+
+        self._ensure_open("roll back alighting release")
+        _require_int_at_least("persons", persons, 1)
+        self._validate_exchange_step("at_step", at_step)
+        expected = (persons, at_step)
+        latest = self._alighting_release_history[-1] if self._alighting_release_history else None
+        if latest != expected:
+            raise TrainExchangeLifecycleError(
+                "alighting release rollback must match the latest committed release"
+            )
+        self._alighting_release_history.pop()
+        self.released_alight_persons -= persons
         self.not_alighted_persons = self.planned_alight_persons - self.released_alight_persons
-        self._last_release_step = at_step
-        if self.not_alighted_persons == 0:
-            self.release_complete_step = at_step
+        self.release_complete_step = None
+        self._last_release_step = (
+            self._alighting_release_history[-1][1]
+            if self._alighting_release_history
+            else None
+        )
 
     def release_alighting_group(self, group_persons: int, *, at_step: int) -> None:
         """Release an indivisible passenger group, expressed in persons."""
 
         self.release_alighting(group_persons, at_step=at_step)
 
-    def record_boarding(self, persons: int) -> None:
+    def reserve_boarding(self, persons: int) -> None:
         self._ensure_open("record boarding")
         _require_int_at_least("persons", persons, 1)
-        proposed_onboard_load = (
-            self.inbound_load_persons
-            - self.released_alight_persons
-            + self.boarded_persons
-            + persons
-        )
-        if proposed_onboard_load > self.capacity_persons:
+        if persons > self.capacity_remaining:
             raise ValueError("current onboard load must not exceed capacity_persons")
+        self.reserved_boarding_persons += persons
+
+    def commit_boarding(self, persons: int) -> None:
+        self._ensure_open("commit boarding")
+        _require_int_at_least("persons", persons, 1)
+        if persons > self.reserved_boarding_persons:
+            raise TrainExchangeLifecycleError(
+                "cannot commit boarding persons without an equal manifest reservation"
+            )
+        self.reserved_boarding_persons -= persons
         self.boarded_persons += persons
         self.departure_load_persons = self.through_load_persons + self.boarded_persons
+
+    def cancel_boarding_reservation(self, persons: int) -> None:
+        self._ensure_open("cancel boarding reservation")
+        _require_int_at_least("persons", persons, 1)
+        if persons > self.reserved_boarding_persons:
+            raise TrainExchangeLifecycleError(
+                "cannot cancel more boarding persons than the manifest reserved"
+            )
+        self.reserved_boarding_persons -= persons
+
+    def record_boarding(self, persons: int) -> None:
+        """Compatibility helper for an atomic reserve-and-commit operation."""
+
+        self.reserve_boarding(persons)
+        self.commit_boarding(persons)
 
     def close(self, *, actual_departure_step: int) -> TrainExchangeCloseResult:
         """Close the exchange and either depart or return a structured capacity failure."""
@@ -159,6 +261,10 @@ class TrainExchangeManifest:
         self._validate_exchange_step("actual_departure_step", actual_departure_step)
         if actual_departure_step < self.scheduled_close_step:
             raise ValueError("actual_departure_step must be at or after scheduled_close_step")
+        if self.reserved_boarding_persons:
+            raise TrainExchangeLifecycleError(
+                "cannot close train exchange with outstanding boarding reservations"
+            )
 
         self.not_alighted_persons = (
             self.planned_alight_persons - self.released_alight_persons

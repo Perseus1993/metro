@@ -171,7 +171,6 @@ def _backpressure_model() -> tuple[AlignmentMetroStationModel, SimpleNamespace, 
     model.scenario.alighting_source_lateral_offset_m = 0.0
     model.scenario.group_size = 1
     model.step_index = 0
-    model.pending_alighting_groups = 0
     model.max_pending_alighting_groups = 0
     model.external_demand_reservoir = ExternalDemandReservoir()
     model.train_exchange_manifests = {}
@@ -368,6 +367,44 @@ def test_alighting_transfer_exception_retires_published_fifo_owner(
         DemandSourceKind.TRAIN_ALIGHTING
     ) == 1
     assert resource.occupancy == 0
+    model._require_alighting_spawn_conservation()
+
+
+def test_alighting_reservoir_commit_failure_rolls_back_manifest_and_token(
+    monkeypatch,
+) -> None:
+    model, train, spawned = _backpressure_model()
+    for name in (
+        "_alighting_source_admission_reservation",
+        "_release_alighting_source_admission_reservation",
+        "_commit_alighting_source_admission_reservation",
+    ):
+        delattr(model, name)
+    resource = AdmissionTokenResource("exit", 1)
+    model.alignment_admission_resources = {
+        "entry": AdmissionTokenResource("entry", 1),
+        "exit": resource,
+    }
+    model.alignment_admission_attempts = Counter()
+    model.alignment_admission_exhausted_attempts = Counter()
+    model.alignment_next_source_sequence_id = 0
+    model._alignment_inflight_admission_owner_by_intent = {}
+    monkeypatch.setattr(
+        model.external_demand_reservoir,
+        "commit",
+        Mock(side_effect=RuntimeError("reservoir commit failed")),
+    )
+
+    with pytest.raises(RuntimeError, match="reservoir commit failed"):
+        model.spawn_alighting_passengers()
+
+    manifest = model.train_exchange_manifests[model._train_run_ref(train)]
+    assert len(spawned) == 1
+    assert spawned[0] not in model.passengers
+    assert model.pending_alighting_groups == 1
+    assert resource.occupancy == 0
+    assert manifest.released_alight_persons == 0
+    assert manifest.not_alighted_persons == manifest.planned_alight_persons
     model._require_alighting_spawn_conservation()
 
 
@@ -942,7 +979,6 @@ def _source_policy_model() -> AlignmentMetroStationModel:
     model.service_chain_event_counts = Counter()
     model.alignment_time_attribution = SimpleNamespace(metrics=dict)
     model.passengers = []
-    model.pending_alighting_groups = 0
     model.passenger_goal_runtimes = {}
     model.spawned_persons = 0
     model.spawned_persons_by_intent = Counter()

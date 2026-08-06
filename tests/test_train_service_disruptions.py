@@ -142,12 +142,17 @@ class TrainServiceDisruptionTests(unittest.TestCase):
             stress.make_scenario(args, stress.StressCase(0, 60, 42)),
             seed=42,
         )
+        manifest_remainders: list[int] = []
+        model._record_unavailable_alighting_manifest_remainder = (
+            manifest_remainders.append
+        )
 
         self._step_through(model, 600)
         self.assertEqual(0, model.pending_alighting_groups)
         self.assertEqual(0, model.spawned_persons)
         self.assertEqual(3, model.unbound_not_alighted_persons)
         self.assertEqual("train_alighting_manifest_unavailable", model.run_outcome_code)
+        self.assertEqual([2], manifest_remainders)
 
         self._step_through(model, 795)
 

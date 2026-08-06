@@ -38,24 +38,19 @@ class DeferredPassiveLayoutBackend(InstantMovementBackend):
         return True
 
 
-def test_alighting_stays_pending_without_downstream_approach_ownership() -> None:
+def test_direct_alighting_helper_requires_manifest_instead_of_scalar_ownership() -> None:
     model = MetroStationModel(
         alighting_backpressure_scenario(),
         seed=42,
         movement_backend=InstantMovementBackend(),
     )
 
-    model._spawn_alighting_passengers_for_train(model.train, 4)
+    with pytest.raises(RuntimeError, match="train exchange manifest required"):
+        model._spawn_alighting_passengers_for_train(model.train, 4)
 
-    assert model.pending_alighting_groups == 4
+    assert model.pending_alighting_groups == 0
     assert not model.passengers
     assert model.spawned_persons_by_intent[AgentIntent.EXIT_STATION.value] == 0
-    assert (
-        model.audit.counts[
-            "alighting_demand_deferred_without_downstream_admission"
-        ]
-        == 4
-    )
 
 
 def test_entry_stays_pending_without_downstream_ownership() -> None:

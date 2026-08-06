@@ -35,8 +35,8 @@ class TrainAgent(StationAgent):
         )
         self.close_step: int | None = None
         self.arrival_step: int | None = None
-        self.current_load_persons = 0
-        self.reserved_boarding_persons = 0
+        self._legacy_current_load_persons = 0
+        self._legacy_reserved_boarding_persons = 0
         self.last_departed_load_persons = 0
         self.departed_trains = 0
         self.cancelled_trains = 0
@@ -50,12 +50,55 @@ class TrainAgent(StationAgent):
         return self.state == "boarding"
 
     @property
+    def current_load_persons(self) -> int:
+        lookup = getattr(self.model, "train_exchange_current_onboard_persons", None)
+        if self.is_boarding and callable(lookup):
+            current = lookup(self)
+            if current is not None:
+                return int(current)
+        return int(self._legacy_current_load_persons)
+
+    @current_load_persons.setter
+    def current_load_persons(self, persons: int) -> None:
+        self._legacy_current_load_persons = int(persons)
+
+    @property
+    def reserved_boarding_persons(self) -> int:
+        lookup = getattr(self.model, "train_exchange_reserved_boarding_persons", None)
+        if self.is_boarding and callable(lookup):
+            reserved = lookup(self)
+            if reserved is not None:
+                return int(reserved)
+        return int(self._legacy_reserved_boarding_persons)
+
+    @reserved_boarding_persons.setter
+    def reserved_boarding_persons(self, persons: int) -> None:
+        self._legacy_reserved_boarding_persons = int(persons)
+
+    @property
     def capacity_remaining(self) -> int:
+        lookup = getattr(self.model, "train_boarding_capacity_remaining", None)
+        if self.is_boarding and callable(lookup):
+            remaining = lookup(self)
+            if remaining is not None:
+                return int(remaining)
         capacity = self.model.train_capacity_for_platform(self.platform_id)
         return max(
             0,
             capacity - self.current_load_persons - self.reserved_boarding_persons,
         )
+
+    def reserve_boarding_capacity(self, persons: int) -> None:
+        reserve = getattr(self.model, "reserve_train_boarding_capacity", None)
+        if not callable(reserve):
+            raise RuntimeError("train boarding requires a capacity-ledger reservation")
+        reserve(self, int(persons))
+
+    def commit_boarding_capacity(self, persons: int) -> None:
+        commit = getattr(self.model, "commit_train_boarding", None)
+        if not callable(commit):
+            raise RuntimeError("train boarding requires a capacity-ledger commit")
+        commit(self, int(persons))
 
     def step(self) -> None:
         step = self.model.step_index

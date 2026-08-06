@@ -587,6 +587,11 @@ class AlignmentMetroStationModel(MetroStationModel):
             self.scenario.group_size
         )
 
+    def _record_unavailable_alighting_manifest_remainder(self, groups: int) -> None:
+        self.alignment_requested_alighting_persons += int(groups) * int(
+            self.scenario.group_size
+        )
+
     def _require_alighting_spawn_conservation(self) -> None:
         requested = int(self.alignment_requested_alighting_persons)
         admitted = int(self.spawned_persons_by_intent[AgentIntent.EXIT_STATION.value])

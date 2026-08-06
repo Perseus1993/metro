@@ -43,22 +43,41 @@ def source_boundary_metrics(model: MetroStationModel) -> dict[str, Any]:
             and str(item.ticket.source_ref or item.ticket.intent) == source_ref
             and item.outcome == DemandTicketState.PUBLISHED
         ]
+        right_censored = [
+            item
+            for item in residences
+            if item.ticket.source_kind == DemandSourceKind.ENTRY
+            and str(item.ticket.source_ref or item.ticket.intent) == source_ref
+            and item.outcome == DemandTicketState.RIGHT_CENSORED
+        ]
         active = [item for item in published if int(item.passenger_id) in active_ids]
         completed = [item for item in published if int(item.passenger_id) in terminal_ids]
         wait_steps = sorted(item.residence_steps for item in published)
+        right_censored_wait_steps = sorted(
+            item.residence_steps for item in right_censored
+        )
         scheduled = sum(ticket.group_size for ticket in waiting) + sum(
             item.ticket.group_size for item in published
-        )
+        ) + sum(item.ticket.group_size for item in right_censored)
         row = {
             "source_ref": source_ref,
             "scheduled_persons": scheduled,
             "admitted_persons": sum(item.ticket.group_size for item in published),
-            "source_waiting_persons": sum(ticket.group_size for ticket in waiting),
+            # A censored source wait is still unresolved demand at the final
+            # observation boundary. Keep it inside waiting for conservation;
+            # the explicit field below is an explanatory subset, not another
+            # mutually exclusive partition.
+            "source_waiting_persons": sum(ticket.group_size for ticket in waiting)
+            + sum(item.ticket.group_size for item in right_censored),
             "active_inside_persons": sum(item.ticket.group_size for item in active),
             "completed_persons": sum(item.ticket.group_size for item in completed),
             "not_alighted_persons": 0,
+            "right_censored_persons": sum(
+                item.ticket.group_size for item in right_censored
+            ),
             "dropped_persons": 0,
             "wait_steps": _distribution(wait_steps),
+            "right_censored_wait_steps": _distribution(right_censored_wait_steps),
         }
         row["conserved"] = scheduled == (
             row["source_waiting_persons"]
@@ -86,7 +105,11 @@ def source_boundary_metrics(model: MetroStationModel) -> dict[str, Any]:
 
 
 def aggregate_source_counts(boundaries: dict[str, Any]) -> dict[str, int]:
-    """Aggregate only conservation counts; never aggregate duration distributions."""
+    """Aggregate counts without pooling durations across source boundaries.
+
+    ``right_censored_persons`` is an explanatory subset of
+    ``source_waiting_persons`` and must not be added to a conservation total.
+    """
 
     totals: defaultdict[str, int] = defaultdict(int)
     for row in boundaries.get("entry_sources", []):
@@ -96,6 +119,7 @@ def aggregate_source_counts(boundaries: dict[str, Any]) -> dict[str, int]:
             "source_waiting_persons",
             "active_inside_persons",
             "completed_persons",
+            "right_censored_persons",
             "dropped_persons",
         ):
             totals[field] += int(row.get(field, 0))
@@ -120,6 +144,7 @@ def _flow_boundaries(
             "active_inside_persons",
             "completed_persons",
             "not_alighted_persons",
+            "right_censored_persons",
             "dropped_persons",
         )
     }
@@ -146,6 +171,12 @@ def _flow_boundaries(
         if item.ticket.source_kind == DemandSourceKind.TRAIN_ALIGHTING
         and item.outcome == DemandTicketState.NOT_ALIGHTED
     ]
+    right_censored = [
+        item
+        for item in residences
+        if item.ticket.source_kind == DemandSourceKind.TRAIN_ALIGHTING
+        and item.outcome == DemandTicketState.RIGHT_CENSORED
+    ]
     active = [item for item in published if int(item.passenger_id) in active_ids]
     completed = [item for item in published if int(item.passenger_id) in terminal_ids]
     unbound = int(model.unbound_not_alighted_persons)
@@ -153,15 +184,20 @@ def _flow_boundaries(
         "scheduled_persons": sum(ticket.group_size for ticket in waiting)
         + sum(item.ticket.group_size for item in published)
         + sum(item.ticket.group_size for item in retired_not_alighted)
+        + sum(item.ticket.group_size for item in right_censored)
         + unbound,
         "admitted_persons": sum(item.ticket.group_size for item in published),
-        "source_waiting_persons": sum(ticket.group_size for ticket in waiting),
+        "source_waiting_persons": sum(ticket.group_size for ticket in waiting)
+        + sum(item.ticket.group_size for item in right_censored),
         "active_inside_persons": sum(item.ticket.group_size for item in active),
         "completed_persons": sum(item.ticket.group_size for item in completed),
         "not_alighted_persons": sum(
             item.ticket.group_size for item in retired_not_alighted
         )
         + unbound,
+        "right_censored_persons": sum(
+            item.ticket.group_size for item in right_censored
+        ),
         "dropped_persons": 0,
     }
     exit_flow["conserved"] = exit_flow["scheduled_persons"] == (

@@ -22,7 +22,10 @@ from .external_demand_reservoir import (
     DemandSourceKind,
     TemporaryDemandBlockReason,
 )
-from .source_publication_transaction import rollback_published_passenger
+from .source_publication_transaction import (
+    PassengerPublicationTransaction,
+    rollback_published_passenger,
+)
 from .source_demand_runtime import spawn_alighting_demand, spawn_entry_demand
 
 
@@ -37,6 +40,9 @@ class PassengerDemandMixin:
 
     def _record_alighting_demand_due(self, newly_due_groups: int) -> None:
         del newly_due_groups
+
+    def _record_unavailable_alighting_manifest_remainder(self, groups: int) -> None:
+        del groups
 
     def _require_alighting_spawn_conservation(self) -> None:
         pass
@@ -98,80 +104,88 @@ class PassengerDemandMixin:
         target_direction = None
         if intent_value == AgentIntent.TRANSFER.value:
             target_line_id, target_direction = self._default_transfer_target()
-        passenger = PassengerAgent(
-            self,
-            group_size=self.scenario.group_size,
-            created_step=self.step_index,
-            intent=intent,
-            target_line_id=target_line_id,
-            target_direction=target_direction,
-            initial_position=initial_position,
-            initial_level_id=initial_level_id,
-        )
-        if spawn_node is not None:
-            passenger.spawn_source_element_id = spawn_node.element_id
-        if spawn_certificate is not None or explicit_initial_position:
-            certificate_id = (
-                spawn_certificate.certificate_id
-                if spawn_certificate is not None
-                else f"runtime_source_placement:{intent_value}:{initial_level_id}"
-            )
-            resource_kind = (
-                spawn_certificate.resource_kind
-                if spawn_certificate is not None
-                else "source_placement"
-            )
-            owner_id = (
-                spawn_certificate.owner_id
-                if spawn_certificate is not None
-                else f"{intent_value}_source"
-            )
-            certified_body_capacity = (
-                spawn_certificate.certified_body_capacity if spawn_certificate is not None else 1
-            )
-            current_occupancy_bodies = (
-                self._spawn_reservoir_occupancy(spawn_certificate)
-                if spawn_certificate is not None
-                else 0
-            )
-            evidence = SpatialCapacityEvidence(
-                certificate_id=certificate_id,
-                resource_kind=resource_kind,
-                owner_id=owner_id,
-                certified_body_capacity=certified_body_capacity,
-                current_occupancy_bodies=current_occupancy_bodies,
-                requested_bodies=1,
-                passenger_id=int(passenger.unique_id),
-            )
-            try:
-                self.movement_backend.resolve_certified_placement(
-                    passenger,
-                    tuple(passenger.pos),
-                    level_id=(
-                        spawn_certificate.level_id
-                        if spawn_certificate is not None
-                        else str(initial_level_id)
-                    ),
+        passenger: PassengerAgent | None = None
+        placement_blocked = None
+        try:
+            with PassengerPublicationTransaction(self) as publication:
+                passenger = PassengerAgent(
+                    self,
+                    group_size=self.scenario.group_size,
+                    created_step=self.step_index,
+                    intent=intent,
+                    target_line_id=target_line_id,
+                    target_direction=target_direction,
+                    initial_position=initial_position,
+                    initial_level_id=initial_level_id,
                 )
-            except RuntimeError as exc:
+                if spawn_node is not None:
+                    passenger.spawn_source_element_id = spawn_node.element_id
+                if spawn_certificate is not None or explicit_initial_position:
+                    evidence = SpatialCapacityEvidence(
+                        certificate_id=(
+                            spawn_certificate.certificate_id
+                            if spawn_certificate is not None
+                            else f"runtime_source_placement:{intent_value}:{initial_level_id}"
+                        ),
+                        resource_kind=(
+                            spawn_certificate.resource_kind
+                            if spawn_certificate is not None
+                            else "source_placement"
+                        ),
+                        owner_id=(
+                            spawn_certificate.owner_id
+                            if spawn_certificate is not None
+                            else f"{intent_value}_source"
+                        ),
+                        certified_body_capacity=(
+                            spawn_certificate.certified_body_capacity
+                            if spawn_certificate is not None
+                            else 1
+                        ),
+                        current_occupancy_bodies=(
+                            self._spawn_reservoir_occupancy(spawn_certificate)
+                            if spawn_certificate is not None
+                            else 0
+                        ),
+                        requested_bodies=1,
+                        passenger_id=int(passenger.unique_id),
+                    )
+                    try:
+                        self.movement_backend.resolve_certified_placement(
+                            passenger,
+                            tuple(passenger.pos),
+                            level_id=(
+                                spawn_certificate.level_id
+                                if spawn_certificate is not None
+                                else str(initial_level_id)
+                            ),
+                        )
+                    except RuntimeError as exc:
+                        placement_blocked = CertifiedPlacementTemporarilyBlocked(
+                            f"spawn cell {tuple(passenger.pos)!r} was blocked before admission",
+                            evidence,
+                        )
+                        raise placement_blocked from exc
+                self.passengers.append(passenger)
+                self.passenger_goal_runtimes[int(passenger.unique_id)] = passenger.goal_runtime
+                self.spawned_persons += passenger.group_size
+                self.spawned_persons_by_intent[passenger.intent] += passenger.group_size
+                if passenger.spawn_source_element_id is not None:
+                    self.spawned_persons_by_entrance[passenger.spawn_source_element_id] += (
+                        passenger.group_size
+                    )
+                self._spawned_since_last_frame = True
+                publication.commit()
+        except CertifiedPlacementTemporarilyBlocked as exc:
+            if exc is placement_blocked:
                 record_spatial_capacity_event(
                     self,
                     "spawn.dynamic_blocked",
-                    evidence,
+                    exc.evidence,
                 )
-                raise CertifiedPlacementTemporarilyBlocked(
-                    f"spawn cell {tuple(passenger.pos)!r} was blocked before admission",
-                    evidence,
-                ) from exc
-        self.passengers.append(passenger)
-        self.passenger_goal_runtimes[int(passenger.unique_id)] = passenger.goal_runtime
-        self.spawned_persons += passenger.group_size
-        self.spawned_persons_by_intent[passenger.intent] += passenger.group_size
-        if passenger.spawn_source_element_id is not None:
-            self.spawned_persons_by_entrance[passenger.spawn_source_element_id] += (
-                passenger.group_size
-            )
-        self._spawned_since_last_frame = True
+            raise
+        if passenger is None:
+            raise RuntimeError("passenger publication committed without a Passenger")
         return passenger
 
     def _certified_spawn_location(
@@ -418,23 +432,7 @@ class PassengerDemandMixin:
 
         run_ref = self._train_run_ref(train)
         if run_ref not in self.train_exchange_manifests:
-            # Compatibility-only direct helper calls predate train manifests.
-            # The orchestrated runtime always syncs a manifest before entering
-            # this method and never uses this scalar as demand ownership.
-            self.pending_alighting_groups += int(count)
-            self.max_pending_alighting_groups = max(
-                self.max_pending_alighting_groups,
-                self.pending_alighting_groups,
-            )
-            self.audit.record(
-                "alighting_demand_deferred_without_downstream_admission",
-                source="legacy_direct_alighting_helper",
-                severity="warning",
-                count=int(count),
-                step=self.step_index,
-                context={"pending_groups": self.pending_alighting_groups},
-            )
-            return
+            raise RuntimeError(f"train exchange manifest required for alighting demand: {run_ref}")
         doors = self.boarding_doors_for_train(train)
         if not doors:
             raise RuntimeError(f"model_invalid: train {run_ref} has no mapped doors")
@@ -561,6 +559,29 @@ class PassengerDemandMixin:
                     reason=TemporaryDemandBlockReason.SOURCE_PLACEMENT_BLOCKED,
                 )
                 raise
+            manifest = self.train_exchange_manifests[run_ref]
+            try:
+                self.external_demand_reservoir.validate_commit(
+                    claim,
+                    passenger_id=int(passenger.unique_id),
+                    published_step=int(self.step_index),
+                )
+                manifest.preflight_alighting_release(
+                    int(passenger.group_size),
+                    at_step=int(self.step_index),
+                )
+            except BaseException:
+                self._release_alighting_source_admission_reservation(
+                    downstream,
+                    reason="publication_preflight_exception",
+                )
+                rollback_published_passenger(self, passenger)
+                self.external_demand_reservoir.defer(
+                    claim,
+                    step=int(self.step_index),
+                    reason=TemporaryDemandBlockReason.DOWNSTREAM_CAPACITY_EXHAUSTED,
+                )
+                raise
             try:
                 self._commit_alighting_source_admission_reservation(
                     downstream,
@@ -574,22 +595,24 @@ class PassengerDemandMixin:
                     reason=TemporaryDemandBlockReason.DOWNSTREAM_CAPACITY_EXHAUSTED,
                 )
                 raise
+            manifest_released = False
             try:
-                self.external_demand_reservoir.validate_commit(
-                    claim,
-                    passenger_id=int(passenger.unique_id),
-                    published_step=int(self.step_index),
-                )
-                self.train_exchange_manifests[run_ref].release_alighting_group(
+                manifest.release_alighting_group(
                     int(passenger.group_size),
                     at_step=int(self.step_index),
                 )
+                manifest_released = True
                 self.external_demand_reservoir.commit(
                     claim,
                     passenger_id=int(passenger.unique_id),
                     published_step=int(self.step_index),
                 )
             except BaseException:
+                if manifest_released:
+                    manifest.rollback_latest_alighting_release(
+                        int(passenger.group_size),
+                        at_step=int(self.step_index),
+                    )
                 resource = getattr(self, "alignment_admission_resources", {}).get("exit")
                 if resource is not None and int(passenger.unique_id) in resource.owners:
                     resource.release(
@@ -598,6 +621,11 @@ class PassengerDemandMixin:
                         reason="manifest_or_reservoir_commit_exception",
                     )
                 rollback_published_passenger(self, passenger)
+                self.external_demand_reservoir.defer(
+                    claim,
+                    step=int(self.step_index),
+                    reason=TemporaryDemandBlockReason.DOWNSTREAM_CAPACITY_EXHAUSTED,
+                )
                 raise
             passenger.assigned_platform_id = train.platform_id
             passenger.assigned_line_id = train.line_id
