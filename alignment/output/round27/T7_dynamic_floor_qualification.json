@@ -11,6 +11,7 @@
   },
   "preregistered_contract_ref": "alignment/output/round27/T0_preregistered_prediction_contract.json",
   "qualification_seeds": [41, 42, 43, 44, 45],
+  "qualification_evidence_sha256": "a8cc900e3e2b09950005a7e8ed702988b37c137438779505a885886640da6ca7",
   "floor_rule": "minimum observed admitted and terminal-completed persons across the five frozen qualification seeds; no blocked interval is excluded",
   "interpretation": "empirical non-vacuity floor for the frozen 240-step dynamic run; not a physical capacity or clearance service-rate proof",
   "runs": [
@@ -86,14 +87,20 @@
       "scheduled_persons": 167,
       "minimum_admitted_persons": 107,
       "minimum_completed_persons": 18,
-      "evidence_ref": "this artifact; qualification seeds 41-45"
+      "evidence_ref": "alignment/output/round27/T7_dynamic_floor_qualification.json#runs",
+      "evidence_class": "empirical_qualification",
+      "evidence_sha256": "a8cc900e3e2b09950005a7e8ed702988b37c137438779505a885886640da6ca7",
+      "qualification_revision": "61c692928e4a01c651a7c8abf8f98e4925377025"
     },
     {
       "flow_id": "exit",
       "scheduled_persons": 134,
       "minimum_admitted_persons": 134,
       "minimum_completed_persons": 35,
-      "evidence_ref": "this artifact; qualification seeds 41-45"
+      "evidence_ref": "alignment/output/round27/T7_dynamic_floor_qualification.json#runs",
+      "evidence_class": "empirical_qualification",
+      "evidence_sha256": "a8cc900e3e2b09950005a7e8ed702988b37c137438779505a885886640da6ca7",
+      "qualification_revision": "61c692928e4a01c651a7c8abf8f98e4925377025"
     }
   ],
   "clearance_effect": {
