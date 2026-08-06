@@ -38,6 +38,16 @@ def test_alighting_manifest_completes_before_successful_departure() -> None:
     assert row["not_alighted_persons"] == 0
     assert row["alighting_release_complete_step"] <= row["actual_departure_step"]
     assert model.external_demand_reservoir.pending_persons() == 0
+    assert model.snapshot()["source_boundaries"]["flows"]["exit"] == {
+        "scheduled_persons": 2,
+        "admitted_persons": 2,
+        "source_waiting_persons": 0,
+        "active_inside_persons": 0,
+        "completed_persons": 2,
+        "not_alighted_persons": 0,
+        "dropped_persons": 0,
+        "conserved": True,
+    }
 
 
 def test_blocked_alighting_fails_capacity_without_departure_or_cross_train_pool() -> None:
@@ -58,6 +68,7 @@ def test_blocked_alighting_fails_capacity_without_departure_or_cross_train_pool(
     assert row["not_alighted_persons"] == 2
     assert model.external_demand_reservoir.pending_persons() == 0
     assert model.train.departed_trains == 0
+    assert model.snapshot()["source_boundaries"]["flows"]["exit"]["conserved"] is True
 
 
 def test_blocked_entry_is_owned_by_external_reservoir_not_station() -> None:

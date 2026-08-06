@@ -66,7 +66,7 @@ def source_boundary_metrics(model: MetroStationModel) -> dict[str, Any]:
             + row["completed_persons"]
         )
         entry_rows.append(row)
-    return {
+    payload = {
         "schema_version": "metro_source_boundaries.v1",
         "entry_sources": entry_rows,
         "train_alighting_manifests": model.train_exchange_result_rows(),
@@ -74,6 +74,15 @@ def source_boundary_metrics(model: MetroStationModel) -> dict[str, Any]:
         "pooled_source_wait_duration": None,
         "pooling_prohibited": True,
     }
+    payload["flows"] = _flow_boundaries(
+        model,
+        entry_rows=entry_rows,
+        active_ids=active_ids,
+        terminal_ids=terminal_ids,
+        pending=pending,
+        residences=residences,
+    )
+    return payload
 
 
 def aggregate_source_counts(boundaries: dict[str, Any]) -> dict[str, int]:
@@ -91,6 +100,78 @@ def aggregate_source_counts(boundaries: dict[str, Any]) -> dict[str, int]:
         ):
             totals[field] += int(row.get(field, 0))
     return dict(totals)
+
+
+def _flow_boundaries(
+    model: MetroStationModel,
+    *,
+    entry_rows: list[dict[str, Any]],
+    active_ids: set[int],
+    terminal_ids: set[int],
+    pending,
+    residences,
+) -> dict[str, dict[str, int | bool]]:
+    entry = {
+        field: sum(int(row.get(field, 0)) for row in entry_rows)
+        for field in (
+            "scheduled_persons",
+            "admitted_persons",
+            "source_waiting_persons",
+            "active_inside_persons",
+            "completed_persons",
+            "not_alighted_persons",
+            "dropped_persons",
+        )
+    }
+    entry["conserved"] = entry["scheduled_persons"] == (
+        entry["source_waiting_persons"]
+        + entry["active_inside_persons"]
+        + entry["completed_persons"]
+        + entry["not_alighted_persons"]
+        + entry["dropped_persons"]
+    )
+
+    waiting = [
+        ticket for ticket in pending if ticket.source_kind == DemandSourceKind.TRAIN_ALIGHTING
+    ]
+    published = [
+        item
+        for item in residences
+        if item.ticket.source_kind == DemandSourceKind.TRAIN_ALIGHTING
+        and item.outcome == DemandTicketState.PUBLISHED
+    ]
+    retired_not_alighted = [
+        item
+        for item in residences
+        if item.ticket.source_kind == DemandSourceKind.TRAIN_ALIGHTING
+        and item.outcome == DemandTicketState.NOT_ALIGHTED
+    ]
+    active = [item for item in published if int(item.passenger_id) in active_ids]
+    completed = [item for item in published if int(item.passenger_id) in terminal_ids]
+    unbound = int(model.unbound_not_alighted_persons)
+    exit_flow: dict[str, int | bool] = {
+        "scheduled_persons": sum(ticket.group_size for ticket in waiting)
+        + sum(item.ticket.group_size for item in published)
+        + sum(item.ticket.group_size for item in retired_not_alighted)
+        + unbound,
+        "admitted_persons": sum(item.ticket.group_size for item in published),
+        "source_waiting_persons": sum(ticket.group_size for ticket in waiting),
+        "active_inside_persons": sum(item.ticket.group_size for item in active),
+        "completed_persons": sum(item.ticket.group_size for item in completed),
+        "not_alighted_persons": sum(
+            item.ticket.group_size for item in retired_not_alighted
+        )
+        + unbound,
+        "dropped_persons": 0,
+    }
+    exit_flow["conserved"] = exit_flow["scheduled_persons"] == (
+        exit_flow["source_waiting_persons"]
+        + exit_flow["active_inside_persons"]
+        + exit_flow["completed_persons"]
+        + exit_flow["not_alighted_persons"]
+        + exit_flow["dropped_persons"]
+    )
+    return {"entry": entry, "exit": exit_flow}
 
 
 def _distribution(values: list[int]) -> dict[str, int | None]:
