@@ -410,6 +410,7 @@ def main() -> int:
     parser.add_argument("--output", type=Path, required=True)
     parser.add_argument("--residence-output", type=Path)
     parser.add_argument("--steps", type=int, default=120)
+    parser.add_argument("--seed", type=int, default=42)
     parser.add_argument("--enlarged-capacity", type=int, default=100_000)
     parser.add_argument("--entry-capacity", type=int)
     parser.add_argument("--exit-capacity", type=int)
@@ -426,6 +427,7 @@ def main() -> int:
     )
     base = replace(
         build_scene_config("platform_boarding"),
+        seed=int(args.seed),
         minutes=max(demand_minutes + 1, (args.steps + 59) // 60),
         demand_minutes=demand_minutes,
     )
