@@ -1,0 +1,1652 @@
+{
+  "schema_version": "alignment_round27_source_probe.v1",
+  "revision": "bf75d297efa360de3f145589f70d3a21097d5e08",
+  "runtime_cohort": {
+    "metro_runtime_fingerprint": {
+      "schema_version": "metro_source_fingerprint.v2",
+      "package_version": "0.1.0",
+      "python": "CPython 3.12.13",
+      "dependency_versions": {
+        "jupedsim": "1.4.2",
+        "mesa": "3.5.1",
+        "numpy": "2.5.1",
+        "pandas": "3.0.5",
+        "pedpy": "1.5.1",
+        "shapely": "2.1.2"
+      },
+      "python_file_count": 281,
+      "source_tree_sha256": "c7bb06b9c797cdc9dd967b5b3a6cc4ddb985fec72c8667dc833ea7ab609044eb"
+    },
+    "analysis_runtime_fingerprint": {
+      "schema_version": "alignment_analysis_runtime.v2",
+      "python": "CPython 3.12.13",
+      "pedpy_version": "1.5.1",
+      "file_count": 44,
+      "content_sha256": "807cc8e7f54454221732d9113231c3b3aa94f932d170e10ff68711de34171961"
+    }
+  },
+  "seed": 43,
+  "control": {
+    "scene_id": "platform_boarding",
+    "minutes": 10,
+    "demand_minutes": 10,
+    "formal_horizon_steps": 480,
+    "entry_count_hour": 2500,
+    "exit_count_hour": 2200,
+    "entry_admission_token_capacity": null,
+    "exit_admission_token_capacity": null,
+    "design_sha256": "e029a05941243fa9e3fd0d180af6157a26c0e69fd9e1fa9e4a0f24bcfcb13663"
+  },
+  "run_outcome_code": null,
+  "step": 480,
+  "flows": {
+    "entry": {
+      "scheduled_persons": 334,
+      "admitted_persons": 218,
+      "source_waiting_persons": 116,
+      "active_inside_persons": 157,
+      "completed_persons": 61,
+      "not_alighted_persons": 0,
+      "right_censored_persons": 116,
+      "dropped_persons": 0,
+      "conserved": true
+    },
+    "exit": {
+      "scheduled_persons": 267,
+      "admitted_persons": 267,
+      "source_waiting_persons": 0,
+      "active_inside_persons": 170,
+      "completed_persons": 97,
+      "not_alighted_persons": 0,
+      "right_censored_persons": 0,
+      "dropped_persons": 0,
+      "conserved": true
+    }
+  },
+  "admission": {
+    "entry": {
+      "attempts": 685,
+      "exhausted_attempts": 0,
+      "exhausted_ratio": 0.0
+    },
+    "exit": {
+      "attempts": 267,
+      "exhausted_attempts": 0,
+      "exhausted_ratio": 0.0
+    }
+  },
+  "round26_regression": {
+    "placement_retry_attempts": 0,
+    "placement_retry_ratio": 0.0,
+    "stalled_region_replan_attempts": 7,
+    "stalled_region_replan_ratio": 0.01443298969072165,
+    "liveness_violations": 0
+  },
+  "round28_replan_diagnostics": {
+    "schema_version": "alignment_round28_replan_diagnostics.v1",
+    "event_count": 7,
+    "events": [
+      {
+        "step": 388,
+        "count": 1,
+        "context": {
+          "passenger_id": 408,
+          "region_id": "exit_gate_decision",
+          "stage": "exit_gate",
+          "reason": "movement_stalled",
+          "before_replan": {
+            "state": "walking_to_exit_gate",
+            "position": [
+              43.507503835579605,
+              17.47440932472603
+            ],
+            "target": [
+              44.6395,
+              12.9925
+            ],
+            "route": [],
+            "holding_regions": [],
+            "approach_facilities": {},
+            "preferred_facility_id": "exit_gate:exit_gate_bank_a:lane_1"
+          },
+          "after_target": [
+            44.6395,
+            12.9925
+          ],
+          "after_route": [],
+          "passenger_state": "walking_to_exit_gate",
+          "goal_kind": "goal_region",
+          "goal_node_id": "approach_exit_gate_decision",
+          "interaction_state": null,
+          "target_facility_id": "exit_gate:exit_gate_bank_a:lane_1",
+          "candidate_facility_ids": [
+            "exit_gate:exit_gate_bank_a:lane_1",
+            "exit_gate:exit_gate_bank_a:lane_2",
+            "exit_gate:exit_gate_bank_a:lane_3"
+          ],
+          "upstream_occupancy": [
+            {
+              "facility_id": "entry_gate:entry_gate_bank_a:lane_1",
+              "stage": "entry_gate",
+              "queue_persons": 2,
+              "active_persons": 1,
+              "approach_reservations": 0,
+              "queue_capacity": 3,
+              "forced_disabled": false,
+              "service_blocked_reason": null
+            },
+            {
+              "facility_id": "entry_gate:entry_gate_bank_a:lane_2",
+              "stage": "entry_gate",
+              "queue_persons": 0,
+              "active_persons": 1,
+              "approach_reservations": 3,
+              "queue_capacity": 3,
+              "forced_disabled": false,
+              "service_blocked_reason": null
+            },
+            {
+              "facility_id": "entry_gate:entry_gate_bank_a:lane_3",
+              "stage": "entry_gate",
+              "queue_persons": 0,
+              "active_persons": 0,
+              "approach_reservations": 3,
+              "queue_capacity": 3,
+              "forced_disabled": false,
+              "service_blocked_reason": null
+            }
+          ],
+          "downstream_occupancy": [],
+          "facility_occupancy": [
+            {
+              "facility_id": "boarding_door:platform_edge_a",
+              "stage": "boarding_door",
+              "queue_persons": 2,
+              "active_persons": 0,
+              "approach_reservations": 9,
+              "queue_capacity": 10,
+              "forced_disabled": false,
+              "service_blocked_reason": null
+            },
+            {
+              "facility_id": "boarding_door:platform_edge_b",
+              "stage": "boarding_door",
+              "queue_persons": 1,
+              "active_persons": 0,
+              "approach_reservations": 9,
+              "queue_capacity": 10,
+              "forced_disabled": false,
+              "service_blocked_reason": null
+            },
+            {
+              "facility_id": "boarding_door:platform_edge_c",
+              "stage": "boarding_door",
+              "queue_persons": 4,
+              "active_persons": 0,
+              "approach_reservations": 5,
+              "queue_capacity": 10,
+              "forced_disabled": false,
+              "service_blocked_reason": null
+            },
+            {
+              "facility_id": "boarding_door:platform_edge_d",
+              "stage": "boarding_door",
+              "queue_persons": 4,
+              "active_persons": 0,
+              "approach_reservations": 6,
+              "queue_capacity": 10,
+              "forced_disabled": false,
+              "service_blocked_reason": null
+            },
+            {
+              "facility_id": "boarding_door:platform_edge_e",
+              "stage": "boarding_door",
+              "queue_persons": 5,
+              "active_persons": 0,
+              "approach_reservations": 5,
+              "queue_capacity": 10,
+              "forced_disabled": false,
+              "service_blocked_reason": null
+            },
+            {
+              "facility_id": "boarding_door:platform_edge_f",
+              "stage": "boarding_door",
+              "queue_persons": 5,
+              "active_persons": 0,
+              "approach_reservations": 5,
+              "queue_capacity": 10,
+              "forced_disabled": false,
+              "service_blocked_reason": null
+            },
+            {
+              "facility_id": "boarding_door:platform_edge_g",
+              "stage": "boarding_door",
+              "queue_persons": 0,
+              "active_persons": 0,
+              "approach_reservations": 10,
+              "queue_capacity": 10,
+              "forced_disabled": false,
+              "service_blocked_reason": null
+            },
+            {
+              "facility_id": "entry_gate:entry_gate_bank_a:lane_1",
+              "stage": "entry_gate",
+              "queue_persons": 2,
+              "active_persons": 1,
+              "approach_reservations": 0,
+              "queue_capacity": 3,
+              "forced_disabled": false,
+              "service_blocked_reason": null
+            },
+            {
+              "facility_id": "entry_gate:entry_gate_bank_a:lane_2",
+              "stage": "entry_gate",
+              "queue_persons": 0,
+              "active_persons": 1,
+              "approach_reservations": 3,
+              "queue_capacity": 3,
+              "forced_disabled": false,
+              "service_blocked_reason": null
+            },
+            {
+              "facility_id": "entry_gate:entry_gate_bank_a:lane_3",
+              "stage": "entry_gate",
+              "queue_persons": 0,
+              "active_persons": 0,
+              "approach_reservations": 3,
+              "queue_capacity": 3,
+              "forced_disabled": false,
+              "service_blocked_reason": null
+            },
+            {
+              "facility_id": "exit_gate:exit_gate_bank_a:lane_1",
+              "stage": "exit_gate",
+              "queue_persons": 1,
+              "active_persons": 0,
+              "approach_reservations": 4,
+              "queue_capacity": 6,
+              "forced_disabled": false,
+              "service_blocked_reason": "queue_head_not_service_ready"
+            },
+            {
+              "facility_id": "exit_gate:exit_gate_bank_a:lane_2",
+              "stage": "exit_gate",
+              "queue_persons": 2,
+              "active_persons": 0,
+              "approach_reservations": 5,
+              "queue_capacity": 6,
+              "forced_disabled": false,
+              "service_blocked_reason": "queue_head_not_service_ready"
+            },
+            {
+              "facility_id": "exit_gate:exit_gate_bank_a:lane_3",
+              "stage": "exit_gate",
+              "queue_persons": 1,
+              "active_persons": 0,
+              "approach_reservations": 5,
+              "queue_capacity": 6,
+              "forced_disabled": false,
+              "service_blocked_reason": null
+            }
+          ]
+        }
+      },
+      {
+        "step": 399,
+        "count": 1,
+        "context": {
+          "passenger_id": 443,
+          "region_id": "exit_gate_decision",
+          "stage": "exit_gate",
+          "reason": "movement_stalled",
+          "before_replan": {
+            "state": "walking_to_exit_gate",
+            "position": [
+              50.68271186425159,
+              14.259513406425667
+            ],
+            "target": [
+              51.0475,
+              11.3905
+            ],
+            "route": [],
+            "holding_regions": [],
+            "approach_facilities": {},
+            "preferred_facility_id": "exit_gate:exit_gate_bank_a:lane_1"
+          },
+          "after_target": [
+            17.75,
+            23.6
+          ],
+          "after_route": [],
+          "passenger_state": "walking_to_exit_gate",
+          "goal_kind": "goal_region",
+          "goal_node_id": "approach_exit_gate_decision",
+          "interaction_state": null,
+          "target_facility_id": "exit_gate:exit_gate_bank_a:lane_1",
+          "candidate_facility_ids": [
+            "exit_gate:exit_gate_bank_a:lane_1"
+          ],
+          "upstream_occupancy": [
+            {
+              "facility_id": "entry_gate:entry_gate_bank_a:lane_1",
+              "stage": "entry_gate",
+              "queue_persons": 0,
+              "active_persons": 0,
+              "approach_reservations": 3,
+              "queue_capacity": 3,
+              "forced_disabled": false,
+              "service_blocked_reason": null
+            },
+            {
+              "facility_id": "entry_gate:entry_gate_bank_a:lane_2",
+              "stage": "entry_gate",
+              "queue_persons": 1,
+              "active_persons": 2,
+              "approach_reservations": 1,
+              "queue_capacity": 3,
+              "forced_disabled": false,
+              "service_blocked_reason": null
+            },
+            {
+              "facility_id": "entry_gate:entry_gate_bank_a:lane_3",
+              "stage": "entry_gate",
+              "queue_persons": 2,
+              "active_persons": 1,
+              "approach_reservations": 0,
+              "queue_capacity": 3,
+              "forced_disabled": false,
+              "service_blocked_reason": null
+            }
+          ],
+          "downstream_occupancy": [],
+          "facility_occupancy": [
+            {
+              "facility_id": "boarding_door:platform_edge_a",
+              "stage": "boarding_door",
+              "queue_persons": 3,
+              "active_persons": 0,
+              "approach_reservations": 8,
+              "queue_capacity": 10,
+              "forced_disabled": false,
+              "service_blocked_reason": null
+            },
+            {
+              "facility_id": "boarding_door:platform_edge_b",
+              "stage": "boarding_door",
+              "queue_persons": 3,
+              "active_persons": 0,
+              "approach_reservations": 7,
+              "queue_capacity": 10,
+              "forced_disabled": false,
+              "service_blocked_reason": null
+            },
+            {
+              "facility_id": "boarding_door:platform_edge_c",
+              "stage": "boarding_door",
+              "queue_persons": 5,
+              "active_persons": 0,
+              "approach_reservations": 4,
+              "queue_capacity": 10,
+              "forced_disabled": false,
+              "service_blocked_reason": null
+            },
+            {
+              "facility_id": "boarding_door:platform_edge_d",
+              "stage": "boarding_door",
+              "queue_persons": 4,
+              "active_persons": 0,
+              "approach_reservations": 6,
+              "queue_capacity": 10,
+              "forced_disabled": false,
+              "service_blocked_reason": null
+            },
+            {
+              "facility_id": "boarding_door:platform_edge_e",
+              "stage": "boarding_door",
+              "queue_persons": 6,
+              "active_persons": 0,
+              "approach_reservations": 4,
+              "queue_capacity": 10,
+              "forced_disabled": false,
+              "service_blocked_reason": null
+            },
+            {
+              "facility_id": "boarding_door:platform_edge_f",
+              "stage": "boarding_door",
+              "queue_persons": 5,
+              "active_persons": 0,
+              "approach_reservations": 5,
+              "queue_capacity": 10,
+              "forced_disabled": false,
+              "service_blocked_reason": null
+            },
+            {
+              "facility_id": "boarding_door:platform_edge_g",
+              "stage": "boarding_door",
+              "queue_persons": 0,
+              "active_persons": 0,
+              "approach_reservations": 10,
+              "queue_capacity": 10,
+              "forced_disabled": false,
+              "service_blocked_reason": null
+            },
+            {
+              "facility_id": "entry_gate:entry_gate_bank_a:lane_1",
+              "stage": "entry_gate",
+              "queue_persons": 0,
+              "active_persons": 0,
+              "approach_reservations": 3,
+              "queue_capacity": 3,
+              "forced_disabled": false,
+              "service_blocked_reason": null
+            },
+            {
+              "facility_id": "entry_gate:entry_gate_bank_a:lane_2",
+              "stage": "entry_gate",
+              "queue_persons": 1,
+              "active_persons": 2,
+              "approach_reservations": 1,
+              "queue_capacity": 3,
+              "forced_disabled": false,
+              "service_blocked_reason": null
+            },
+            {
+              "facility_id": "entry_gate:entry_gate_bank_a:lane_3",
+              "stage": "entry_gate",
+              "queue_persons": 2,
+              "active_persons": 1,
+              "approach_reservations": 0,
+              "queue_capacity": 3,
+              "forced_disabled": false,
+              "service_blocked_reason": null
+            },
+            {
+              "facility_id": "exit_gate:exit_gate_bank_a:lane_1",
+              "stage": "exit_gate",
+              "queue_persons": 0,
+              "active_persons": 2,
+              "approach_reservations": 5,
+              "queue_capacity": 6,
+              "forced_disabled": false,
+              "service_blocked_reason": null
+            },
+            {
+              "facility_id": "exit_gate:exit_gate_bank_a:lane_2",
+              "stage": "exit_gate",
+              "queue_persons": 1,
+              "active_persons": 1,
+              "approach_reservations": 2,
+              "queue_capacity": 6,
+              "forced_disabled": false,
+              "service_blocked_reason": null
+            },
+            {
+              "facility_id": "exit_gate:exit_gate_bank_a:lane_3",
+              "stage": "exit_gate",
+              "queue_persons": 0,
+              "active_persons": 1,
+              "approach_reservations": 5,
+              "queue_capacity": 6,
+              "forced_disabled": false,
+              "service_blocked_reason": null
+            }
+          ]
+        }
+      },
+      {
+        "step": 401,
+        "count": 1,
+        "context": {
+          "passenger_id": 447,
+          "region_id": "exit_gate_decision",
+          "stage": "exit_gate",
+          "reason": "movement_stalled",
+          "before_replan": {
+            "state": "walking_to_exit_gate",
+            "position": [
+              46.709320088319124,
+              18.28627627790853
+            ],
+            "target": [
+              47.0425,
+              16.9975
+            ],
+            "route": [],
+            "holding_regions": [],
+            "approach_facilities": {},
+            "preferred_facility_id": "exit_gate:exit_gate_bank_a:lane_1"
+          },
+          "after_target": [
+            19.65,
+            24.4
+          ],
+          "after_route": [],
+          "passenger_state": "walking_to_exit_gate",
+          "goal_kind": "goal_region",
+          "goal_node_id": "approach_exit_gate_decision",
+          "interaction_state": null,
+          "target_facility_id": "exit_gate:exit_gate_bank_a:lane_2",
+          "candidate_facility_ids": [
+            "exit_gate:exit_gate_bank_a:lane_2"
+          ],
+          "upstream_occupancy": [
+            {
+              "facility_id": "entry_gate:entry_gate_bank_a:lane_1",
+              "stage": "entry_gate",
+              "queue_persons": 1,
+              "active_persons": 0,
+              "approach_reservations": 2,
+              "queue_capacity": 3,
+              "forced_disabled": false,
+              "service_blocked_reason": null
+            },
+            {
+              "facility_id": "entry_gate:entry_gate_bank_a:lane_2",
+              "stage": "entry_gate",
+              "queue_persons": 0,
+              "active_persons": 2,
+              "approach_reservations": 1,
+              "queue_capacity": 3,
+              "forced_disabled": false,
+              "service_blocked_reason": null
+            },
+            {
+              "facility_id": "entry_gate:entry_gate_bank_a:lane_3",
+              "stage": "entry_gate",
+              "queue_persons": 1,
+              "active_persons": 2,
+              "approach_reservations": 0,
+              "queue_capacity": 3,
+              "forced_disabled": false,
+              "service_blocked_reason": null
+            }
+          ],
+          "downstream_occupancy": [],
+          "facility_occupancy": [
+            {
+              "facility_id": "boarding_door:platform_edge_a",
+              "stage": "boarding_door",
+              "queue_persons": 3,
+              "active_persons": 0,
+              "approach_reservations": 8,
+              "queue_capacity": 10,
+              "forced_disabled": false,
+              "service_blocked_reason": null
+            },
+            {
+              "facility_id": "boarding_door:platform_edge_b",
+              "stage": "boarding_door",
+              "queue_persons": 3,
+              "active_persons": 0,
+              "approach_reservations": 7,
+              "queue_capacity": 10,
+              "forced_disabled": false,
+              "service_blocked_reason": null
+            },
+            {
+              "facility_id": "boarding_door:platform_edge_c",
+              "stage": "boarding_door",
+              "queue_persons": 5,
+              "active_persons": 0,
+              "approach_reservations": 4,
+              "queue_capacity": 10,
+              "forced_disabled": false,
+              "service_blocked_reason": null
+            },
+            {
+              "facility_id": "boarding_door:platform_edge_d",
+              "stage": "boarding_door",
+              "queue_persons": 4,
+              "active_persons": 0,
+              "approach_reservations": 6,
+              "queue_capacity": 10,
+              "forced_disabled": false,
+              "service_blocked_reason": null
+            },
+            {
+              "facility_id": "boarding_door:platform_edge_e",
+              "stage": "boarding_door",
+              "queue_persons": 6,
+              "active_persons": 0,
+              "approach_reservations": 4,
+              "queue_capacity": 10,
+              "forced_disabled": false,
+              "service_blocked_reason": null
+            },
+            {
+              "facility_id": "boarding_door:platform_edge_f",
+              "stage": "boarding_door",
+              "queue_persons": 5,
+              "active_persons": 0,
+              "approach_reservations": 5,
+              "queue_capacity": 10,
+              "forced_disabled": false,
+              "service_blocked_reason": null
+            },
+            {
+              "facility_id": "boarding_door:platform_edge_g",
+              "stage": "boarding_door",
+              "queue_persons": 0,
+              "active_persons": 0,
+              "approach_reservations": 10,
+              "queue_capacity": 10,
+              "forced_disabled": false,
+              "service_blocked_reason": null
+            },
+            {
+              "facility_id": "entry_gate:entry_gate_bank_a:lane_1",
+              "stage": "entry_gate",
+              "queue_persons": 1,
+              "active_persons": 0,
+              "approach_reservations": 2,
+              "queue_capacity": 3,
+              "forced_disabled": false,
+              "service_blocked_reason": null
+            },
+            {
+              "facility_id": "entry_gate:entry_gate_bank_a:lane_2",
+              "stage": "entry_gate",
+              "queue_persons": 0,
+              "active_persons": 2,
+              "approach_reservations": 1,
+              "queue_capacity": 3,
+              "forced_disabled": false,
+              "service_blocked_reason": null
+            },
+            {
+              "facility_id": "entry_gate:entry_gate_bank_a:lane_3",
+              "stage": "entry_gate",
+              "queue_persons": 1,
+              "active_persons": 2,
+              "approach_reservations": 0,
+              "queue_capacity": 3,
+              "forced_disabled": false,
+              "service_blocked_reason": null
+            },
+            {
+              "facility_id": "exit_gate:exit_gate_bank_a:lane_1",
+              "stage": "exit_gate",
+              "queue_persons": 0,
+              "active_persons": 1,
+              "approach_reservations": 6,
+              "queue_capacity": 6,
+              "forced_disabled": false,
+              "service_blocked_reason": null
+            },
+            {
+              "facility_id": "exit_gate:exit_gate_bank_a:lane_2",
+              "stage": "exit_gate",
+              "queue_persons": 1,
+              "active_persons": 0,
+              "approach_reservations": 4,
+              "queue_capacity": 6,
+              "forced_disabled": false,
+              "service_blocked_reason": "queue_head_not_service_ready"
+            },
+            {
+              "facility_id": "exit_gate:exit_gate_bank_a:lane_3",
+              "stage": "exit_gate",
+              "queue_persons": 0,
+              "active_persons": 1,
+              "approach_reservations": 6,
+              "queue_capacity": 6,
+              "forced_disabled": false,
+              "service_blocked_reason": null
+            }
+          ]
+        }
+      },
+      {
+        "step": 402,
+        "count": 1,
+        "context": {
+          "passenger_id": 454,
+          "region_id": "exit_gate_decision",
+          "stage": "exit_gate",
+          "reason": "movement_stalled",
+          "before_replan": {
+            "state": "walking_to_exit_gate",
+            "position": [
+              60.98819449052622,
+              17.485812329281263
+            ],
+            "target": [
+              60.6595,
+              16.1965
+            ],
+            "route": [],
+            "holding_regions": [],
+            "approach_facilities": {},
+            "preferred_facility_id": "exit_gate:exit_gate_bank_a:lane_1"
+          },
+          "after_target": [
+            19.65,
+            23.6
+          ],
+          "after_route": [],
+          "passenger_state": "walking_to_exit_gate",
+          "goal_kind": "goal_region",
+          "goal_node_id": "approach_exit_gate_decision",
+          "interaction_state": null,
+          "target_facility_id": "exit_gate:exit_gate_bank_a:lane_2",
+          "candidate_facility_ids": [
+            "exit_gate:exit_gate_bank_a:lane_2"
+          ],
+          "upstream_occupancy": [
+            {
+              "facility_id": "entry_gate:entry_gate_bank_a:lane_1",
+              "stage": "entry_gate",
+              "queue_persons": 2,
+              "active_persons": 0,
+              "approach_reservations": 1,
+              "queue_capacity": 3,
+              "forced_disabled": false,
+              "service_blocked_reason": null
+            },
+            {
+              "facility_id": "entry_gate:entry_gate_bank_a:lane_2",
+              "stage": "entry_gate",
+              "queue_persons": 0,
+              "active_persons": 2,
+              "approach_reservations": 3,
+              "queue_capacity": 3,
+              "forced_disabled": false,
+              "service_blocked_reason": null
+            },
+            {
+              "facility_id": "entry_gate:entry_gate_bank_a:lane_3",
+              "stage": "entry_gate",
+              "queue_persons": 1,
+              "active_persons": 1,
+              "approach_reservations": 1,
+              "queue_capacity": 3,
+              "forced_disabled": false,
+              "service_blocked_reason": null
+            }
+          ],
+          "downstream_occupancy": [],
+          "facility_occupancy": [
+            {
+              "facility_id": "boarding_door:platform_edge_a",
+              "stage": "boarding_door",
+              "queue_persons": 3,
+              "active_persons": 0,
+              "approach_reservations": 8,
+              "queue_capacity": 10,
+              "forced_disabled": false,
+              "service_blocked_reason": null
+            },
+            {
+              "facility_id": "boarding_door:platform_edge_b",
+              "stage": "boarding_door",
+              "queue_persons": 3,
+              "active_persons": 0,
+              "approach_reservations": 7,
+              "queue_capacity": 10,
+              "forced_disabled": false,
+              "service_blocked_reason": null
+            },
+            {
+              "facility_id": "boarding_door:platform_edge_c",
+              "stage": "boarding_door",
+              "queue_persons": 5,
+              "active_persons": 0,
+              "approach_reservations": 4,
+              "queue_capacity": 10,
+              "forced_disabled": false,
+              "service_blocked_reason": null
+            },
+            {
+              "facility_id": "boarding_door:platform_edge_d",
+              "stage": "boarding_door",
+              "queue_persons": 4,
+              "active_persons": 0,
+              "approach_reservations": 6,
+              "queue_capacity": 10,
+              "forced_disabled": false,
+              "service_blocked_reason": null
+            },
+            {
+              "facility_id": "boarding_door:platform_edge_e",
+              "stage": "boarding_door",
+              "queue_persons": 6,
+              "active_persons": 0,
+              "approach_reservations": 4,
+              "queue_capacity": 10,
+              "forced_disabled": false,
+              "service_blocked_reason": null
+            },
+            {
+              "facility_id": "boarding_door:platform_edge_f",
+              "stage": "boarding_door",
+              "queue_persons": 5,
+              "active_persons": 0,
+              "approach_reservations": 5,
+              "queue_capacity": 10,
+              "forced_disabled": false,
+              "service_blocked_reason": null
+            },
+            {
+              "facility_id": "boarding_door:platform_edge_g",
+              "stage": "boarding_door",
+              "queue_persons": 0,
+              "active_persons": 0,
+              "approach_reservations": 10,
+              "queue_capacity": 10,
+              "forced_disabled": false,
+              "service_blocked_reason": null
+            },
+            {
+              "facility_id": "entry_gate:entry_gate_bank_a:lane_1",
+              "stage": "entry_gate",
+              "queue_persons": 2,
+              "active_persons": 0,
+              "approach_reservations": 1,
+              "queue_capacity": 3,
+              "forced_disabled": false,
+              "service_blocked_reason": null
+            },
+            {
+              "facility_id": "entry_gate:entry_gate_bank_a:lane_2",
+              "stage": "entry_gate",
+              "queue_persons": 0,
+              "active_persons": 2,
+              "approach_reservations": 3,
+              "queue_capacity": 3,
+              "forced_disabled": false,
+              "service_blocked_reason": null
+            },
+            {
+              "facility_id": "entry_gate:entry_gate_bank_a:lane_3",
+              "stage": "entry_gate",
+              "queue_persons": 1,
+              "active_persons": 1,
+              "approach_reservations": 1,
+              "queue_capacity": 3,
+              "forced_disabled": false,
+              "service_blocked_reason": null
+            },
+            {
+              "facility_id": "exit_gate:exit_gate_bank_a:lane_1",
+              "stage": "exit_gate",
+              "queue_persons": 0,
+              "active_persons": 1,
+              "approach_reservations": 6,
+              "queue_capacity": 6,
+              "forced_disabled": false,
+              "service_blocked_reason": null
+            },
+            {
+              "facility_id": "exit_gate:exit_gate_bank_a:lane_2",
+              "stage": "exit_gate",
+              "queue_persons": 0,
+              "active_persons": 1,
+              "approach_reservations": 5,
+              "queue_capacity": 6,
+              "forced_disabled": false,
+              "service_blocked_reason": null
+            },
+            {
+              "facility_id": "exit_gate:exit_gate_bank_a:lane_3",
+              "stage": "exit_gate",
+              "queue_persons": 0,
+              "active_persons": 1,
+              "approach_reservations": 6,
+              "queue_capacity": 6,
+              "forced_disabled": false,
+              "service_blocked_reason": null
+            }
+          ]
+        }
+      },
+      {
+        "step": 408,
+        "count": 1,
+        "context": {
+          "passenger_id": 408,
+          "region_id": "exit_gate_decision",
+          "stage": "exit_gate",
+          "reason": "movement_stalled",
+          "before_replan": {
+            "state": "walking_to_exit_gate",
+            "position": [
+              43.50701841210646,
+              17.47624690148967
+            ],
+            "target": [
+              44.6395,
+              12.9925
+            ],
+            "route": [],
+            "holding_regions": [],
+            "approach_facilities": {},
+            "preferred_facility_id": "exit_gate:exit_gate_bank_a:lane_1"
+          },
+          "after_target": [
+            44.6395,
+            12.9925
+          ],
+          "after_route": [],
+          "passenger_state": "walking_to_exit_gate",
+          "goal_kind": "goal_region",
+          "goal_node_id": "approach_exit_gate_decision",
+          "interaction_state": null,
+          "target_facility_id": "exit_gate:exit_gate_bank_a:lane_1",
+          "candidate_facility_ids": [
+            "exit_gate:exit_gate_bank_a:lane_1",
+            "exit_gate:exit_gate_bank_a:lane_2",
+            "exit_gate:exit_gate_bank_a:lane_3"
+          ],
+          "upstream_occupancy": [
+            {
+              "facility_id": "entry_gate:entry_gate_bank_a:lane_1",
+              "stage": "entry_gate",
+              "queue_persons": 1,
+              "active_persons": 2,
+              "approach_reservations": 1,
+              "queue_capacity": 3,
+              "forced_disabled": false,
+              "service_blocked_reason": null
+            },
+            {
+              "facility_id": "entry_gate:entry_gate_bank_a:lane_2",
+              "stage": "entry_gate",
+              "queue_persons": 0,
+              "active_persons": 0,
+              "approach_reservations": 3,
+              "queue_capacity": 3,
+              "forced_disabled": false,
+              "service_blocked_reason": null
+            },
+            {
+              "facility_id": "entry_gate:entry_gate_bank_a:lane_3",
+              "stage": "entry_gate",
+              "queue_persons": 0,
+              "active_persons": 1,
+              "approach_reservations": 3,
+              "queue_capacity": 3,
+              "forced_disabled": false,
+              "service_blocked_reason": null
+            }
+          ],
+          "downstream_occupancy": [],
+          "facility_occupancy": [
+            {
+              "facility_id": "boarding_door:platform_edge_a",
+              "stage": "boarding_door",
+              "queue_persons": 3,
+              "active_persons": 0,
+              "approach_reservations": 8,
+              "queue_capacity": 10,
+              "forced_disabled": false,
+              "service_blocked_reason": null
+            },
+            {
+              "facility_id": "boarding_door:platform_edge_b",
+              "stage": "boarding_door",
+              "queue_persons": 3,
+              "active_persons": 0,
+              "approach_reservations": 7,
+              "queue_capacity": 10,
+              "forced_disabled": false,
+              "service_blocked_reason": null
+            },
+            {
+              "facility_id": "boarding_door:platform_edge_c",
+              "stage": "boarding_door",
+              "queue_persons": 5,
+              "active_persons": 0,
+              "approach_reservations": 4,
+              "queue_capacity": 10,
+              "forced_disabled": false,
+              "service_blocked_reason": null
+            },
+            {
+              "facility_id": "boarding_door:platform_edge_d",
+              "stage": "boarding_door",
+              "queue_persons": 4,
+              "active_persons": 0,
+              "approach_reservations": 6,
+              "queue_capacity": 10,
+              "forced_disabled": false,
+              "service_blocked_reason": null
+            },
+            {
+              "facility_id": "boarding_door:platform_edge_e",
+              "stage": "boarding_door",
+              "queue_persons": 6,
+              "active_persons": 0,
+              "approach_reservations": 4,
+              "queue_capacity": 10,
+              "forced_disabled": false,
+              "service_blocked_reason": null
+            },
+            {
+              "facility_id": "boarding_door:platform_edge_f",
+              "stage": "boarding_door",
+              "queue_persons": 5,
+              "active_persons": 0,
+              "approach_reservations": 5,
+              "queue_capacity": 10,
+              "forced_disabled": false,
+              "service_blocked_reason": null
+            },
+            {
+              "facility_id": "boarding_door:platform_edge_g",
+              "stage": "boarding_door",
+              "queue_persons": 1,
+              "active_persons": 0,
+              "approach_reservations": 9,
+              "queue_capacity": 10,
+              "forced_disabled": false,
+              "service_blocked_reason": null
+            },
+            {
+              "facility_id": "entry_gate:entry_gate_bank_a:lane_1",
+              "stage": "entry_gate",
+              "queue_persons": 1,
+              "active_persons": 2,
+              "approach_reservations": 1,
+              "queue_capacity": 3,
+              "forced_disabled": false,
+              "service_blocked_reason": null
+            },
+            {
+              "facility_id": "entry_gate:entry_gate_bank_a:lane_2",
+              "stage": "entry_gate",
+              "queue_persons": 0,
+              "active_persons": 0,
+              "approach_reservations": 3,
+              "queue_capacity": 3,
+              "forced_disabled": false,
+              "service_blocked_reason": null
+            },
+            {
+              "facility_id": "entry_gate:entry_gate_bank_a:lane_3",
+              "stage": "entry_gate",
+              "queue_persons": 0,
+              "active_persons": 1,
+              "approach_reservations": 3,
+              "queue_capacity": 3,
+              "forced_disabled": false,
+              "service_blocked_reason": null
+            },
+            {
+              "facility_id": "exit_gate:exit_gate_bank_a:lane_1",
+              "stage": "exit_gate",
+              "queue_persons": 0,
+              "active_persons": 0,
+              "approach_reservations": 6,
+              "queue_capacity": 6,
+              "forced_disabled": false,
+              "service_blocked_reason": null
+            },
+            {
+              "facility_id": "exit_gate:exit_gate_bank_a:lane_2",
+              "stage": "exit_gate",
+              "queue_persons": 0,
+              "active_persons": 0,
+              "approach_reservations": 6,
+              "queue_capacity": 6,
+              "forced_disabled": false,
+              "service_blocked_reason": null
+            },
+            {
+              "facility_id": "exit_gate:exit_gate_bank_a:lane_3",
+              "stage": "exit_gate",
+              "queue_persons": 0,
+              "active_persons": 0,
+              "approach_reservations": 6,
+              "queue_capacity": 6,
+              "forced_disabled": false,
+              "service_blocked_reason": null
+            }
+          ]
+        }
+      },
+      {
+        "step": 428,
+        "count": 1,
+        "context": {
+          "passenger_id": 408,
+          "region_id": "exit_gate_decision",
+          "stage": "exit_gate",
+          "reason": "movement_stalled",
+          "before_replan": {
+            "state": "walking_to_exit_gate",
+            "position": [
+              43.50266270419056,
+              17.48411383467061
+            ],
+            "target": [
+              44.6395,
+              12.9925
+            ],
+            "route": [],
+            "holding_regions": [],
+            "approach_facilities": {},
+            "preferred_facility_id": "exit_gate:exit_gate_bank_a:lane_1"
+          },
+          "after_target": [
+            44.6395,
+            12.9925
+          ],
+          "after_route": [],
+          "passenger_state": "walking_to_exit_gate",
+          "goal_kind": "goal_region",
+          "goal_node_id": "approach_exit_gate_decision",
+          "interaction_state": null,
+          "target_facility_id": "exit_gate:exit_gate_bank_a:lane_1",
+          "candidate_facility_ids": [
+            "exit_gate:exit_gate_bank_a:lane_1",
+            "exit_gate:exit_gate_bank_a:lane_2",
+            "exit_gate:exit_gate_bank_a:lane_3"
+          ],
+          "upstream_occupancy": [
+            {
+              "facility_id": "entry_gate:entry_gate_bank_a:lane_1",
+              "stage": "entry_gate",
+              "queue_persons": 1,
+              "active_persons": 1,
+              "approach_reservations": 2,
+              "queue_capacity": 3,
+              "forced_disabled": false,
+              "service_blocked_reason": null
+            },
+            {
+              "facility_id": "entry_gate:entry_gate_bank_a:lane_2",
+              "stage": "entry_gate",
+              "queue_persons": 1,
+              "active_persons": 0,
+              "approach_reservations": 2,
+              "queue_capacity": 3,
+              "forced_disabled": false,
+              "service_blocked_reason": "queue_head_not_service_ready"
+            },
+            {
+              "facility_id": "entry_gate:entry_gate_bank_a:lane_3",
+              "stage": "entry_gate",
+              "queue_persons": 1,
+              "active_persons": 0,
+              "approach_reservations": 2,
+              "queue_capacity": 3,
+              "forced_disabled": false,
+              "service_blocked_reason": "queue_head_settling"
+            }
+          ],
+          "downstream_occupancy": [],
+          "facility_occupancy": [
+            {
+              "facility_id": "boarding_door:platform_edge_a",
+              "stage": "boarding_door",
+              "queue_persons": 3,
+              "active_persons": 0,
+              "approach_reservations": 8,
+              "queue_capacity": 10,
+              "forced_disabled": false,
+              "service_blocked_reason": null
+            },
+            {
+              "facility_id": "boarding_door:platform_edge_b",
+              "stage": "boarding_door",
+              "queue_persons": 3,
+              "active_persons": 0,
+              "approach_reservations": 7,
+              "queue_capacity": 10,
+              "forced_disabled": false,
+              "service_blocked_reason": null
+            },
+            {
+              "facility_id": "boarding_door:platform_edge_c",
+              "stage": "boarding_door",
+              "queue_persons": 5,
+              "active_persons": 0,
+              "approach_reservations": 4,
+              "queue_capacity": 10,
+              "forced_disabled": false,
+              "service_blocked_reason": null
+            },
+            {
+              "facility_id": "boarding_door:platform_edge_d",
+              "stage": "boarding_door",
+              "queue_persons": 4,
+              "active_persons": 0,
+              "approach_reservations": 6,
+              "queue_capacity": 10,
+              "forced_disabled": false,
+              "service_blocked_reason": null
+            },
+            {
+              "facility_id": "boarding_door:platform_edge_e",
+              "stage": "boarding_door",
+              "queue_persons": 6,
+              "active_persons": 0,
+              "approach_reservations": 4,
+              "queue_capacity": 10,
+              "forced_disabled": false,
+              "service_blocked_reason": null
+            },
+            {
+              "facility_id": "boarding_door:platform_edge_f",
+              "stage": "boarding_door",
+              "queue_persons": 5,
+              "active_persons": 0,
+              "approach_reservations": 5,
+              "queue_capacity": 10,
+              "forced_disabled": false,
+              "service_blocked_reason": null
+            },
+            {
+              "facility_id": "boarding_door:platform_edge_g",
+              "stage": "boarding_door",
+              "queue_persons": 3,
+              "active_persons": 0,
+              "approach_reservations": 7,
+              "queue_capacity": 10,
+              "forced_disabled": false,
+              "service_blocked_reason": null
+            },
+            {
+              "facility_id": "entry_gate:entry_gate_bank_a:lane_1",
+              "stage": "entry_gate",
+              "queue_persons": 1,
+              "active_persons": 1,
+              "approach_reservations": 2,
+              "queue_capacity": 3,
+              "forced_disabled": false,
+              "service_blocked_reason": null
+            },
+            {
+              "facility_id": "entry_gate:entry_gate_bank_a:lane_2",
+              "stage": "entry_gate",
+              "queue_persons": 1,
+              "active_persons": 0,
+              "approach_reservations": 2,
+              "queue_capacity": 3,
+              "forced_disabled": false,
+              "service_blocked_reason": "queue_head_not_service_ready"
+            },
+            {
+              "facility_id": "entry_gate:entry_gate_bank_a:lane_3",
+              "stage": "entry_gate",
+              "queue_persons": 1,
+              "active_persons": 0,
+              "approach_reservations": 2,
+              "queue_capacity": 3,
+              "forced_disabled": false,
+              "service_blocked_reason": "queue_head_settling"
+            },
+            {
+              "facility_id": "exit_gate:exit_gate_bank_a:lane_1",
+              "stage": "exit_gate",
+              "queue_persons": 0,
+              "active_persons": 0,
+              "approach_reservations": 6,
+              "queue_capacity": 6,
+              "forced_disabled": false,
+              "service_blocked_reason": null
+            },
+            {
+              "facility_id": "exit_gate:exit_gate_bank_a:lane_2",
+              "stage": "exit_gate",
+              "queue_persons": 0,
+              "active_persons": 0,
+              "approach_reservations": 6,
+              "queue_capacity": 6,
+              "forced_disabled": false,
+              "service_blocked_reason": null
+            },
+            {
+              "facility_id": "exit_gate:exit_gate_bank_a:lane_3",
+              "stage": "exit_gate",
+              "queue_persons": 1,
+              "active_persons": 0,
+              "approach_reservations": 5,
+              "queue_capacity": 6,
+              "forced_disabled": false,
+              "service_blocked_reason": "queue_head_not_service_ready"
+            }
+          ]
+        }
+      },
+      {
+        "step": 448,
+        "count": 1,
+        "context": {
+          "passenger_id": 408,
+          "region_id": "exit_gate_decision",
+          "stage": "exit_gate",
+          "reason": "movement_stalled",
+          "before_replan": {
+            "state": "walking_to_exit_gate",
+            "position": [
+              43.503572146898556,
+              17.48216298852133
+            ],
+            "target": [
+              44.6395,
+              12.9925
+            ],
+            "route": [],
+            "holding_regions": [],
+            "approach_facilities": {},
+            "preferred_facility_id": "exit_gate:exit_gate_bank_a:lane_1"
+          },
+          "after_target": [
+            19.65,
+            24.4
+          ],
+          "after_route": [],
+          "passenger_state": "walking_to_exit_gate",
+          "goal_kind": "goal_region",
+          "goal_node_id": "approach_exit_gate_decision",
+          "interaction_state": null,
+          "target_facility_id": "exit_gate:exit_gate_bank_a:lane_2",
+          "candidate_facility_ids": [
+            "exit_gate:exit_gate_bank_a:lane_2"
+          ],
+          "upstream_occupancy": [
+            {
+              "facility_id": "entry_gate:entry_gate_bank_a:lane_1",
+              "stage": "entry_gate",
+              "queue_persons": 1,
+              "active_persons": 0,
+              "approach_reservations": 2,
+              "queue_capacity": 3,
+              "forced_disabled": false,
+              "service_blocked_reason": null
+            },
+            {
+              "facility_id": "entry_gate:entry_gate_bank_a:lane_2",
+              "stage": "entry_gate",
+              "queue_persons": 0,
+              "active_persons": 1,
+              "approach_reservations": 3,
+              "queue_capacity": 3,
+              "forced_disabled": false,
+              "service_blocked_reason": null
+            },
+            {
+              "facility_id": "entry_gate:entry_gate_bank_a:lane_3",
+              "stage": "entry_gate",
+              "queue_persons": 0,
+              "active_persons": 0,
+              "approach_reservations": 3,
+              "queue_capacity": 3,
+              "forced_disabled": false,
+              "service_blocked_reason": null
+            }
+          ],
+          "downstream_occupancy": [],
+          "facility_occupancy": [
+            {
+              "facility_id": "boarding_door:platform_edge_a",
+              "stage": "boarding_door",
+              "queue_persons": 3,
+              "active_persons": 0,
+              "approach_reservations": 8,
+              "queue_capacity": 10,
+              "forced_disabled": false,
+              "service_blocked_reason": null
+            },
+            {
+              "facility_id": "boarding_door:platform_edge_b",
+              "stage": "boarding_door",
+              "queue_persons": 3,
+              "active_persons": 0,
+              "approach_reservations": 7,
+              "queue_capacity": 10,
+              "forced_disabled": false,
+              "service_blocked_reason": null
+            },
+            {
+              "facility_id": "boarding_door:platform_edge_c",
+              "stage": "boarding_door",
+              "queue_persons": 5,
+              "active_persons": 0,
+              "approach_reservations": 4,
+              "queue_capacity": 10,
+              "forced_disabled": false,
+              "service_blocked_reason": null
+            },
+            {
+              "facility_id": "boarding_door:platform_edge_d",
+              "stage": "boarding_door",
+              "queue_persons": 4,
+              "active_persons": 0,
+              "approach_reservations": 6,
+              "queue_capacity": 10,
+              "forced_disabled": false,
+              "service_blocked_reason": null
+            },
+            {
+              "facility_id": "boarding_door:platform_edge_e",
+              "stage": "boarding_door",
+              "queue_persons": 6,
+              "active_persons": 0,
+              "approach_reservations": 4,
+              "queue_capacity": 10,
+              "forced_disabled": false,
+              "service_blocked_reason": null
+            },
+            {
+              "facility_id": "boarding_door:platform_edge_f",
+              "stage": "boarding_door",
+              "queue_persons": 5,
+              "active_persons": 0,
+              "approach_reservations": 5,
+              "queue_capacity": 10,
+              "forced_disabled": false,
+              "service_blocked_reason": null
+            },
+            {
+              "facility_id": "boarding_door:platform_edge_g",
+              "stage": "boarding_door",
+              "queue_persons": 3,
+              "active_persons": 0,
+              "approach_reservations": 7,
+              "queue_capacity": 10,
+              "forced_disabled": false,
+              "service_blocked_reason": null
+            },
+            {
+              "facility_id": "entry_gate:entry_gate_bank_a:lane_1",
+              "stage": "entry_gate",
+              "queue_persons": 1,
+              "active_persons": 0,
+              "approach_reservations": 2,
+              "queue_capacity": 3,
+              "forced_disabled": false,
+              "service_blocked_reason": null
+            },
+            {
+              "facility_id": "entry_gate:entry_gate_bank_a:lane_2",
+              "stage": "entry_gate",
+              "queue_persons": 0,
+              "active_persons": 1,
+              "approach_reservations": 3,
+              "queue_capacity": 3,
+              "forced_disabled": false,
+              "service_blocked_reason": null
+            },
+            {
+              "facility_id": "entry_gate:entry_gate_bank_a:lane_3",
+              "stage": "entry_gate",
+              "queue_persons": 0,
+              "active_persons": 0,
+              "approach_reservations": 3,
+              "queue_capacity": 3,
+              "forced_disabled": false,
+              "service_blocked_reason": null
+            },
+            {
+              "facility_id": "exit_gate:exit_gate_bank_a:lane_1",
+              "stage": "exit_gate",
+              "queue_persons": 0,
+              "active_persons": 0,
+              "approach_reservations": 6,
+              "queue_capacity": 6,
+              "forced_disabled": false,
+              "service_blocked_reason": null
+            },
+            {
+              "facility_id": "exit_gate:exit_gate_bank_a:lane_2",
+              "stage": "exit_gate",
+              "queue_persons": 0,
+              "active_persons": 1,
+              "approach_reservations": 6,
+              "queue_capacity": 6,
+              "forced_disabled": false,
+              "service_blocked_reason": null
+            },
+            {
+              "facility_id": "exit_gate:exit_gate_bank_a:lane_3",
+              "stage": "exit_gate",
+              "queue_persons": 0,
+              "active_persons": 0,
+              "approach_reservations": 6,
+              "queue_capacity": 6,
+              "forced_disabled": false,
+              "service_blocked_reason": null
+            }
+          ]
+        }
+      }
+    ]
+  },
+  "train_manifests": [
+    {
+      "train_run_id": {
+        "platform_id": "platform:default:down",
+        "arrival_sequence": 1
+      },
+      "failure_code": null,
+      "planned_alight_persons": 134,
+      "released_alight_persons": 134,
+      "not_alighted_persons": 0,
+      "actual_departure_step": 135,
+      "boarded_persons": 20,
+      "departure_load_persons": 20,
+      "capacity_persons": 1200,
+      "departure_policy": "FAIL_CAPACITY",
+      "departure_status": "departed",
+      "alighting_release_complete_step": 134,
+      "arrival_step": 75,
+      "scheduled_close_step": 135,
+      "inbound_load_persons": 134,
+      "through_load_persons": 0,
+      "reserved_boarding_persons": 0,
+      "current_onboard_persons": 20,
+      "run_ref": "platform:default:down:1",
+      "dwell_extension_steps": 0
+    },
+    {
+      "train_run_id": {
+        "platform_id": "platform:default:down",
+        "arrival_sequence": 2
+      },
+      "failure_code": null,
+      "planned_alight_persons": 133,
+      "released_alight_persons": 133,
+      "not_alighted_persons": 0,
+      "actual_departure_step": 375,
+      "boarded_persons": 41,
+      "departure_load_persons": 41,
+      "capacity_persons": 1200,
+      "departure_policy": "FAIL_CAPACITY",
+      "departure_status": "departed",
+      "alighting_release_complete_step": 374,
+      "arrival_step": 315,
+      "scheduled_close_step": 375,
+      "inbound_load_persons": 133,
+      "through_load_persons": 0,
+      "reserved_boarding_persons": 0,
+      "current_onboard_persons": 41,
+      "run_ref": "platform:default:down:2",
+      "dwell_extension_steps": 0
+    }
+  ],
+  "dynamic_gate": {
+    "schema_version": "alignment_round27_dynamic_gate.v1",
+    "status": "not_evaluated",
+    "reason": "240-step dynamic floors do not apply to a 480-step regression probe",
+    "throughput_floors": [],
+    "checks": []
+  },
+  "stress_metrics": {
+    "scheduled_demand_persons": 601,
+    "eligible_service_opportunities": 952,
+    "completed_persons": 158,
+    "source_waiting_persons": 116,
+    "active_inside_persons": 327,
+    "not_alighted_persons": 0,
+    "admission_exhausted_attempts": 0,
+    "dropped_persons": 0,
+    "run_outcome_code": null,
+    "unhandled_expected_capacity_exceptions": 0
+  },
+  "stress_gate": {
+    "schema_version": "alignment_round27_stress_gate.v1",
+    "status": "fail",
+    "throughput_floors": [],
+    "checks": [
+      {
+        "id": "nonzero_demand",
+        "operator": ">",
+        "expected": 0,
+        "actual": 601,
+        "status": "pass"
+      },
+      {
+        "id": "nonzero_service_opportunities",
+        "operator": ">",
+        "expected": 0,
+        "actual": 952,
+        "status": "pass"
+      },
+      {
+        "id": "nonzero_completion",
+        "operator": ">",
+        "expected": 0,
+        "actual": 158,
+        "status": "pass"
+      },
+      {
+        "id": "finiteness_exercised",
+        "operator": ">",
+        "expected": 0,
+        "actual": 0,
+        "status": "fail"
+      },
+      {
+        "id": "dropped_zero",
+        "operator": "==",
+        "expected": 0,
+        "actual": 0,
+        "status": "pass"
+      },
+      {
+        "id": "conserved",
+        "operator": "==",
+        "expected": 601,
+        "actual": 601,
+        "status": "pass"
+      },
+      {
+        "id": "structured_outcome",
+        "operator": "==",
+        "expected": "success_or_capacity_failure",
+        "actual": null,
+        "status": "pass"
+      },
+      {
+        "id": "expected_capacity_exception_zero",
+        "operator": "==",
+        "expected": 0,
+        "actual": 0,
+        "status": "pass"
+      }
+    ]
+  }
+}
