@@ -1,7 +1,7 @@
 {
   "schema_version": "alignment_agent_round28_closing_audit.v1",
   "round": 28,
-  "status": "pass_pending_main_merge",
+  "status": "pass",
   "p0_open": 0,
   "metrics": {
     "debt_retired": ["DEBT-3"],
@@ -13,7 +13,7 @@
       "ratio": 0.2375207987,
       "source": "alignment/output/round28/T1_T2_T3_debt2_attempts.json"
     },
-    "branches_merged": false
+    "branches_merged": true
   },
   "checks": [
     {
