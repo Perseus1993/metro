@@ -373,6 +373,8 @@ def main() -> int:
     parser.add_argument("--residence-output", type=Path)
     parser.add_argument("--steps", type=int, default=120)
     parser.add_argument("--enlarged-capacity", type=int, default=100_000)
+    parser.add_argument("--entry-capacity", type=int)
+    parser.add_argument("--exit-capacity", type=int)
     parser.add_argument("--require-tripwire", action="store_true")
     parser.add_argument("--demand-minutes", type=int)
     parser.add_argument("--control-only", action="store_true")
@@ -392,14 +394,29 @@ def main() -> int:
     runtime_cohort = _runtime_cohort()
     runtime_cohort_sha256 = canonical_sha256(runtime_cohort)
     if args.control_only:
+        entry_capacity = (
+            int(args.entry_capacity)
+            if args.entry_capacity is not None
+            else int(args.enlarged_capacity)
+        )
+        exit_capacity = (
+            int(args.exit_capacity)
+            if args.exit_capacity is not None
+            else int(args.enlarged_capacity)
+        )
         control = _arm(
             replace(
                 base,
-                entry_admission_token_capacity=args.enlarged_capacity,
-                exit_admission_token_capacity=args.enlarged_capacity,
+                entry_admission_token_capacity=entry_capacity,
+                exit_admission_token_capacity=exit_capacity,
             ),
             steps=args.steps,
-            mode="enlarged_capacity_control",
+            mode=(
+                "enlarged_capacity_control"
+                if entry_capacity == args.enlarged_capacity
+                and exit_capacity == args.enlarged_capacity
+                else "configured_capacity_probe"
+            ),
             expected_runtime_cohort=runtime_cohort,
             measurement_bypass_preflight=True,
         )
