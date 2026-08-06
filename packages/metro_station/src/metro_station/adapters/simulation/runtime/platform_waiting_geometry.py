@@ -27,6 +27,18 @@ def platform_waiting_slot_sort_key(
             point[0],
         )
     if str(getattr(passenger, "intent", "")) == "exit_station" and exit_staging_anchors:
+        position = getattr(passenger, "pos", None)
+        if position is not None:
+            return (
+                0.0,
+                hypot(point[0] - position[0], point[1] - position[1]),
+                min(
+                    hypot(point[0] - anchor[0], point[1] - anchor[1])
+                    for anchor in exit_staging_anchors
+                ),
+                point[1],
+                point[0],
+            )
         return _anchor_sort_key(point, exit_staging_anchors)
     if boarding_staging_anchors:
         return _anchor_sort_key(point, boarding_staging_anchors)
