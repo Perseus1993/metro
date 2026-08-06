@@ -674,6 +674,43 @@ def test_formal_exit_gate_approach_omits_broad_hall_detour() -> None:
     assert route[-1] == model._facility_approach_slot_position(gate, 0)
 
 
+def test_exit_gate_ingress_fans_outer_approach_by_lane() -> None:
+    config = replace(
+        build_scene_config("platform_boarding"),
+        entry_admission_token_capacity=100_000,
+        exit_admission_token_capacity=100_000,
+    )
+    request, _ = build_metro_request(config)
+    model = AlignmentMetroStationModel(request.scenario, seed=request.seed)
+    origin = (32.0, 25.8)
+    first_anchors = []
+
+    for gate in model.exit_gates:
+        with patch.object(model.goal_coordinator, "initialize"):
+            passenger = PassengerAgent(
+                model,
+                group_size=1,
+                created_step=0,
+                intent=AgentIntent.EXIT_STATION,
+                initial_position=origin,
+                initial_level_id=gate.portal_entry_level_id,
+            )
+        ingress = model._gate_queue_ingress_anchors(passenger, gate, 0)
+        assert ingress
+        first_anchors.append(ingress[0])
+
+    minimum_body_clearance = (
+        model.scenario.jupedsim_agent_radius_units
+        * model.scenario.jupedsim_clearance_multiplier
+    )
+    assert all(
+        ((left[0] - right[0]) ** 2 + (left[1] - right[1]) ** 2) ** 0.5
+        >= minimum_body_clearance
+        for index, left in enumerate(first_anchors)
+        for right in first_anchors[index + 1 :]
+    )
+
+
 @FA2555_GEOMETRY_QUARANTINE
 def test_formal_exit_decision_routes_around_boarding_fifo() -> None:
     request, _ = build_metro_request(build_scene_config("platform_boarding"))
