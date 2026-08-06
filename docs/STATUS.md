@@ -128,8 +128,9 @@ liveness violation 通过，但 DEBT-2 仍超过 1% 重规划门槛，作为已�
 - 全量测试：1526 passed / 4 failed
 - 3 个稳定基线失败：same-tick gate、JuPedSim recovery、`runtime_base.py` 体积棘轮（981 > 970）
 
-**注意**：`same-tick gate` 的"基线就存在"尚未被证明，而它正好在最近改动最集中的区域。
-合并前需要在 `55543e2b` 上单独复现一次以定性。
+**注意**：`same-tick gate` 已在 `55543e2b` 上单独复现，确认是基线失败，不是 Round 27
+回归。该问题与 JuPedSim recovery 一样不在本轮收口范围内；`runtime_base.py` 体积棘轮则
+是独立的机械性清理候选。
 
 ---
 
