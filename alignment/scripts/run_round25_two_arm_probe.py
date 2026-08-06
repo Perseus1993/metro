@@ -192,6 +192,7 @@ def _arm(
     spatial = dict(metrics.get("spatial_capacity_event_counts", {}))
     audits = dict(metrics.get("audit_counts", {}))
     replan_by_passenger: Counter[str] = Counter()
+    replan_by_region: Counter[str] = Counter()
     blocked_regions: Counter[str] = Counter()
     blocked_codes: Counter[str] = Counter()
     for event in runtime.audit.events:
@@ -199,6 +200,14 @@ def _arm(
             replan_by_passenger[str(event.context.get("passenger_id", "unknown"))] += int(
                 event.count
             )
+            replan_by_region[
+                "|".join(
+                    (
+                        str(event.context.get("region_id", "unknown_region")),
+                        str(event.context.get("stage", "unknown_stage")),
+                    )
+                )
+            ] += int(event.count)
         if event.code not in {"placement.dynamic_blocked", "spawn.dynamic_blocked"}:
             continue
         context = event.context
@@ -315,8 +324,12 @@ def _arm(
         },
         "stalled_replan_attribution": {
             "total": sum(replan_by_passenger.values()),
+            "unique_passengers": len(replan_by_passenger),
             "by_passenger": dict(
                 sorted(replan_by_passenger.items(), key=lambda item: (-item[1], item[0]))
+            ),
+            "by_region": dict(
+                sorted(replan_by_region.items(), key=lambda item: (-item[1], item[0]))
             ),
         },
         "terminal_admission_owners": _terminal_admission_owner_diagnostics(runtime),
