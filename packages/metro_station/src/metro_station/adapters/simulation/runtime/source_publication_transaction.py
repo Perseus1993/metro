@@ -4,9 +4,12 @@ from copy import deepcopy
 from typing import TYPE_CHECKING
 
 from ..agents.passenger import PassengerAgent
+from .external_demand_reservoir import TemporaryDemandBlockReason
 
 if TYPE_CHECKING:
     from .mesa_model import MetroStationModel
+    from .external_demand_reservoir import DemandClaim
+    from .train_exchange_manifest import TrainExchangeManifest
 
 
 class PassengerPublicationTransaction:
@@ -79,6 +82,85 @@ class PassengerPublicationTransaction:
         self.model.rng.bit_generator.state = deepcopy(self._rng_state)
 
 
+def commit_alighting_publication(
+    model: MetroStationModel,
+    *,
+    claim: DemandClaim,
+    passenger: PassengerAgent,
+    admission_reservation: dict[str, object],
+    manifest: TrainExchangeManifest,
+) -> None:
+    """Atomically publish one train-bound alighting group across three ledgers."""
+
+    try:
+        model.external_demand_reservoir.validate_commit(
+            claim,
+            passenger_id=int(passenger.unique_id),
+            published_step=int(model.step_index),
+        )
+        manifest.preflight_alighting_release(
+            int(passenger.group_size),
+            at_step=int(model.step_index),
+        )
+    except BaseException:
+        model._release_alighting_source_admission_reservation(
+            admission_reservation,
+            reason="publication_preflight_exception",
+        )
+        rollback_published_passenger(model, passenger)
+        model.external_demand_reservoir.defer(
+            claim,
+            step=int(model.step_index),
+            reason=TemporaryDemandBlockReason.DOWNSTREAM_CAPACITY_EXHAUSTED,
+        )
+        raise
+    try:
+        model._commit_alighting_source_admission_reservation(
+            admission_reservation,
+            passenger,
+        )
+    except BaseException:
+        rollback_published_passenger(model, passenger)
+        model.external_demand_reservoir.defer(
+            claim,
+            step=int(model.step_index),
+            reason=TemporaryDemandBlockReason.DOWNSTREAM_CAPACITY_EXHAUSTED,
+        )
+        raise
+    manifest_released = False
+    try:
+        manifest.release_alighting_group(
+            int(passenger.group_size),
+            at_step=int(model.step_index),
+        )
+        manifest_released = True
+        model.external_demand_reservoir.commit(
+            claim,
+            passenger_id=int(passenger.unique_id),
+            published_step=int(model.step_index),
+        )
+    except BaseException:
+        if manifest_released:
+            manifest.rollback_latest_alighting_release(
+                int(passenger.group_size),
+                at_step=int(model.step_index),
+            )
+        resource = getattr(model, "alignment_admission_resources", {}).get("exit")
+        if resource is not None and int(passenger.unique_id) in resource.owners:
+            resource.release(
+                int(passenger.unique_id),
+                model.step_index,
+                reason="manifest_or_reservoir_commit_exception",
+            )
+        rollback_published_passenger(model, passenger)
+        model.external_demand_reservoir.defer(
+            claim,
+            step=int(model.step_index),
+            reason=TemporaryDemandBlockReason.DOWNSTREAM_CAPACITY_EXHAUSTED,
+        )
+        raise
+
+
 def rollback_published_passenger(
     model: MetroStationModel,
     passenger: PassengerAgent,
@@ -113,4 +195,8 @@ def rollback_published_passenger(
     passenger.remove()
 
 
-__all__ = ["PassengerPublicationTransaction", "rollback_published_passenger"]
+__all__ = [
+    "PassengerPublicationTransaction",
+    "commit_alighting_publication",
+    "rollback_published_passenger",
+]

@@ -24,7 +24,7 @@ from .external_demand_reservoir import (
 )
 from .source_publication_transaction import (
     PassengerPublicationTransaction,
-    rollback_published_passenger,
+    commit_alighting_publication,
 )
 from .source_demand_runtime import spawn_alighting_demand, spawn_entry_demand
 
@@ -559,74 +559,13 @@ class PassengerDemandMixin:
                     reason=TemporaryDemandBlockReason.SOURCE_PLACEMENT_BLOCKED,
                 )
                 raise
-            manifest = self.train_exchange_manifests[run_ref]
-            try:
-                self.external_demand_reservoir.validate_commit(
-                    claim,
-                    passenger_id=int(passenger.unique_id),
-                    published_step=int(self.step_index),
-                )
-                manifest.preflight_alighting_release(
-                    int(passenger.group_size),
-                    at_step=int(self.step_index),
-                )
-            except BaseException:
-                self._release_alighting_source_admission_reservation(
-                    downstream,
-                    reason="publication_preflight_exception",
-                )
-                rollback_published_passenger(self, passenger)
-                self.external_demand_reservoir.defer(
-                    claim,
-                    step=int(self.step_index),
-                    reason=TemporaryDemandBlockReason.DOWNSTREAM_CAPACITY_EXHAUSTED,
-                )
-                raise
-            try:
-                self._commit_alighting_source_admission_reservation(
-                    downstream,
-                    passenger,
-                )
-            except BaseException:
-                rollback_published_passenger(self, passenger)
-                self.external_demand_reservoir.defer(
-                    claim,
-                    step=int(self.step_index),
-                    reason=TemporaryDemandBlockReason.DOWNSTREAM_CAPACITY_EXHAUSTED,
-                )
-                raise
-            manifest_released = False
-            try:
-                manifest.release_alighting_group(
-                    int(passenger.group_size),
-                    at_step=int(self.step_index),
-                )
-                manifest_released = True
-                self.external_demand_reservoir.commit(
-                    claim,
-                    passenger_id=int(passenger.unique_id),
-                    published_step=int(self.step_index),
-                )
-            except BaseException:
-                if manifest_released:
-                    manifest.rollback_latest_alighting_release(
-                        int(passenger.group_size),
-                        at_step=int(self.step_index),
-                    )
-                resource = getattr(self, "alignment_admission_resources", {}).get("exit")
-                if resource is not None and int(passenger.unique_id) in resource.owners:
-                    resource.release(
-                        int(passenger.unique_id),
-                        self.step_index,
-                        reason="manifest_or_reservoir_commit_exception",
-                    )
-                rollback_published_passenger(self, passenger)
-                self.external_demand_reservoir.defer(
-                    claim,
-                    step=int(self.step_index),
-                    reason=TemporaryDemandBlockReason.DOWNSTREAM_CAPACITY_EXHAUSTED,
-                )
-                raise
+            commit_alighting_publication(
+                self,
+                claim=claim,
+                passenger=passenger,
+                admission_reservation=downstream,
+                manifest=self.train_exchange_manifests[run_ref],
+            )
             passenger.assigned_platform_id = train.platform_id
             passenger.assigned_line_id = train.line_id
             passenger.assigned_direction = train.direction
