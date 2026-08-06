@@ -1,5 +1,5 @@
 {
-  "schema_version": "alignment_round27_dynamic_floor_qualification.v1",
+  "schema_version": "alignment_round27_dynamic_floor_qualification.v2",
   "status": "qualified",
   "qualification_revision": "61c692928e4a01c651a7c8abf8f98e4925377025",
   "scenario": {
@@ -13,6 +13,7 @@
   "qualification_seeds": [41, 42, 43, 44, 45],
   "qualification_evidence_sha256": "a8cc900e3e2b09950005a7e8ed702988b37c137438779505a885886640da6ca7",
   "floor_rule": "minimum observed admitted and terminal-completed persons across the five frozen qualification seeds; no blocked interval is excluded",
+  "frozen_floors_sha256": "9d729f45cda6bec4db0888363a25b0f0f3d9cc31727feb15aba21ac849150edc",
   "interpretation": "empirical non-vacuity floor for the frozen 240-step dynamic run; not a physical capacity or clearance service-rate proof",
   "runs": [
     {

@@ -4,6 +4,20 @@ from dataclasses import asdict, dataclass
 from math import ceil, isfinite
 from typing import Any, Mapping, Sequence
 
+from .formal_contract import canonical_sha256
+
+
+ROUND27_QUALIFICATION_REVISION = "61c692928e4a01c651a7c8abf8f98e4925377025"
+ROUND27_QUALIFICATION_EVIDENCE_SHA256 = (
+    "a8cc900e3e2b09950005a7e8ed702988b37c137438779505a885886640da6ca7"
+)
+ROUND27_FROZEN_FLOORS_SHA256 = (
+    "9d729f45cda6bec4db0888363a25b0f0f3d9cc31727feb15aba21ac849150edc"
+)
+ROUND27_FLOOR_EVIDENCE_REF = (
+    "alignment/output/round27/T7_dynamic_floor_qualification.json#runs"
+)
+
 
 @dataclass(frozen=True)
 class ThroughputFloor:
@@ -61,6 +75,75 @@ class ClearanceBottleneckInput:
     def predicted_steps(self) -> int:
         service_steps = ceil(self.backlog_persons / self.minimum_service_persons_per_step)
         return int(service_steps + self.downstream_tail_steps)
+
+
+def validate_dynamic_floor_qualification(
+    payload: Mapping[str, Any],
+) -> tuple[ThroughputFloor, ...]:
+    """Bind frozen floors to the exact qualification runs and derivation rule."""
+
+    if payload.get("schema_version") != "alignment_round27_dynamic_floor_qualification.v2":
+        raise ValueError("unexpected dynamic floor qualification schema")
+    if payload.get("qualification_revision") != ROUND27_QUALIFICATION_REVISION:
+        raise ValueError("unexpected dynamic floor qualification revision")
+    projection = {
+        key: payload[key]
+        for key in (
+            "qualification_revision",
+            "scenario",
+            "qualification_seeds",
+            "floor_rule",
+            "runs",
+        )
+    }
+    evidence_sha256 = canonical_sha256(projection)
+    if (
+        evidence_sha256 != payload.get("qualification_evidence_sha256")
+        or evidence_sha256 != ROUND27_QUALIFICATION_EVIDENCE_SHA256
+    ):
+        raise ValueError("dynamic floor qualification evidence hash mismatch")
+
+    floor_rows = payload.get("frozen_dynamic_floors")
+    if not isinstance(floor_rows, list):
+        raise ValueError("dynamic floor qualification requires frozen floors")
+    floors_sha256 = canonical_sha256(floor_rows)
+    if (
+        floors_sha256 != payload.get("frozen_floors_sha256")
+        or floors_sha256 != ROUND27_FROZEN_FLOORS_SHA256
+    ):
+        raise ValueError("frozen dynamic floor hash mismatch")
+    floors = tuple(ThroughputFloor(**row) for row in floor_rows)
+    floor_by_flow = {floor.flow_id: floor for floor in floors}
+    if set(floor_by_flow) != {"entry", "exit"} or len(floor_by_flow) != len(floors):
+        raise ValueError("frozen dynamic floors require exactly entry and exit")
+
+    runs = payload.get("runs")
+    if not isinstance(runs, list) or not runs:
+        raise ValueError("dynamic floor qualification requires runs")
+    for flow_id, floor in floor_by_flow.items():
+        flow_runs = [run[flow_id] for run in runs]
+        scheduled = {_integer(run, "scheduled_persons") for run in flow_runs}
+        if len(scheduled) != 1:
+            raise ValueError(f"{flow_id} qualification demand is not frozen")
+        expected = (
+            scheduled.pop(),
+            min(_integer(run, "admitted_persons") for run in flow_runs),
+            min(_integer(run, "completed_persons") for run in flow_runs),
+        )
+        actual = (
+            floor.scheduled_persons,
+            floor.minimum_admitted_persons,
+            floor.minimum_completed_persons,
+        )
+        if actual != expected:
+            raise ValueError(f"{flow_id} frozen floor does not match qualification runs")
+        if (
+            floor.evidence_ref != ROUND27_FLOOR_EVIDENCE_REF
+            or floor.evidence_sha256 != evidence_sha256
+            or floor.qualification_revision != ROUND27_QUALIFICATION_REVISION
+        ):
+            raise ValueError(f"{flow_id} frozen floor evidence binding mismatch")
+    return floors
 
 
 def preregister_clearance_prediction(
@@ -192,6 +275,12 @@ def evaluate_clearance_gate(
 
     upper = prediction.get("predicted_clearance_upper_steps")
     available = prediction.get("status") == "preregistered" and isinstance(upper, int)
+    planned_alighting_persons = sum(
+        _integer(manifest, "planned_alight_persons") for manifest in train_manifests
+    )
+    released_alighting_persons = sum(
+        _integer(manifest, "released_alight_persons") for manifest in train_manifests
+    )
     checks = [
         _check("prediction_available", available, True, "=="),
         _check("source_waiting_zero", source_waiting_persons, 0, "=="),
@@ -207,6 +296,18 @@ def evaluate_clearance_gate(
             "alighting_manifest_nonvacuous",
             expected_train_runs > 0,
             scheduled_alighting_persons > 0,
+            "==",
+        ),
+        _check(
+            "manifest_planned_matches_scheduled",
+            planned_alighting_persons,
+            scheduled_alighting_persons,
+            "==",
+        ),
+        _check(
+            "manifest_released_matches_scheduled",
+            released_alighting_persons,
+            scheduled_alighting_persons,
             "==",
         ),
     ]
@@ -363,4 +464,5 @@ __all__ = [
     "evaluate_dynamic_gate",
     "evaluate_stress_gate",
     "preregister_clearance_prediction",
+    "validate_dynamic_floor_qualification",
 ]

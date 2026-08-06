@@ -12,7 +12,6 @@ from metro_station.application.simulation import SimulationRequest, run_simulati
 
 from metro_alignment.analysis_runtime import analysis_runtime_fingerprint
 from metro_alignment.artifact_io import write_json_atomic
-from metro_alignment.formal_contract import canonical_sha256
 from metro_alignment.metro_executor import AlignmentMesaSimulationExecutor
 from metro_alignment.metro_runtime import metro_source_fingerprint
 from metro_alignment.metro_scene import build_metro_request
@@ -20,6 +19,7 @@ from metro_alignment.round27_acceptance import (
     ThroughputFloor,
     evaluate_dynamic_gate,
     evaluate_stress_gate,
+    validate_dynamic_floor_qualification,
 )
 from metro_alignment.scenes import build_scene_config
 
@@ -51,20 +51,7 @@ def _git_revision() -> str:
 
 def _floors(path: Path) -> tuple[ThroughputFloor, ...]:
     payload = json.loads(path.read_text(encoding="utf-8"))
-    projection = {
-        key: payload[key]
-        for key in (
-            "qualification_revision",
-            "scenario",
-            "qualification_seeds",
-            "floor_rule",
-            "runs",
-        )
-    }
-    actual_sha256 = canonical_sha256(projection)
-    if actual_sha256 != payload.get("qualification_evidence_sha256"):
-        raise ValueError("dynamic floor qualification evidence hash mismatch")
-    return tuple(ThroughputFloor(**row) for row in payload["frozen_dynamic_floors"])
+    return validate_dynamic_floor_qualification(payload)
 
 
 def _audit_counts(runtime: Any) -> Counter[str]:

@@ -1,5 +1,9 @@
 from __future__ import annotations
 
+from copy import deepcopy
+import json
+from pathlib import Path
+
 import pytest
 
 from metro_alignment.round27_acceptance import (
@@ -9,7 +13,12 @@ from metro_alignment.round27_acceptance import (
     evaluate_dynamic_gate,
     evaluate_stress_gate,
     preregister_clearance_prediction,
+    validate_dynamic_floor_qualification,
 )
+
+
+ROOT = Path(__file__).resolve().parents[2]
+QUALIFICATION = ROOT / "alignment/output/round27/T7_dynamic_floor_qualification.json"
 
 
 def _floor() -> ThroughputFloor:
@@ -106,6 +115,22 @@ def test_throughput_floor_must_be_positive_andinternally_ordered() -> None:
         )
 
 
+def test_frozen_dynamic_floors_are_bound_to_qualification_runs() -> None:
+    payload = json.loads(QUALIFICATION.read_text(encoding="utf-8"))
+
+    floors = validate_dynamic_floor_qualification(payload)
+
+    assert [(floor.flow_id, floor.minimum_admitted_persons) for floor in floors] == [
+        ("entry", 107),
+        ("exit", 134),
+    ]
+
+    tampered = deepcopy(payload)
+    tampered["frozen_dynamic_floors"][0]["minimum_admitted_persons"] = 104
+    with pytest.raises(ValueError, match="frozen dynamic floor hash mismatch"):
+        validate_dynamic_floor_qualification(tampered)
+
+
 def test_clearance_prediction_is_derived_not_trial_selected() -> None:
     prediction = preregister_clearance_prediction(
         [
@@ -148,7 +173,7 @@ def test_clearance_prediction_without_proved_rate_is_unavailable() -> None:
     assert report["status"] == "fail"
 
 
-def test_clearance_gate_requires_alighting_before_successful_departure() -> None:
+def test_clearance_gate_binds_manifest_total_and_departure_deadline() -> None:
     prediction = preregister_clearance_prediction(
         [
             ClearanceBottleneckInput(
@@ -159,6 +184,38 @@ def test_clearance_gate_requires_alighting_before_successful_departure() -> None
         pipeline_evidence_ref="proved:pipeline",
         pipeline_evidence_sha256="b" * 64,
     )
+    empty_manifest = {
+        "departure_status": "departed",
+        "planned_alight_persons": 0,
+        "released_alight_persons": 0,
+        "not_alighted_persons": 0,
+        "alighting_release_complete_step": 8,
+        "actual_departure_step": 9,
+    }
+
+    report = evaluate_clearance_gate(
+        prediction=prediction,
+        observed_clearance_steps=7,
+        source_waiting_persons=0,
+        active_inside_persons=0,
+        queue_persons=0,
+        owner_persons=0,
+        dropped_persons=0,
+        flow_conserved=True,
+        liveness_violations=0,
+        run_outcome_code=None,
+        scheduled_alighting_persons=100,
+        expected_train_runs=1,
+        train_manifests=[empty_manifest],
+    )
+
+    assert report["status"] == "fail"
+    assert {
+        item["id"] for item in report["checks"] if item["status"] == "fail"
+    } == {
+        "manifest_planned_matches_scheduled",
+        "manifest_released_matches_scheduled",
+    }
     manifest = {
         "departure_status": "departed",
         "planned_alight_persons": 20,
