@@ -1,0 +1,100 @@
+{
+  "schema_version": "alignment_agent_review.v2",
+  "round": 27,
+  "agent": "branch_risk_final",
+  "task_ref": "source reservoir, train deadline, acceptance evidence, and release review",
+  "status": "pass",
+  "checks": [
+    {
+      "id": "R27-A1",
+      "question": "Do final artifacts, summary, debt register, and review report the same metrics and release state?",
+      "verdict": "pass",
+      "evidence": [
+        "alignment/output/round27/T7_T9_held_out_summary.json",
+        "alignment/docs/debt_register.md",
+        "alignment/docs/reviews/round_27_source_reservoir_review.md"
+      ],
+      "note": "All nine final run artifacts match their recorded SHA-256 values. Dynamic remains 2/5 pass, stress passes, clearance is unavailable, and release is blocked."
+    },
+    {
+      "id": "R27-A2",
+      "question": "Can frozen dynamic floors be changed while retaining accepted qualification identity?",
+      "verdict": "pass",
+      "evidence": [
+        "git:2bcd91fcf3dca634c22bbdb37e80f8956796a7d7",
+        "alignment/output/round27/T7_dynamic_floor_qualification.json",
+        "alignment/tests/test_round27_acceptance.py"
+      ],
+      "note": "Changing entry admission floor 107 to 104 is rejected even when artifact-carried hashes are recomputed. Exact evidence and floor hash constants plus independent derivation from runs remain binding."
+    },
+    {
+      "id": "R27-A3",
+      "question": "Can nonzero scheduled alighting pass clearance with a zero-person manifest?",
+      "verdict": "pass",
+      "evidence": [
+        "git:2bcd91fcf3dca634c22bbdb37e80f8956796a7d7",
+        "alignment/src/metro_alignment/round27_acceptance.py",
+        "alignment/tests/test_round27_acceptance.py"
+      ],
+      "note": "scheduled_alighting=100 with planned=released=0 fails both manifest total checks."
+    },
+    {
+      "id": "R27-A4",
+      "question": "Do real artifacts preserve flow conservation and train departure semantics?",
+      "verdict": "pass",
+      "evidence": [
+        "alignment/output/round27/T7_held_out_seed46_final.json",
+        "alignment/output/round27/T9_exit_capacity_40_seed42_final.json",
+        "alignment/output/round27/R26_regression_480_seed42.json"
+      ],
+      "note": "Normal trains release before departure. The cap-40 train records 85 not-alighted persons and a structured capacity failure instead of a successful departure."
+    },
+    {
+      "id": "R27-A5",
+      "question": "Does source integrity suffice for Round-27 release?",
+      "verdict": "fail",
+      "evidence": [
+        "alignment/output/round27/T7_T9_held_out_summary.json",
+        "alignment/output/round27/T0_preregistered_prediction_contract.json"
+      ],
+      "note": "No. Three dynamic seeds fail and no proved clearance prediction is available; the release decision remains blocked."
+    }
+  ],
+  "issues": [
+    {
+      "severity": "P1",
+      "status": "remediated",
+      "title": "Frozen floor rows were outside the qualification evidence hash",
+      "evidence": ["git:2bcd91fcf3dca634c22bbdb37e80f8956796a7d7"],
+      "repro": "Change the entry floor to 104; the pre-remediation loader retained the same qualification hash.",
+      "suggested_fix": "Implemented: bind exact run evidence, exact floor hash, exact revision, and independently derived minima."
+    },
+    {
+      "severity": "P1",
+      "status": "remediated",
+      "title": "Clearance did not bind manifest totals to scheduled alighting demand",
+      "evidence": ["git:2bcd91fcf3dca634c22bbdb37e80f8956796a7d7"],
+      "repro": "Use scheduled_alighting=100 with one departed planned=released=0 manifest.",
+      "suggested_fix": "Implemented: require total planned and released manifest persons to equal scheduled alighting persons."
+    }
+  ],
+  "falsification_attempts": [
+    "Changed a frozen floor while leaving the original qualification hash unchanged.",
+    "Changed the floor, its hash, the qualification runs, and artifact-carried hashes together.",
+    "Submitted a zero-person departed manifest against 100 scheduled alighting persons.",
+    "Recomputed all final artifact hashes and cross-checked review metrics and release labels."
+  ],
+  "metrics": {
+    "audit_head": "2bcd91fcf3dca634c22bbdb37e80f8956796a7d7",
+    "dynamic_passed_seeds": 2,
+    "dynamic_failed_seeds": 3,
+    "round26_480_replan_ratios": [0.04781704781704782, 0.01646090534979424, 0.08024691358024691],
+    "stress_gate": "pass",
+    "clearance": "prediction_unavailable",
+    "release": "blocked",
+    "p0_open": 0,
+    "p1_open": 0,
+    "p1_remediated": 2
+  },
+  "unverified_reason": "No proved positive minimum service rate and finite downstream tail are available, so clearance remains unverified."
+}

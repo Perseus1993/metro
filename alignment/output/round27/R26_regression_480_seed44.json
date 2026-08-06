@@ -1,0 +1,219 @@
+{
+  "schema_version": "alignment_round27_source_probe.v1",
+  "revision": "aa9fa448586c496e251791eeef5b533833f81895",
+  "runtime_cohort": {
+    "metro_runtime_fingerprint": {
+      "schema_version": "metro_source_fingerprint.v2",
+      "package_version": "0.1.0",
+      "python": "CPython 3.12.13",
+      "dependency_versions": {
+        "jupedsim": "1.4.2",
+        "mesa": "3.5.1",
+        "numpy": "2.5.1",
+        "pandas": "3.0.3",
+        "pedpy": "1.5.1",
+        "shapely": "2.1.2"
+      },
+      "python_file_count": 281,
+      "source_tree_sha256": "81e4caf159ffd31565298f1c8c064c0ab2158b925e5c3ba23aa4a2bd30854980"
+    },
+    "analysis_runtime_fingerprint": {
+      "schema_version": "alignment_analysis_runtime.v2",
+      "python": "CPython 3.12.13",
+      "pedpy_version": "1.5.1",
+      "file_count": 44,
+      "content_sha256": "fae0b4082696ba4e21ea419f517bf9c84c9085e255b8b3dd3d275837f2a70f35"
+    }
+  },
+  "seed": 44,
+  "control": {
+    "scene_id": "platform_boarding",
+    "minutes": 10,
+    "demand_minutes": 10,
+    "formal_horizon_steps": 480,
+    "entry_count_hour": 2500,
+    "exit_count_hour": 2200,
+    "entry_admission_token_capacity": null,
+    "exit_admission_token_capacity": null,
+    "design_sha256": "e029a05941243fa9e3fd0d180af6157a26c0e69fd9e1fa9e4a0f24bcfcb13663"
+  },
+  "run_outcome_code": null,
+  "step": 480,
+  "flows": {
+    "entry": {
+      "scheduled_persons": 333,
+      "admitted_persons": 219,
+      "source_waiting_persons": 114,
+      "active_inside_persons": 157,
+      "completed_persons": 62,
+      "not_alighted_persons": 0,
+      "right_censored_persons": 114,
+      "dropped_persons": 0,
+      "conserved": true
+    },
+    "exit": {
+      "scheduled_persons": 267,
+      "admitted_persons": 267,
+      "source_waiting_persons": 0,
+      "active_inside_persons": 187,
+      "completed_persons": 80,
+      "not_alighted_persons": 0,
+      "right_censored_persons": 0,
+      "dropped_persons": 0,
+      "conserved": true
+    }
+  },
+  "admission": {
+    "entry": {
+      "attempts": 686,
+      "exhausted_attempts": 0,
+      "exhausted_ratio": 0.0
+    },
+    "exit": {
+      "attempts": 267,
+      "exhausted_attempts": 0,
+      "exhausted_ratio": 0.0
+    }
+  },
+  "round26_regression": {
+    "placement_retry_attempts": 0,
+    "placement_retry_ratio": 0.0,
+    "stalled_region_replan_attempts": 39,
+    "stalled_region_replan_ratio": 0.08024691358024691,
+    "liveness_violations": 0
+  },
+  "train_manifests": [
+    {
+      "train_run_id": {
+        "platform_id": "platform:default:down",
+        "arrival_sequence": 1
+      },
+      "failure_code": null,
+      "planned_alight_persons": 134,
+      "released_alight_persons": 134,
+      "not_alighted_persons": 0,
+      "actual_departure_step": 135,
+      "boarded_persons": 18,
+      "departure_load_persons": 18,
+      "capacity_persons": 1200,
+      "departure_policy": "FAIL_CAPACITY",
+      "departure_status": "departed",
+      "alighting_release_complete_step": 134,
+      "arrival_step": 75,
+      "scheduled_close_step": 135,
+      "inbound_load_persons": 134,
+      "through_load_persons": 0,
+      "reserved_boarding_persons": 0,
+      "current_onboard_persons": 18,
+      "run_ref": "platform:default:down:1",
+      "dwell_extension_steps": 0
+    },
+    {
+      "train_run_id": {
+        "platform_id": "platform:default:down",
+        "arrival_sequence": 2
+      },
+      "failure_code": null,
+      "planned_alight_persons": 133,
+      "released_alight_persons": 133,
+      "not_alighted_persons": 0,
+      "actual_departure_step": 375,
+      "boarded_persons": 44,
+      "departure_load_persons": 44,
+      "capacity_persons": 1200,
+      "departure_policy": "FAIL_CAPACITY",
+      "departure_status": "departed",
+      "alighting_release_complete_step": 374,
+      "arrival_step": 315,
+      "scheduled_close_step": 375,
+      "inbound_load_persons": 133,
+      "through_load_persons": 0,
+      "reserved_boarding_persons": 0,
+      "current_onboard_persons": 44,
+      "run_ref": "platform:default:down:2",
+      "dwell_extension_steps": 0
+    }
+  ],
+  "dynamic_gate": {
+    "schema_version": "alignment_round27_dynamic_gate.v1",
+    "status": "not_evaluated",
+    "reason": "240-step dynamic floors do not apply to a 480-step regression probe",
+    "throughput_floors": [],
+    "checks": []
+  },
+  "stress_metrics": {
+    "scheduled_demand_persons": 600,
+    "eligible_service_opportunities": 953,
+    "completed_persons": 142,
+    "source_waiting_persons": 114,
+    "active_inside_persons": 344,
+    "not_alighted_persons": 0,
+    "admission_exhausted_attempts": 0,
+    "dropped_persons": 0,
+    "run_outcome_code": null,
+    "unhandled_expected_capacity_exceptions": 0
+  },
+  "stress_gate": {
+    "schema_version": "alignment_round27_stress_gate.v1",
+    "status": "fail",
+    "throughput_floors": [],
+    "checks": [
+      {
+        "id": "nonzero_demand",
+        "operator": ">",
+        "expected": 0,
+        "actual": 600,
+        "status": "pass"
+      },
+      {
+        "id": "nonzero_service_opportunities",
+        "operator": ">",
+        "expected": 0,
+        "actual": 953,
+        "status": "pass"
+      },
+      {
+        "id": "nonzero_completion",
+        "operator": ">",
+        "expected": 0,
+        "actual": 142,
+        "status": "pass"
+      },
+      {
+        "id": "finiteness_exercised",
+        "operator": ">",
+        "expected": 0,
+        "actual": 0,
+        "status": "fail"
+      },
+      {
+        "id": "dropped_zero",
+        "operator": "==",
+        "expected": 0,
+        "actual": 0,
+        "status": "pass"
+      },
+      {
+        "id": "conserved",
+        "operator": "==",
+        "expected": 600,
+        "actual": 600,
+        "status": "pass"
+      },
+      {
+        "id": "structured_outcome",
+        "operator": "==",
+        "expected": "success_or_capacity_failure",
+        "actual": null,
+        "status": "pass"
+      },
+      {
+        "id": "expected_capacity_exception_zero",
+        "operator": "==",
+        "expected": 0,
+        "actual": 0,
+        "status": "pass"
+      }
+    ]
+  }
+}
