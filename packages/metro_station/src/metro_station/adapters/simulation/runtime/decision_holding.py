@@ -7,6 +7,7 @@ from shapely.geometry import Point as ShapelyPoint
 
 from ..movement.dynamic_body_clearance import minimum_body_clearance
 from .platform_waiting_geometry import (
+    platform_waiting_path_blocker_count,
     platform_waiting_slot_clears_boarding_crossings,
     platform_waiting_slot_is_intent_eligible,
     platform_waiting_slot_sort_key,
@@ -546,6 +547,22 @@ class DecisionHoldingMixin:
             passenger,
             level_id=level_id,
         )
+        if str(getattr(passenger, "intent", "")) == "exit_station" and live_body_points:
+            ordered = tuple(
+                point
+                for _index, point in sorted(
+                    enumerate(ordered),
+                    key=lambda item: (
+                        platform_waiting_path_blocker_count(
+                            tuple(passenger.pos),
+                            item[1],
+                            live_body_points,
+                            clearance=minimum_distance,
+                        ),
+                        item[0],
+                    ),
+                )
+            )
         for point in ordered:
             if not platform_waiting_slot_clears_boarding_crossings(
                 self,

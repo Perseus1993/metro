@@ -3,6 +3,7 @@ from __future__ import annotations
 from types import SimpleNamespace
 
 from metro_station.adapters.simulation.runtime.platform_waiting_geometry import (
+    platform_waiting_path_blocker_count,
     platform_waiting_slot_sort_key,
 )
 
@@ -33,6 +34,17 @@ def test_stall_recovery_prefers_the_nearest_platform_slot() -> None:
 
     assert near < far
     assert near[0] == -1.0
+
+
+def test_platform_waiting_path_counts_only_body_clearance_intersections() -> None:
+    bodies = ((2.0, 0.1), (3.0, 1.0), (-1.0, 0.0), (6.0, 0.0))
+
+    assert platform_waiting_path_blocker_count(
+        (0.0, 0.0),
+        (5.0, 0.0),
+        bodies,
+        clearance=0.4,
+    ) == 1
 
 
 def test_exit_flow_prefers_exit_staging_over_boarding_staging() -> None:

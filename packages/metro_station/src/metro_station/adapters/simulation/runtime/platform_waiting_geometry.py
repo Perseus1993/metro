@@ -5,6 +5,35 @@ from math import hypot
 Point = tuple[float, float]
 
 
+def platform_waiting_path_blocker_count(
+    start: Point,
+    target: Point,
+    body_points: tuple[Point, ...],
+    *,
+    clearance: float,
+) -> int:
+    """Count bodies intersecting the direct dynamic path to a waiting cell."""
+
+    delta_x = target[0] - start[0]
+    delta_y = target[1] - start[1]
+    length_squared = delta_x * delta_x + delta_y * delta_y
+    if length_squared <= 1e-12:
+        return 0
+    blocked = 0
+    for body in body_points:
+        progress = (
+            (body[0] - start[0]) * delta_x + (body[1] - start[1]) * delta_y
+        ) / length_squared
+        progress = min(1.0, max(0.0, progress))
+        nearest = (
+            start[0] + delta_x * progress,
+            start[1] + delta_y * progress,
+        )
+        if hypot(body[0] - nearest[0], body[1] - nearest[1]) < clearance - 1e-9:
+            blocked += 1
+    return blocked
+
+
 def platform_waiting_slot_sort_key(
     point: Point,
     *,
