@@ -30,14 +30,36 @@ ten-minute sizing run fails closed at finite entry decision-holding capacity. Th
 one-round widenings, not silent expiry edits and not evidence that either unresolved mechanism is
 acceptable. `DEBT-3` remains due in Round 27.
 
+Round 27 replaces the terminal `spawned == scheduled` source contract with explicit external
+entry waiting and finite, train-bound alighting manifests. This retires `DEBT-6`: the frozen
+cap-40 stress run records 43 exhausted attempts out of 92 exit admissions, completes 24 persons,
+drops nobody, conserves every person across source/active/completed/not-alighted partitions, and
+ends with the declared `train_alighting_capacity_insufficient` policy rather than an exception.
+The earlier 480/600/900 envelope falsification also remains non-monotone, so the mechanism is not
+accepted merely because it equals one horizon's demand total.
+
+Round 27 simultaneously reopens `DEBT-2`. Its Round-26 retirement evidence used the shorter
+service-chain cohort; on the frozen full-demand held-out contract, seeds 47 and 50 record stalled
+replan ratios 2.643% and 1.681%, above the unchanged one-percent criterion. `DEBT-5` stays retired:
+all five held-out seeds have zero placement retries. `DEBT-1`, `DEBT-3`, and `DEBT-4` move to Round
+28 with explicit reasons below. Four entries therefore remain open and
+`registered_debt_delta = 4 - 5 = -1`; the round neither hides the reopened service instability nor
+adds a net debt without retiring another.
+
 ## Open debt
 
 | id | what | masks | introduced | justification | retire_evidence | expiry_round |
 |---|---|---|---|---|---|---|
-| `DEBT-1` | `platform_boarding` shifts the alighting-source lattice laterally by 10 m. | A source/boarding geometry that may overlap or be infeasible when based on the unshifted train-door geometry. | `8d31e11f`, Round 23 carry-over | The offset made the diagnostic scene runnable, but no observed passenger emergence-position dataset or engineering rule supports the value 10 m. | Replace the constant with line/vehicle observation data (including uncertainty), then pass source preflight and a held-out multi-seed trajectory comparison without an arbitrary translation. | 27 |
-| `DEBT-3` | The frozen synthetic `platform_boarding` design uses seven parallel boarding doors. | Extra service portals may compensate for an unmeasured boarding bottleneck and overstate the represented rolling stock's usable interface. | uncommitted design atop `0b938dcd`, Round 24 frozen into Round 25 | Seven doors produced real boarding progress, so Round 25 correctly froze it instead of retuning; however, no vehicle/line observation is linked to the count or spacing. | Link a line- and rolling-stock-specific observed door count/spacing dataset and validate the mapping, or explicitly reclassify the scene as synthetic and add a separate observation-matched design. | 27 |
-| `DEBT-4` | The nominal exit-gate service envelope and observed completed throughput differ by about 19×. | Source-integrity success can be mistaken for evidence that the downstream gate/route service chain is physically calibrated. | `55543e2b` evidence baseline, re-registered Round 25 | Round-26 T2 reconciles residence exactly and shows exit delay is dominated by movement plus upstream waiting, but does not reproduce the historical 1400/74 ratio from one cohort. Closing on that explanation would relax T7. | Record per-lane open, service-ready, idle-underfed, blocked, opportunity, completion, and effective-window measures in one cohort and reconcile them with `3 × 55 persons/min`, or replace the nominal parameter with calibrated held-out evidence. | 27 |
-| `DEBT-6` | Exit admission finiteness was accepted without a binding observation: capacity 73 equalled all 73 scheduled exit persons at the 240-step level and both flow exhaustion ratios were 0%. | A horizon-sized quota can be presented as a finite service resource even though it never constrains runtime flow, hiding a defective arrival envelope or residence-time sizing rule. | Round 25 T8 evidence, exposed by Round 26 finding A | Round-26 cap-40 produces a 35.90% exhaustion ratio, proving the mechanism binds, but only 50/73 exit demands spawn and 23 remain pending. The ten-minute sizing run then fails closed at finite entry decision holding. | Produce a pre-registered underconfigured counterexample with positive exhaustion and terminal source integrity, then recompute and validate entry/exit capacity on a formal-demand ladder without a horizon-sized quota. | 27 |
+| `DEBT-2` | Full-demand held-out seeds still depend on repeated stalled-region replanning above the one-percent recovery budget. | A nominally working service chain may rely on recovery reroutes instead of stable physical progression. | Round 25, retired on the shorter Round-26 cohort, reopened by Round-27 held-out seeds 47/50 | The source/backpressure redesign is conserved and placement-stable, but held-out replan ratios 2.643% and 1.681% violate the unchanged gate. Lowering the floor or denominator would hide the instability. | Diagnose the seed-47/50 stalled-region event contexts, remove the shared physical cause, then pass the same frozen 240-step floors and replan threshold on seeds 46–50 plus 480-step seeds 42–44. | 28 |
+| `DEBT-3` | The frozen synthetic `platform_boarding` design uses seven parallel boarding doors. | Extra service portals may compensate for an unmeasured boarding bottleneck and overstate the represented rolling stock's usable interface. | uncommitted design atop `0b938dcd`, Round 24 frozen into Round 25 | No line/vehicle door observation was added in Round 27; source-boundary engineering cannot manufacture that evidence. The expiry is explicitly moved one round. | Link a line- and rolling-stock-specific observed door count/spacing dataset and validate the mapping, or explicitly reclassify the scene as synthetic and add a separate observation-matched design. | 28 |
+| `DEBT-4` | The nominal exit-gate service envelope and observed completed throughput differ by about 19×. | Source-integrity success can be mistaken for evidence that the downstream gate/route service chain is physically calibrated. | `55543e2b` evidence baseline, re-registered Round 25 | Round-27 source accounting prevents hidden loss, but dynamic held-out service still fails and no one-cohort lane opportunity reconciliation was produced. The criterion is not relaxed; expiry moves explicitly. | Record per-lane open, service-ready, idle-underfed, blocked, opportunity, completion, and effective-window measures in one cohort and reconcile them with `3 × 55 persons/min`, or replace the nominal parameter with calibrated held-out evidence. | 28 |
+| `DEBT-1` | `platform_boarding` shifts the alighting-source lattice laterally by 10 m. | A source/boarding geometry that may overlap or be infeasible when based on the unshifted train-door geometry. | `8d31e11f`, Round 23 carry-over | No observed emergence-position data was added in Round 27; the new manifest fixes ownership, not geometry calibration. This data-blocked expiry moves explicitly. | Replace the constant with line/vehicle observation data (including uncertainty), then pass source preflight and a held-out multi-seed trajectory comparison without an arbitrary translation. | 28 |
+
+## Retired in Round 27
+
+| id | retirement evidence | result |
+|---|---|---|
+| `DEBT-6` | `alignment/output/round27/T9_exit_capacity_40_seed42_final.json` and `alignment/output/round27/T7_T9_held_out_summary.json` | Exit capacity 40 binds with 43/92 exhausted attempts (46.739%), while demand remains non-vacuous, 24 persons complete, dropped stays zero, all 229 due persons partition exactly, and 85 passengers still aboard are recorded as `not_alighted` under the declared failure policy. This tests a finite mechanism without treating external waiting as loss or requiring an impossible silent train reservoir. |
 
 ## Retired in Round 26
 
