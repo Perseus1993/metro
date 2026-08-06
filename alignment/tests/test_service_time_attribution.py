@@ -3,7 +3,7 @@ from __future__ import annotations
 from types import SimpleNamespace
 
 from metro_alignment.service_time_attribution import (
-    ATTRIBUTION_PHASES,
+    TRAVEL_BREAKDOWN_PHASES,
     AdmissionTimeAttribution,
 )
 
@@ -78,7 +78,16 @@ def test_attribution_phases_are_mutually_exclusive_and_exhaustive() -> None:
     attribution.observe(model, release_prefix_by_flow={"entry": "entry_gate:"})
 
     metrics = attribution.metrics()["entry"]
-    assert metrics["phase_total_steps"] == {phase: 1 for phase in ATTRIBUTION_PHASES}
+    assert metrics["phase_total_steps"] == {
+        "travel": 5,
+        "queue": 1,
+        "service_ready_wait": 1,
+        "release_blocked": 1,
+        "completion": 1,
+    }
+    assert metrics["travel_breakdown_total_steps"] == {
+        segment: 1 for segment in TRAVEL_BREAKDOWN_PHASES
+    }
     assert metrics["state_total_steps"] == {
         "queueing_vertical": 1,
         "riding_vertical": 1,
@@ -124,5 +133,6 @@ def test_missing_owner_is_explicitly_unclassified() -> None:
     attribution.observe(model, release_prefix_by_flow={"exit": "exit_gate:"})
 
     metrics = attribution.metrics()["exit"]
-    assert metrics["phase_total_steps"]["unclassified"] == 1
+    assert metrics["phase_total_steps"]["travel"] == 1
+    assert metrics["travel_breakdown_total_steps"]["unclassified"] == 1
     assert metrics["state_total_steps"] == {"missing_passenger": 1}
