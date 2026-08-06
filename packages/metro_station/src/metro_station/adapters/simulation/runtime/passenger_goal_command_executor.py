@@ -239,6 +239,33 @@ class ProductionGoalCommandExecutor:
         if not isinstance(facility, FacilityProcessAgent):
             return ()
         passenger.state = self.region_router.walking_state(stage=facility.spec.stage)
+        if facility.spec.kind == FacilityKind.GATE.value:
+            if (
+                passenger.current_goal.kind == "queue_approach"
+                and passenger.current_goal.label == "gate tail stall recovery"
+                and passenger.current_goal.facility_id == facility.facility_id
+            ):
+                return ()
+            # Every reserved owner may travel in parallel as far as the
+            # lane-specific tail mouth, where collision dynamics form a
+            # physical single-file queue. Capacity reservation order is not
+            # service FIFO; the latter begins at physical mouth capture.
+            if self._captures_queue_at_decision_boundary(model, passenger, facility):
+                return (self._queue_capture_event(model, passenger, command, facility),)
+            route = model.route_to_gate_queue_mouth(
+                passenger,
+                facility,
+                passenger.facility_approach_slots_by_stage[facility.spec.stage],
+            )
+            passenger.route_waypoint_radius_override = None
+            passenger.set_route(
+                route,
+                goal_kind="queue_approach",
+                goal_label=f"{facility.spec.label} queue tail approach",
+                facility_id=facility.facility_id,
+                stage=facility.spec.stage,
+            )
+            return ()
         if self._keeps_active_queue_approach(model, passenger, facility):
             return ()
         if self._captures_queue_at_decision_boundary(model, passenger, facility):
@@ -308,15 +335,9 @@ class ProductionGoalCommandExecutor:
         if not facility.join_queue(
             passenger,
             authority="goal_graph",
-            # A gate approach reservation is also a FIFO reservation.  Even
-            # when the body has reached the common bank-tail capture mouth,
-            # run the physical-order transaction: a later reservation that
-            # arrives first must wait outside until every earlier claimant
-            # has joined.  Bypassing this check lets the later body compact
-            # into slot 0 before the earlier body arrives; inserting the
-            # earlier body at logical head then creates an unrecoverable
-            # physical FIFO inversion.  Train-door passive capture retains
-            # its existing backend-owned handoff behavior.
+            # Gate reservations certify finite approach capacity; physical
+            # FIFO starts when bodies reach the common lane mouth. This avoids
+            # a remote early claimant blocking a nearer body indefinitely.
             settle_after_walking=(
                 not capture_at_decision_boundary or facility.spec.kind == FacilityKind.GATE.value
             ),

@@ -141,12 +141,28 @@ def compact_existing_approach_slots(model, facility) -> bool:
             route_terminal[0] - old_target[0],
             route_terminal[1] - old_target[1],
         ) <= 1e-6
+        owns_gate_tail_terminal = False
+        if facility.spec.kind == FacilityKind.GATE.value:
+            ingress = model._gate_queue_ingress_anchors(
+                passenger,
+                facility,
+                old_index,
+            )
+            owns_gate_tail_terminal = bool(ingress) and hypot(
+                route_terminal[0] - ingress[-1][0],
+                route_terminal[1] - ingress[-1][1],
+            ) <= 1e-6
         already_at_new_target = hypot(
             passenger.pos[0] - new_target[0],
             passenger.pos[1] - new_target[1],
         ) <= 1e-6
-        if not owns_old_terminal and not already_at_new_target:
+        if not owns_old_terminal and not owns_gate_tail_terminal and not already_at_new_target:
             return False
+        if owns_gate_tail_terminal:
+            # Gate approach-slot indices are finite capacity claims; every
+            # pending body now targets the same lane-specific physical mouth.
+            # Closing a released claim hole changes no tactical destination.
+            continue
         if already_at_new_target and not owns_old_terminal:
             route = ()
         elif facility.spec.kind == FacilityKind.GATE.value:

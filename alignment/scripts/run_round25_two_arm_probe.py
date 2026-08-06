@@ -96,6 +96,41 @@ def _terminal_admission_owner_diagnostics(runtime) -> dict[str, list[dict[str, A
     return result
 
 
+def _terminal_gate_diagnostics(runtime) -> list[dict[str, Any]]:
+    """Retain the finite queue transaction state behind censored owners."""
+
+    diagnostics: list[dict[str, Any]] = []
+    for facility in sorted(runtime.facilities, key=lambda item: item.facility_id):
+        if facility.spec.kind != "gate":
+            continue
+        reservation = facility.queue.approach_reservation_state()
+        diagnostics.append(
+            {
+                "facility_id": facility.facility_id,
+                "stage": facility.spec.stage,
+                "direction": facility.portal_direction,
+                "queue_passenger_ids": [
+                    int(passenger.unique_id) for passenger in facility.queue
+                ],
+                "queue_positions": [
+                    [float(passenger.pos[0]), float(passenger.pos[1])]
+                    for passenger in facility.queue
+                ],
+                "active_passenger_ids": [
+                    int(active.passenger.unique_id) for active in facility.active_passes
+                ],
+                "approach_slots": [list(item) for item in reservation.slots],
+                "approach_priorities": [list(item) for item in reservation.priorities],
+                "service_blocked_reason": facility.service_blocked_reason,
+                "service_blocked_passenger_id": facility.service_blocked_passenger_id,
+                "service_blocked_consecutive_steps": int(
+                    facility.service_blocked_consecutive_steps
+                ),
+            }
+        )
+    return diagnostics
+
+
 def _require_runtime_cohort(expected: dict[str, Any], *, phase: str) -> None:
     actual = _runtime_cohort()
     if actual != expected:
@@ -351,6 +386,7 @@ def _arm(
             "events": replan_events,
         },
         "terminal_admission_owners": _terminal_admission_owner_diagnostics(runtime),
+        "terminal_gate_diagnostics": _terminal_gate_diagnostics(runtime),
         "source_integrity_gate": evaluate_source_integrity_gate(metrics),
         "dynamic_blocked_attribution": {
             "total": sum(blocked_regions.values()),

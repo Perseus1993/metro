@@ -1724,6 +1724,34 @@ def test_queue_reservations_fail_closed_at_compiled_slot_capacity() -> None:
         model._reserve_facility_approach_slot(overflow, gate)
 
 
+def test_gate_pending_capacity_reservations_remain_distinct() -> None:
+    model = _model()
+    gate = next(
+        item for item in model.gates if len(model._facility_approach_slot_indices(item)) >= 2
+    )
+    first = PassengerAgent(
+        model,
+        group_size=1,
+        created_step=0,
+        intent=AgentIntent.EVACUATE_STATION,
+    )
+    follower = PassengerAgent(
+        model,
+        group_size=1,
+        created_step=0,
+        intent=AgentIntent.EVACUATE_STATION,
+    )
+
+    model._reserve_facility_approach_slot(first, gate)
+    model._reserve_facility_approach_slot(follower, gate)
+
+    assert model.facility_has_reservable_approach_slot(first, gate)
+    assert model.facility_has_reservable_approach_slot(follower, gate)
+    assert gate.queue.approach_slot_reservation(first.unique_id) != (
+        gate.queue.approach_slot_reservation(follower.unique_id)
+    )
+
+
 def test_vertical_reservations_are_unique_body_clear_portals() -> None:
     model = _model()
     facility = next(
@@ -2508,7 +2536,7 @@ def test_physically_inverted_arrival_waits_outside_then_makes_progress() -> None
     assert hypot(follower.pos[0] - slot1[0], follower.pos[1] - slot1[1]) <= 0.12
 
 
-def test_gate_capture_keeps_later_reservation_outside_until_fifo_head_arrives() -> None:
+def test_gate_capture_fifo_begins_at_physical_mouth_arrival() -> None:
     model = _model()
     gate = _gate_with_slots(model, count=2)
     earlier, later = [
@@ -2546,28 +2574,104 @@ def test_gate_capture_keeps_later_reservation_outside_until_fifo_head_arrives() 
         (command,),
     )
 
-    assert later_events == ()
-    assert later not in gate.queue
+    assert len(later_events) == 1
+    assert list(gate.queue) == [later]
     assert earlier_slot < later_slot
 
+    later.pos = gate.spec.queue_layout.slot(0)
     earlier.pos = model._gate_queue_ingress_anchors(earlier, gate, earlier_slot)[-1]
     earlier_events = model.goal_coordinator.executor.execute(
         ProductionGoalCommandContext(model=model, passenger=earlier),
         (command,),
     )
     assert len(earlier_events) == 1
-    assert list(gate.queue) == [earlier]
+    assert list(gate.queue) == [later, earlier]
 
-    # Once the committed head has physically cleared the common capture
-    # mouth, the later reservation may join without inverting body order.
-    earlier.pos = gate.spec.queue_layout.slot(0)
-    later_events = model.goal_coordinator.executor.execute(
+
+def test_gate_tail_route_survives_capacity_claim_compaction() -> None:
+    model = _model()
+    gate = _gate_with_slots(model, count=2)
+    released, pending = [
+        PassengerAgent(
+            model,
+            group_size=1,
+            created_step=0,
+            intent=AgentIntent.ENTER_AND_BOARD,
+        )
+        for _ in range(2)
+    ]
+    model.passengers.extend((released, pending))
+    for passenger in (released, pending):
+        passenger.current_level_id = gate.portal_entry_level_id
+    released_slot = model._reserve_facility_approach_slot(released, gate)
+    pending_slot = model._reserve_facility_approach_slot(pending, gate)
+    mouth_route = model.route_to_gate_queue_mouth(pending, gate, pending_slot)
+    pending.set_route(
+        mouth_route,
+        goal_kind="queue_approach",
+        goal_label="gate queue tail approach",
+        facility_id=gate.facility_id,
+        stage=gate.spec.stage,
+    )
+    model._clear_facility_targeting_reservation(released, gate.spec.stage)
+
+    rebalance_current_step_approach_slots(model)
+
+    assert pending.facility_approach_slots_by_stage[gate.spec.stage] == released_slot
+    assert pending.target == pytest.approx(mouth_route[0])
+
+
+def test_gate_owner_routes_to_tail_mouth_before_physical_capture() -> None:
+    model = _model()
+    gate = _gate_with_slots(model, count=2)
+    earlier, later = [
+        PassengerAgent(
+            model,
+            group_size=1,
+            created_step=0,
+            intent=AgentIntent.ENTER_AND_BOARD,
+        )
+        for _ in range(2)
+    ]
+    model.passengers.extend((earlier, later))
+    for passenger in (earlier, later):
+        passenger.current_level_id = gate.portal_entry_level_id
+    model._reserve_facility_approach_slot(earlier, gate)
+    later_slot = model._reserve_facility_approach_slot(later, gate)
+    mouth = model._gate_queue_ingress_anchors(later, gate, later_slot)[-1]
+    entry = gate.portal_binding.entry_point
+    tail = gate.portal_binding.approach_slots[-1]
+    axis = (tail[0] - entry[0], tail[1] - entry[1])
+    axis_length = hypot(axis[0], axis[1])
+    later.pos = (
+        mouth[0] + axis[0] / axis_length * 2.0,
+        mouth[1] + axis[1] / axis_length * 2.0,
+    )
+    command = GoalCommand(
+        kind=GoalCommandKind.WALK_TO_QUEUE.value,
+        goal_node_id="use_entry_gate",
+        stage=gate.spec.stage,
+        facility_id=gate.facility_id,
+    )
+
+    events = model.goal_coordinator.executor.execute(
         ProductionGoalCommandContext(model=model, passenger=later),
         (command,),
     )
 
-    assert len(later_events) == 1
-    assert list(gate.queue) == [earlier, later]
+    assert events == ()
+    assert later.target == pytest.approx(mouth)
+    assert later.target != pytest.approx(
+        model._facility_approach_slot_position(gate, later_slot)
+    )
+
+    later.pos = mouth
+    events = model.goal_coordinator.executor.execute(
+        ProductionGoalCommandContext(model=model, passenger=later),
+        (command,),
+    )
+
+    assert len(events) == 1
 
 
 def test_approach_slot_release_waits_for_physical_body_clearance() -> None:

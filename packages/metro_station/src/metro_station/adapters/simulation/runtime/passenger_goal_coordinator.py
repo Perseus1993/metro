@@ -158,11 +158,11 @@ class PassengerGoalCoordinator:
         self.handle(passenger, event)
         changed = passenger.goal_runtime.state.retry_count > before
         if not changed and reason == "movement_stalled":
-            changed = self._restore_stalled_committed_work(
+            changed = advance_stalled_gate_ingress_turn(
+                self.model,
                 passenger,
                 reason=reason,
-            ) or advance_stalled_gate_ingress_turn(
-                self.model,
+            ) or self._restore_stalled_committed_work(
                 passenger,
                 reason=reason,
             ) or self._reroute_stalled_region_approach(passenger, reason=reason)

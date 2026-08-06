@@ -13,7 +13,7 @@ def advance_stalled_gate_ingress_turn(model, passenger, *, reason: str) -> bool:
     approach_claims = passenger.facility_approach_facility_ids_by_stage
     if stage not in approach_claims and len(approach_claims) == 1:
         stage = next(iter(approach_claims))
-    if stage is None or not passenger.route:
+    if stage is None:
         return False
     facility_id = approach_claims.get(stage)
     if facility_id is None:
@@ -34,6 +34,76 @@ def advance_stalled_gate_ingress_turn(model, passenger, *, reason: str) -> bool:
     if not ingress:
         return False
     mouth = ingress[-1]
+    distance_to_mouth = hypot(
+        passenger.pos[0] - mouth[0],
+        passenger.pos[1] - mouth[1],
+    )
+    if not passenger.route:
+        if hypot(
+            passenger.target[0] - mouth[0],
+            passenger.target[1] - mouth[1],
+        ) > 1e-6:
+            return False
+        bank_mouths: list[tuple[float, float]] = []
+        for candidate in model.facilities:
+            if (
+                candidate.spec.kind != FacilityKind.GATE.value
+                or candidate.spec.stage != facility.spec.stage
+                or candidate.spec.source_element_id != facility.spec.source_element_id
+                or candidate.portal_entry_level_id != facility.portal_entry_level_id
+            ):
+                continue
+            candidate_slots = model._facility_approach_slot_indices(candidate)
+            candidate_ingress = (
+                model._gate_queue_ingress_anchors(
+                    passenger,
+                    candidate,
+                    int(candidate_slots[0]),
+                )
+                if candidate_slots
+                else ()
+            )
+            if candidate_ingress:
+                bank_mouths.append(candidate_ingress[-1])
+        nearest_bank_tail_distance = min(
+            (
+                hypot(passenger.pos[0] - point[0], passenger.pos[1] - point[1])
+                for point in bank_mouths
+            ),
+            default=float("inf"),
+        )
+        recovery_radius = max(
+            float(model.scenario.jupedsim_target_radius_units),
+            float(model.scenario.personal_space_units) * 1.5,
+        )
+        if nearest_bank_tail_distance > recovery_radius:
+            return False
+        next_target = model._facility_approach_slot_position(facility, int(slot_index))
+        passenger.set_route(
+            (next_target,),
+            goal_kind="queue_approach",
+            goal_label="gate tail stall recovery",
+            facility_id=facility.facility_id,
+            stage=stage,
+        )
+        model.audit.record(
+            "passenger_advanced_stalled_gate_ingress_turn",
+            source="goal_runtime",
+            step=int(model.step_index),
+            context={
+                "passenger_id": int(passenger.unique_id),
+                "facility_id": facility.facility_id,
+                "stage": stage,
+                "reason": reason,
+                "mode": "exhausted_tail_route",
+                "distance": float(distance_to_mouth),
+                "nearest_bank_tail_distance": float(nearest_bank_tail_distance),
+                "recovery_radius": recovery_radius,
+                "reached_turn": [float(mouth[0]), float(mouth[1])],
+                "next_target": [float(next_target[0]), float(next_target[1])],
+            },
+        )
+        return True
     if (
         hypot(
             passenger.route[0][0] - mouth[0],

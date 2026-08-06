@@ -3141,6 +3141,49 @@ class PassengerFlowTests(unittest.TestCase):
             model.audit.counts.get("passenger_replanned_stalled_region_approach", 0),
         )
 
+    def test_movement_stall_recovers_exhausted_gate_tail_route(self) -> None:
+        model = MetroStationModel(
+            replace(
+                scenario_for("visual_demo_station"),
+                audit_enabled=True,
+                audit_print_events=False,
+            ),
+            seed=205,
+            movement_backend=InstantMovementBackend(),
+        )
+        model.spawn_schedule.clear()
+        passenger = PassengerAgent(
+            model,
+            group_size=1,
+            created_step=0,
+            intent=AgentIntent.ENTER_AND_BOARD,
+        )
+        model.passengers.append(passenger)
+        gate = model.gates[1]
+        slot_index = model._reserve_facility_approach_slot(passenger, gate)
+        mouth = model._gate_queue_ingress_anchors(passenger, gate, slot_index)[-1]
+        passenger.set_route(
+            (mouth,),
+            goal_kind="queue_approach",
+            goal_label="test gate queue tail approach",
+            facility_id=gate.facility_id,
+            stage=gate.spec.stage,
+        )
+        passenger.pos = (mouth[0] + model.scenario.personal_space_units * 1.5, mouth[1])
+
+        advanced = advance_stalled_gate_ingress_turn(
+            model,
+            passenger,
+            reason="movement_stalled",
+        )
+
+        self.assertTrue(advanced)
+        self.assertEqual("gate tail stall recovery", passenger.current_goal.label)
+        self.assertEqual(
+            model._facility_approach_slot_position(gate, slot_index),
+            passenger.target,
+        )
+
     def test_movement_stall_preserves_owned_decision_holding_target(self) -> None:
         model = MetroStationModel(
             scenario_for("visual_demo_station"),

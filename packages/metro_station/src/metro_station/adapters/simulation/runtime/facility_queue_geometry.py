@@ -327,6 +327,27 @@ class FacilityQueueGeometryMixin:
             include_navigation_waypoints=include_navigation_waypoints,
         )
 
+    def route_to_gate_queue_mouth(
+        self,
+        passenger: PassengerAgent,
+        facility: FacilityProcessAgent,
+        slot_index: int,
+    ) -> tuple[tuple[float, float], ...]:
+        """Route a pending FIFO owner to the lane tail without entering it."""
+
+        ingress = self._gate_queue_ingress_anchors(passenger, facility, int(slot_index))
+        if not ingress:
+            raise RuntimeError(
+                f"facility {facility.facility_id!r} has no compiled gate tail ingress"
+            )
+        binding = self.facility_portal_binding(facility.facility_id)
+        return self._physical_route_for_points(
+            passenger,
+            ingress,
+            level_id=binding.entry_level_id,
+            include_navigation_waypoints=False,
+        ) or (ingress[-1],)
+
     def _gate_queue_ingress_anchors(
         self,
         passenger: PassengerAgent,
