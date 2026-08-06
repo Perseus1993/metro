@@ -1,0 +1,20 @@
+{
+  "schema_version": "alignment_round26_resizing.v1",
+  "status": "blocked",
+  "task": "T8",
+  "runtime_cohort_sha256": "35d5481e18caaca14817c5121c791d3c9189b14c3298ad3f20156e6029fd9f05",
+  "attempt": {
+    "horizon_steps": 1200,
+    "seed": 42,
+    "demand_minutes": 10,
+    "control_only": true,
+    "terminated_step": 192,
+    "exception_type": "DecisionHoldingCapacityError",
+    "exception": "decision holding area 'entry_gate_decision' on level 'l1_platform' has no body-clear slot for passenger 272",
+    "raw_log_sha256": "cc435ad330dfbd792f497039a7d379cb2f96a67f8d23bde5ecdbcd012e269e57"
+  },
+  "classification": "finite entry decision-holding capacity bound",
+  "capacity_registered": false,
+  "criteria_relaxed": false,
+  "conclusion": "The formal-demand sizing cohort cannot be measured past step 192. T8, T9 and T10 remain incomplete; no capacity or ladder result is registered from this run."
+}
