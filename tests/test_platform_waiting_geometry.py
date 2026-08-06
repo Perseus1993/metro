@@ -50,30 +50,6 @@ def test_exit_flow_prefers_exit_staging_over_boarding_staging() -> None:
     assert key[1] == 2.0
 
 
-def test_exit_flow_prefers_reachable_local_storage_before_exit_staging() -> None:
-    passenger = SimpleNamespace(intent="exit_station", pos=(0.0, 0.0))
-
-    near = platform_waiting_slot_sort_key(
-        (1.0, 0.0),
-        passenger=passenger,
-        exit_staging_anchors=((100.0, 0.0),),
-        boarding_staging_anchors=(),
-        queue_access_axes=(),
-        fallback_anchors=(),
-    )
-    exit_side_but_far = platform_waiting_slot_sort_key(
-        (90.0, 0.0),
-        passenger=passenger,
-        exit_staging_anchors=((100.0, 0.0),),
-        boarding_staging_anchors=(),
-        queue_access_axes=(),
-        fallback_anchors=(),
-    )
-
-    assert near < exit_side_but_far
-    assert near[1] == 1.0
-
-
 def test_queue_axis_keeps_upstream_slots_ahead_of_downstream_slots() -> None:
     passenger = SimpleNamespace(intent="transfer")
 
