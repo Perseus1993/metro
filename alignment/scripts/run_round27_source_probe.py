@@ -24,10 +24,11 @@ from metro_alignment.scenes import build_scene_config
 
 def _parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
-        description="Run the frozen Round 27 240-step source-boundary probe."
+        description="Run a frozen Round 27 source-boundary or Round 26 regression probe."
     )
     parser.add_argument("--seed", type=int, required=True, choices=range(41, 51))
     parser.add_argument("--output", type=Path, required=True)
+    parser.add_argument("--horizon", type=int, choices=(240, 480), default=240)
     parser.add_argument(
         "--floor-artifact",
         type=Path,
@@ -126,27 +127,36 @@ def main() -> int:
     )
     execution = run_simulation(
         request,
-        AlignmentMesaSimulationExecutor(formal_horizon_steps=240),
+        AlignmentMesaSimulationExecutor(formal_horizon_steps=int(args.horizon)),
     )
     runtime = execution.runtime
     snapshot = runtime.snapshot()
     flows = _flow_rows(snapshot)
     admission = runtime.alignment_source_admission_metrics()
     audit_counts = _audit_counts(runtime)
-    floors = _floors(args.floor_artifact)
-    dynamic_gate = evaluate_dynamic_gate(
-        flows,
-        floors,
-        run_outcome_code=snapshot.get("run_outcome_code"),
-        liveness_violations=audit_counts["passenger_liveness_violation"],
-        round26_replan_ratio=(
-            audit_counts["passenger_replanned_stalled_region_approach"]
-            / max(1, sum(int(row["admitted_persons"]) for row in flows.values()))
-        ),
-        round26_placement_retry_ratio=float(
-            admission["alignment_placement_retry_ratio"]
-        ),
-    )
+    if int(args.horizon) == 240:
+        floors = _floors(args.floor_artifact)
+        dynamic_gate = evaluate_dynamic_gate(
+            flows,
+            floors,
+            run_outcome_code=snapshot.get("run_outcome_code"),
+            liveness_violations=audit_counts["passenger_liveness_violation"],
+            round26_replan_ratio=(
+                audit_counts["passenger_replanned_stalled_region_approach"]
+                / max(1, sum(int(row["admitted_persons"]) for row in flows.values()))
+            ),
+            round26_placement_retry_ratio=float(
+                admission["alignment_placement_retry_ratio"]
+            ),
+        )
+    else:
+        dynamic_gate = {
+            "schema_version": "alignment_round27_dynamic_gate.v1",
+            "status": "not_evaluated",
+            "reason": "240-step dynamic floors do not apply to a 480-step regression probe",
+            "throughput_floors": [],
+            "checks": [],
+        }
     stress_metrics = _stress_metrics(
         flows,
         admission,
@@ -161,7 +171,7 @@ def main() -> int:
             "scene_id": config.scene_id,
             "minutes": config.minutes,
             "demand_minutes": config.demand_minutes,
-            "formal_horizon_steps": 240,
+            "formal_horizon_steps": int(args.horizon),
             "entry_count_hour": config.entry_count_hour,
             "exit_count_hour": config.exit_count_hour,
             "entry_admission_token_capacity": args.entry_capacity,
