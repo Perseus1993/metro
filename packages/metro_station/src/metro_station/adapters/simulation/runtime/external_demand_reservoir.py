@@ -191,6 +191,30 @@ class ExternalDemandReservoir:
         passenger_id: Hashable,
         published_step: int,
     ) -> DemandResidence:
+        step = self.validate_commit(
+            claim,
+            passenger_id=passenger_id,
+            published_step=published_step,
+        )
+        self._pop_claimed_head(claim)
+        self._published_ticket_by_passenger[passenger_id] = claim.ticket.sequence_id
+        return self._record_residence(
+            claim.ticket,
+            step,
+            DemandTicketState.PUBLISHED,
+            "published",
+            passenger_id,
+        )
+
+    def validate_commit(
+        self,
+        claim: DemandClaim,
+        *,
+        passenger_id: Hashable,
+        published_step: int,
+    ) -> int:
+        """Validate publication while retaining reservoir ownership."""
+
         step = _require_step(published_step, "publication step")
         self._require_active_claim(claim)
         self._require_not_before_claim(claim, step)
@@ -205,15 +229,7 @@ class ExternalDemandReservoir:
             raise TypeError("passenger_id must be hashable") from exc
         if passenger_id in self._published_ticket_by_passenger:
             raise DemandReservoirStateError("passenger_id already owns a published demand ticket")
-        self._pop_claimed_head(claim)
-        self._published_ticket_by_passenger[passenger_id] = claim.ticket.sequence_id
-        return self._record_residence(
-            claim.ticket,
-            step,
-            DemandTicketState.PUBLISHED,
-            "published",
-            passenger_id,
-        )
+        return step
 
     def expire_train_arrival(self, source_ref: str, *, step: int) -> tuple[DemandResidence, ...]:
         current_step = _require_step(step, "departure step")

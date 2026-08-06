@@ -99,6 +99,38 @@ def test_commit_is_single_publish_and_records_boundary_residence() -> None:
         reservoir.commit(next_claim, passenger_id=41, published_step=7)
 
 
+def test_validate_commit_keeps_claim_until_the_external_transaction_commits() -> None:
+    reservoir = ExternalDemandReservoir()
+    ticket = reservoir.enqueue(
+        scheduled_step=2,
+        intent="exit_station",
+        group_size=1,
+        source_kind=DemandSourceKind.TRAIN_ALIGHTING,
+        source_ref="arrival:7",
+        departure_deadline_step=15,
+    )
+    claim = reservoir.claim_next(
+        DemandSourceKind.TRAIN_ALIGHTING,
+        "arrival:7",
+        step=4,
+    )
+    assert claim is not None
+
+    reservoir.validate_commit(claim, passenger_id=41, published_step=7)
+
+    assert reservoir.state_of(ticket) == DemandTicketState.CLAIMED
+    assert reservoir.peek_head(DemandSourceKind.TRAIN_ALIGHTING, "arrival:7") == ticket
+    with pytest.raises(DemandReservoirStateError, match="active claim"):
+        reservoir.claim_next(
+            DemandSourceKind.TRAIN_ALIGHTING,
+            "arrival:7",
+            step=7,
+        )
+
+    residence = reservoir.commit(claim, passenger_id=41, published_step=7)
+    assert residence.outcome == DemandTicketState.PUBLISHED
+
+
 def test_claim_cannot_commit_defer_or_close_backwards_in_time() -> None:
     reservoir = ExternalDemandReservoir()
     reservoir.enqueue(

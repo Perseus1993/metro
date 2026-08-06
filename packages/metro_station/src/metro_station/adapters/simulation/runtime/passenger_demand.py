@@ -575,7 +575,7 @@ class PassengerDemandMixin:
                 )
                 raise
             try:
-                self.external_demand_reservoir.commit(
+                self.external_demand_reservoir.validate_commit(
                     claim,
                     passenger_id=int(passenger.unique_id),
                     published_step=int(self.step_index),
@@ -584,7 +584,19 @@ class PassengerDemandMixin:
                     int(passenger.group_size),
                     at_step=int(self.step_index),
                 )
+                self.external_demand_reservoir.commit(
+                    claim,
+                    passenger_id=int(passenger.unique_id),
+                    published_step=int(self.step_index),
+                )
             except BaseException:
+                resource = getattr(self, "alignment_admission_resources", {}).get("exit")
+                if resource is not None and int(passenger.unique_id) in resource.owners:
+                    resource.release(
+                        int(passenger.unique_id),
+                        self.step_index,
+                        reason="manifest_or_reservoir_commit_exception",
+                    )
                 rollback_published_passenger(self, passenger)
                 raise
             passenger.assigned_platform_id = train.platform_id
