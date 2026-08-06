@@ -13,7 +13,19 @@
       "ratio": 0.2375207987,
       "source": "alignment/output/round28/T1_T2_T3_debt2_attempts.json"
     },
-    "branches_merged": true
+    "branches_merged": true,
+    "merged_branch_scope": [
+      "codex/round25-final",
+      "codex/round26-service-chain",
+      "codex/round27-source-reservoir",
+      "codex/gate-runtime-handoff"
+    ],
+    "formal_ladder_content_integrated": {
+      "status": "pass",
+      "source_branch": "codex/alignment-formal-ladder",
+      "integrating_commits": ["2f6aa8ef", "b7e11eb3", "d0122524"],
+      "note": "The formal-ladder branch was based on the pre-Round25 line; its publication-path fix and formal ladder content are integrated through later commits, so merging the stale branch tip would reintroduce superseded deletions."
+    }
   },
   "checks": [
     {
