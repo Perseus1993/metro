@@ -9,13 +9,17 @@ from shapely.ops import unary_union
 
 from ..design.schema import StationDesignDocument
 from ..design.validation_issue import ValidationIssue, issue
+from ..facilities.process import FacilityKind, FacilitySpec
 from ..planning.plan import FacilityStage
 from ..station.facility_portal_binding import FacilityPortalBinding, Point
-from ..facilities.process import FacilityKind, FacilitySpec
 from ..station.geometry import grid_safe_points, level_walkable_geometry
 from ..station.graph import StationGraph
 from .geometry_reachability import GeometryCompilePolicy
-
+from .release_capacity_geometry import (
+    release_candidate_grid,
+    release_spacing,
+    required_release_bodies,
+)
 
 DECISION_HOLDING_RADIUS_M = 6.0
 _REGION_BY_STAGE = {
@@ -44,6 +48,7 @@ def compile_decision_holding_regions(
     bindings: Iterable[FacilityPortalBinding],
     *,
     policy: GeometryCompilePolicy,
+    scenario: Any,
     facilities: Iterable[FacilitySpec] = (),
 ) -> tuple[DecisionHoldingRegionBinding, ...]:
     """Compile bounded, body-clear holding slots outside owned flow resources."""
@@ -98,6 +103,7 @@ def compile_decision_holding_regions(
                 level_id,
                 protected_clearance=protected_clearance,
                 policy=policy,
+                scenario=scenario,
             )
         protected = protected_by_level[level_id]
         if level_id not in flow_by_level:
@@ -201,6 +207,7 @@ def _protected_facility_resources(
     *,
     protected_clearance: float,
     policy: GeometryCompilePolicy,
+    scenario: Any,
 ):
     """Reserve complete facility footprints, not only portal centres."""
 
@@ -210,30 +217,41 @@ def _protected_facility_resources(
     if points:
         resources.append(MultiPoint(points).buffer(protected_clearance))
     for binding in binding_set:
-        if binding.exit_level_id != level_id or binding.kind != FacilityKind.ELEVATOR.value:
+        if binding.exit_level_id != level_id or binding.kind not in {
+            FacilityKind.ELEVATOR.value,
+            FacilityKind.GATE.value,
+        }:
             continue
         facility = facility_by_id.get(binding.facility_id)
         if facility is None:
+            continue
+        spacing = release_spacing(facility, policy)
+        if binding.kind == FacilityKind.GATE.value:
+            required = required_release_bodies(
+                facility,
+                binding,
+                scenario,
+                spacing,
+            )
+            clearance = max(
+                policy.two_body_clearance_m,
+                policy.personal_space_m,
+            )
+            candidates = release_candidate_grid(
+                facility,
+                binding,
+                spacing,
+                required,
+                minimum_clearance=clearance,
+            )
+            resources.append(MultiPoint(candidates).buffer(clearance))
             continue
         elevator = None if facility.vertical_config is None else facility.vertical_config.elevator
         batch_capacity = max(
             1,
             len(binding.approach_slots) if elevator is None else int(elevator.batch_capacity),
         )
-        release_clearance = policy.two_body_clearance_m + float(
-            facility.release_clearance_pad
-        )
-        release_personal = policy.personal_space_m * float(
-            facility.release_personal_factor
-        )
-        release_spacing = max(
-            float(facility.release_spacing_min),
-            min(
-                float(facility.release_spacing_max),
-                max(release_clearance, release_personal),
-            ),
-            policy.personal_space_m,
-        )
+        spacing = max(spacing, policy.personal_space_m)
         columns = max(1, ceil(sqrt(batch_capacity)))
         rows = max(1, ceil(batch_capacity / columns))
         forward = binding.release_forward
@@ -242,8 +260,8 @@ def _protected_facility_resources(
         for index in range(batch_capacity):
             row = index // columns
             column = index % columns
-            forward_offset = (row - (rows - 1) / 2.0) * release_spacing
-            lateral_offset = (column - (columns - 1) / 2.0) * release_spacing
+            forward_offset = (row - (rows - 1) / 2.0) * spacing
+            lateral_offset = (column - (columns - 1) / 2.0) * spacing
             starts.append(
                 (
                     binding.exit_point[0]
@@ -255,7 +273,7 @@ def _protected_facility_resources(
                 )
             )
         resources.append(MultiPoint(starts).buffer(protected_clearance))
-        forward_distance = release_spacing * max(
+        forward_distance = spacing * max(
             1,
             int(facility.release_forward_extra),
         )

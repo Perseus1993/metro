@@ -1,25 +1,26 @@
 from __future__ import annotations
 
-from dataclasses import dataclass, field
 import hashlib
 import json
+from dataclasses import dataclass, field
 from math import ceil, floor, hypot
 from typing import Any, Iterable
 
 from shapely import intersects_xy
-from shapely.geometry import GeometryCollection, LineString, MultiPoint, Point as ShapelyPoint
+from shapely.geometry import GeometryCollection, LineString, MultiPoint
+from shapely.geometry import Point as ShapelyPoint
 from shapely.ops import unary_union
 
 from ..design.schema import StationDesignDocument
 from ..design.validation_issue import ValidationIssue, issue
 from ..facilities.process import FacilityKind, FacilitySpec
 from ..planning.plan import FacilityStage
-from ..station.facility_portal_binding import FacilityPortalBinding, Point
 from ..station.alighting_demand import peak_alighting_batch
 from ..station.alighting_source_geometry import (
     alighting_source_projection_clearance_m,
     materialize_alighting_source_candidates,
 )
+from ..station.facility_portal_binding import FacilityPortalBinding, Point
 from ..station.geometry import grid_safe_points, level_walkable_geometry
 from ..station.graph import StationGraph
 from .decision_holding_regions import (
@@ -28,15 +29,29 @@ from .decision_holding_regions import (
 )
 from .facility_portal_contract import NUMERICAL_TOLERANCE_M
 from .geometry_reachability import GeometryCompilePolicy
+from .release_capacity_geometry import (
+    release_candidate_grid,
+    release_spacing,
+    required_release_bodies,
+)
 from .spatial_capacity_geometry import (
     PointSpatialIndex as _PointSpatialIndex,
+)
+from .spatial_capacity_geometry import (
     boarding_queue_access_corridors as _boarding_queue_access_corridors,
+)
+from .spatial_capacity_geometry import (
     distance as _distance,
+)
+from .spatial_capacity_geometry import (
     gate_bank_tail_aisles as _gate_bank_tail_aisles,
+)
+from .spatial_capacity_geometry import (
     point_segment_distance as _point_segment_distance,
+)
+from .spatial_capacity_geometry import (
     station_walk_flow_corridors as _station_walk_flow_corridors,
 )
-
 
 CAPACITY_POLICY_VERSION = 1
 STORAGE_RESOURCE_KINDS = frozenset(
@@ -557,8 +572,8 @@ def _facility_release_certificates(
     raw_domain = level_walkable_geometry(document, binding.exit_level_id)
     body_radius = max(0.02, policy.agent_radius_m)
     safe_domain = raw_domain.buffer(-body_radius * 1.05)
-    spacing = _release_spacing(facility, policy)
-    required = _required_release_bodies(facility, binding, scenario, spacing)
+    spacing = release_spacing(facility, policy)
+    required = required_release_bodies(facility, binding, scenario, spacing)
     blocked = tuple(
         point
         for owner_id, point in blocked_positions
@@ -586,7 +601,16 @@ def _facility_release_certificates(
             policy=policy,
         )
     else:
-        candidates = _release_candidate_grid(facility, binding, spacing, required)
+        candidates = release_candidate_grid(
+            facility,
+            binding,
+            spacing,
+            required,
+            minimum_clearance=max(
+                policy.two_body_clearance_m,
+                policy.personal_space_m,
+            ),
+        )
         slots = []
         paths = []
         start = (
@@ -595,6 +619,9 @@ def _facility_release_certificates(
             and binding.entry_level_id == binding.exit_level_id
             else binding.exit_point
         )
+        release_target = required
+        if facility.kind == FacilityKind.GATE.value:
+            release_target += max(2, int(facility.release_column_count))
         for candidate in candidates:
             point = ShapelyPoint(candidate)
             if not safe_domain.buffer(NUMERICAL_TOLERANCE_M).covers(point):
@@ -616,7 +643,7 @@ def _facility_release_certificates(
                 continue
             slots.append(candidate)
             paths.append(path)
-            if len(slots) >= required:
+            if len(slots) >= release_target:
                 break
     apron = (
         MultiPoint(slots).buffer(body_radius)
@@ -915,63 +942,6 @@ def _compile_elevator_batch_plans(
     return tuple(point_plans), tuple(path_plans)
 
 
-def _required_release_bodies(
-    facility: FacilitySpec,
-    binding: FacilityPortalBinding,
-    scenario: Any,
-    spacing: float,
-) -> int:
-    if facility.kind == FacilityKind.ELEVATOR.value:
-        elevator = None if facility.vertical_config is None else facility.vertical_config.elevator
-        person_capacity = int(
-            scenario.elevator_cabin_capacity_persons
-            if elevator is None
-            else elevator.batch_capacity
-        )
-        return max(1, person_capacity // max(1, int(scenario.group_size)))
-    if facility.kind in {FacilityKind.ESCALATOR.value, FacilityKind.TRAIN_DOOR.value}:
-        return 1
-    if facility.kind == FacilityKind.STAIRS.value:
-        width = max(spacing, float(facility.traversal_width_m or spacing))
-        return max(1, floor(width / spacing))
-    group_size = max(1, int(scenario.group_size))
-    groups_per_second = max(0.0, float(facility.service_persons_per_min)) / group_size / 60.0
-    groups_per_tick = groups_per_second * max(0.001, float(scenario.tick_seconds))
-    distance = _distance(binding.entry_point, binding.exit_point)
-    traversal_seconds = distance / max(0.001, float(scenario.jupedsim_desired_speed_mps))
-    concurrent = max(1, ceil(groups_per_second * traversal_seconds))
-    return max(concurrent, ceil(groups_per_tick))
-
-
-def _release_candidate_grid(
-    facility: FacilitySpec,
-    binding: FacilityPortalBinding,
-    spacing: float,
-    required: int,
-) -> tuple[Point, ...]:
-    columns = max(1, int(facility.release_column_count))
-    column_order = _centered_offsets(columns)
-    # Search a deterministic finite prefix beyond the requested body count.
-    # Obstacles and co-active resources may invalidate otherwise regular grid
-    # cells; limiting the lattice to exactly ``required`` candidates would
-    # confuse a constructive lower bound with an area estimate.
-    rows = max(
-        max(1, int(facility.release_forward_extra) + 1),
-        ceil(max(1, required) / columns) + max(4, int(facility.release_forward_extra)),
-    )
-    forward = binding.release_forward
-    lateral = binding.release_lateral
-    base = binding.exit_point
-    return tuple(
-        (
-            round(base[0] + forward[0] * row * spacing + lateral[0] * column * spacing, 6),
-            round(base[1] + forward[1] * row * spacing + lateral[1] * column * spacing, 6),
-        )
-        for row in range(rows)
-        for column in column_order
-    )
-
-
 def _platform_waiting_certificates(
     document: StationDesignDocument,
     graph: StationGraph,
@@ -993,7 +963,9 @@ def _platform_waiting_certificates(
     corridor_domains_by_level: dict[str, list[Any]] = {}
     for certificate in existing:
         if certificate.resource_kind == "service_corridor" and certificate.domain is not None:
-            corridor_domains_by_level.setdefault(certificate.level_id, []).append(certificate.domain)
+            corridor_domains_by_level.setdefault(certificate.level_id, []).append(
+                certificate.domain
+            )
     boarding_approaches_by_level: dict[str, tuple[Point, ...]] = {}
     for level_id in level_ids:
         boarding_approaches_by_level[level_id] = tuple(
@@ -1500,15 +1472,6 @@ def _binding_mutex_owner_ids(
                 )
             }
         )
-    )
-
-
-def _release_spacing(facility: FacilitySpec, policy: GeometryCompilePolicy) -> float:
-    clearance = policy.two_body_clearance_m + float(facility.release_clearance_pad)
-    personal = policy.personal_space_m * float(facility.release_personal_factor)
-    return max(
-        float(facility.release_spacing_min),
-        min(float(facility.release_spacing_max), max(clearance, personal)),
     )
 
 
