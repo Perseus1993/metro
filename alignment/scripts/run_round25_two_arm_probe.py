@@ -35,25 +35,75 @@ def _runtime_cohort() -> dict[str, Any]:
     }
 
 
+def _terminal_admission_owner_diagnostics(runtime) -> dict[str, list[dict[str, Any]]]:
+    passengers = {int(passenger.unique_id): passenger for passenger in runtime.passengers}
+    result: dict[str, list[dict[str, Any]]] = {}
+    for flow, resource in sorted(runtime.alignment_admission_resources.items()):
+        diagnostics = []
+        for owner_id in sorted(resource.owners, key=str):
+            passenger = passengers.get(owner_id) if isinstance(owner_id, int) else None
+            if passenger is None:
+                diagnostics.append({"owner_id": owner_id, "passenger_present": False})
+                continue
+            goal_state = passenger.goal_runtime.state
+            commitment = goal_state.commitment
+            diagnostics.append(
+                {
+                    "owner_id": owner_id,
+                    "passenger_present": True,
+                    "intent": str(passenger.intent),
+                    "state": str(passenger.state),
+                    "position": [float(passenger.pos[0]), float(passenger.pos[1])],
+                    "target": [float(passenger.target[0]), float(passenger.target[1])],
+                    "route": [[float(point[0]), float(point[1])] for point in passenger.route],
+                    "velocity_mps": [
+                        float(passenger.last_walk_velocity_mps[0]),
+                        float(passenger.last_walk_velocity_mps[1]),
+                    ],
+                    "progress_age_seconds": float(passenger.progress_age_seconds),
+                    "last_replan_reason": passenger.last_replan_reason,
+                    "goal": {
+                        "kind": str(passenger.current_goal.kind),
+                        "label": str(passenger.current_goal.label),
+                        "stage": passenger.current_goal.stage,
+                    },
+                    "goal_runtime": {
+                        "node_id": goal_state.current_node_id,
+                        "stage": goal_state.current_stage,
+                        "interaction_state": goal_state.interaction_state,
+                        "retry_count": int(goal_state.retry_count),
+                        "commitment_facility_id": (
+                            None if commitment is None else commitment.facility_id
+                        ),
+                    },
+                    "decision_holding_targets": {
+                        region: [float(point[0]), float(point[1])]
+                        for region, point in sorted(
+                            passenger.decision_holding_target_by_region.items()
+                        )
+                    },
+                    "approach_facilities": dict(
+                        sorted(passenger.facility_approach_facility_ids_by_stage.items())
+                    ),
+                }
+            )
+        result[str(flow)] = diagnostics
+    return result
+
+
 def _require_runtime_cohort(expected: dict[str, Any], *, phase: str) -> None:
     actual = _runtime_cohort()
     if actual != expected:
         raise RuntimeError(
-            f"runtime source changed during two-arm probe ({phase}); "
-            "refusing mixed-cohort evidence"
+            f"runtime source changed during two-arm probe ({phase}); refusing mixed-cohort evidence"
         )
 
 
 def _round24_historical_baseline() -> dict[str, Any]:
     source = (
-        Path(__file__).parents[1]
-        / "docs"
-        / "reviews"
-        / "round_24_step5_conservation_handoff.md"
+        Path(__file__).parents[1] / "docs" / "reviews" / "round_24_step5_conservation_handoff.md"
     )
-    normalized_source = (
-        source.read_bytes().replace(b"\r\n", b"\n").replace(b"\r", b"\n")
-    )
+    normalized_source = source.read_bytes().replace(b"\r\n", b"\n").replace(b"\r", b"\n")
     source_sha256 = hashlib.sha256(normalized_source).hexdigest()
     expected_sha256 = "bc634d85ffc6b0e7418dcba3b17ccd504629adb37c86a3984f3f631a0a3cf496"
     if source_sha256 != expected_sha256:
@@ -75,7 +125,9 @@ def _round24_historical_baseline() -> dict[str, Any]:
             "horizon_steps": 120,
             "design": "fixed-direction gates and seven train doors",
         },
-        "controlled_difference": "downstream finite-admission evidence reported effectively unbounded capacity",
+        "controlled_difference": (
+            "downstream finite-admission evidence reported effectively unbounded capacity"
+        ),
         "arms": {
             "finite_admission": {
                 "scheduled_entry": 83,
@@ -125,9 +177,7 @@ def _arm(
         int(step): int(counter.get(AgentIntent.ENTER_AND_BOARD.value, 0))
         for step, counter in scheduler.spawn_schedule.items()
     }
-    exit_schedule = {
-        int(step): int(count) for step, count in scheduler.alighting_schedule.items()
-    }
+    exit_schedule = {int(step): int(count) for step, count in scheduler.alighting_schedule.items()}
     executor = AlignmentMesaSimulationExecutor(formal_horizon_steps=steps)
     if measurement_bypass_preflight:
         runtime = executor.build_model(request)
@@ -141,9 +191,14 @@ def _arm(
     metrics = {**frame_metrics, **runtime.alignment_source_admission_metrics()}
     spatial = dict(metrics.get("spatial_capacity_event_counts", {}))
     audits = dict(metrics.get("audit_counts", {}))
+    replan_by_passenger: Counter[str] = Counter()
     blocked_regions: Counter[str] = Counter()
     blocked_codes: Counter[str] = Counter()
     for event in runtime.audit.events:
+        if event.code == "passenger_replanned_stalled_region_approach":
+            replan_by_passenger[str(event.context.get("passenger_id", "unknown"))] += int(
+                event.count
+            )
         if event.code not in {"placement.dynamic_blocked", "spawn.dynamic_blocked"}:
             continue
         context = event.context
@@ -158,9 +213,7 @@ def _arm(
         blocked_codes[event.code] += int(event.count)
     residence_evidence_artifacts = {}
     for flow in ("entry", "exit"):
-        reference = str(
-            getattr(config, f"{flow}_admission_residence_evidence_ref") or ""
-        )
+        reference = str(getattr(config, f"{flow}_admission_residence_evidence_ref") or "")
         reference_path, _separator, _pointer = reference.partition("#")
         evidence_payload = json.loads(Path(reference_path).read_text(encoding="utf-8"))
         residence_evidence_artifacts[flow] = {
@@ -188,52 +241,28 @@ def _arm(
             "entry_count_hour": request.scenario.entry_count_hour,
             "exit_count_hour": request.scenario.exit_count_hour,
             "demand_minutes": request.scenario.demand_duration_minutes,
-            "entry_scheduled_persons": sum(entry_schedule.values())
-            * request.scenario.group_size,
-            "exit_scheduled_persons": sum(exit_schedule.values())
-            * request.scenario.group_size,
+            "entry_scheduled_persons": sum(entry_schedule.values()) * request.scenario.group_size,
+            "exit_scheduled_persons": sum(exit_schedule.values()) * request.scenario.group_size,
             "entry_last_scheduled_step": max(entry_schedule, default=-1),
             "exit_last_scheduled_step": max(exit_schedule, default=-1),
             "measurement_horizon_steps": steps,
             "group_size": request.scenario.group_size,
-            "gate_service_persons_per_min": (
-                request.scenario.gate_service_persons_per_min
-            ),
+            "gate_service_persons_per_min": (request.scenario.gate_service_persons_per_min),
             "train_dwell_seconds": request.scenario.train_dwell_seconds,
             "train_headway_seconds": request.scenario.train_headway_seconds,
-            "initial_train_offset_seconds": (
-                request.scenario.initial_train_offset_seconds
-            ),
+            "initial_train_offset_seconds": (request.scenario.initial_train_offset_seconds),
             "jupedsim_dt_seconds": request.scenario.jupedsim_dt_seconds,
-            "jupedsim_iterations_per_tick": (
-                request.scenario.jupedsim_iterations_per_tick
-            ),
-            "jupedsim_desired_speed_mps": (
-                request.scenario.jupedsim_desired_speed_mps
-            ),
-            "jupedsim_free_speed_min_mps": (
-                request.scenario.jupedsim_free_speed_min_mps
-            ),
-            "jupedsim_free_speed_max_mps": (
-                request.scenario.jupedsim_free_speed_max_mps
-            ),
-            "jupedsim_agent_radius_units": (
-                request.scenario.jupedsim_agent_radius_units
-            ),
-            "jupedsim_clearance_multiplier": (
-                request.scenario.jupedsim_clearance_multiplier
-            ),
+            "jupedsim_iterations_per_tick": (request.scenario.jupedsim_iterations_per_tick),
+            "jupedsim_desired_speed_mps": (request.scenario.jupedsim_desired_speed_mps),
+            "jupedsim_free_speed_min_mps": (request.scenario.jupedsim_free_speed_min_mps),
+            "jupedsim_free_speed_max_mps": (request.scenario.jupedsim_free_speed_max_mps),
+            "jupedsim_agent_radius_units": (request.scenario.jupedsim_agent_radius_units),
+            "jupedsim_clearance_multiplier": (request.scenario.jupedsim_clearance_multiplier),
             "movement_backend_name": request.scenario.movement_backend_name,
-            "jupedsim_operational_model": (
-                request.scenario.jupedsim_operational_model
-            ),
+            "jupedsim_operational_model": (request.scenario.jupedsim_operational_model),
         },
-        "metro_runtime_fingerprint": expected_runtime_cohort[
-            "metro_runtime_fingerprint"
-        ],
-        "analysis_runtime_fingerprint": expected_runtime_cohort[
-            "analysis_runtime_fingerprint"
-        ],
+        "metro_runtime_fingerprint": expected_runtime_cohort["metro_runtime_fingerprint"],
+        "analysis_runtime_fingerprint": expected_runtime_cohort["analysis_runtime_fingerprint"],
         "residence_evidence_artifacts": residence_evidence_artifacts,
         "metrics": {
             "scheduled_entry": metrics.get("alignment_scheduled_entry_persons"),
@@ -250,41 +279,47 @@ def _arm(
             + spatial.get("spawn.dynamic_blocked", 0),
             "dropped": metrics.get("alignment_source_dropped_persons"),
             "conserved": metrics.get("alignment_source_demand_conserved"),
-            "passenger_liveness_violation": audits.get(
-                "passenger_liveness_violation", 0
-            ),
-            "entry_admission_attempts": metrics.get(
-                "alignment_entry_admission_attempts"
-            ),
+            "passenger_liveness_violation": audits.get("passenger_liveness_violation", 0),
+            "entry_admission_attempts": metrics.get("alignment_entry_admission_attempts"),
             "entry_admission_exhausted_ratio": metrics.get(
                 "alignment_entry_admission_exhausted_ratio"
             ),
-            "exit_admission_attempts": metrics.get(
-                "alignment_exit_admission_attempts"
-            ),
+            "exit_admission_attempts": metrics.get("alignment_exit_admission_attempts"),
             "exit_admission_exhausted_ratio": metrics.get(
                 "alignment_exit_admission_exhausted_ratio"
             ),
-            "placement_retry_attempts": metrics.get(
-                "alignment_placement_retry_attempts"
-            ),
+            "placement_retry_attempts": metrics.get("alignment_placement_retry_attempts"),
             "placement_retry_ratio": metrics.get("alignment_placement_retry_ratio"),
             "waiting_capacity_retry_attempts": metrics.get(
                 "alignment_waiting_capacity_retry_attempts"
             ),
-            "waiting_capacity_retry_ratio": metrics.get(
-                "alignment_waiting_capacity_retry_ratio"
-            ),
+            "waiting_capacity_retry_ratio": metrics.get("alignment_waiting_capacity_retry_ratio"),
             "stalled_platform_parking_attempts": metrics.get(
                 "alignment_stalled_platform_parking_attempts"
             ),
             "stalled_platform_parking_ratio": metrics.get(
                 "alignment_stalled_platform_parking_ratio"
             ),
-            "service_time_attribution": metrics.get(
-                "alignment_service_time_attribution"
+            "replanned_stalled_region_approach_attempts": audits.get(
+                "passenger_replanned_stalled_region_approach", 0
+            ),
+            "replanned_stalled_region_approach_ratio": (
+                audits.get("passenger_replanned_stalled_region_approach", 0)
+                / max(
+                    1,
+                    int(metrics.get("spawned_entry_persons", 0) or 0)
+                    + int(metrics.get("spawned_exit_persons", 0) or 0),
+                )
+            ),
+            "service_time_attribution": metrics.get("alignment_service_time_attribution"),
+        },
+        "stalled_replan_attribution": {
+            "total": sum(replan_by_passenger.values()),
+            "by_passenger": dict(
+                sorted(replan_by_passenger.items(), key=lambda item: (-item[1], item[0]))
             ),
         },
+        "terminal_admission_owners": _terminal_admission_owner_diagnostics(runtime),
         "source_integrity_gate": evaluate_source_integrity_gate(metrics),
         "dynamic_blocked_attribution": {
             "total": sum(blocked_regions.values()),
@@ -312,24 +347,16 @@ def _arm(
                 "lower_bound_p99_steps": metrics.get(
                     f"alignment_{flow}_token_residence_lower_bound_p99_steps"
                 ),
-                "samples_steps": metrics.get(
-                    f"alignment_{flow}_token_residence_steps"
-                ),
+                "samples_steps": metrics.get(f"alignment_{flow}_token_residence_steps"),
                 "completed_samples_steps": metrics.get(
                     f"alignment_{flow}_token_completed_residence_steps"
                 ),
                 "censored_samples_steps": metrics.get(
                     f"alignment_{flow}_token_censored_residence_steps"
                 ),
-                "completed_n": metrics.get(
-                    f"alignment_{flow}_token_completed_residence_n"
-                ),
-                "censored_n": metrics.get(
-                    f"alignment_{flow}_token_censored_residence_n"
-                ),
-                "abnormal_residences": metrics.get(
-                    f"alignment_{flow}_token_abnormal_residences"
-                ),
+                "completed_n": metrics.get(f"alignment_{flow}_token_completed_residence_n"),
+                "censored_n": metrics.get(f"alignment_{flow}_token_censored_residence_n"),
+                "abnormal_residences": metrics.get(f"alignment_{flow}_token_abnormal_residences"),
             }
             for flow in ("entry", "exit")
         },
@@ -354,9 +381,7 @@ def _residence_artifact(control_arm: dict[str, Any]) -> dict[str, Any]:
         ),
         "entry": control_arm["residence"]["entry"],
         "exit": control_arm["residence"]["exit"],
-        "service_time_attribution": control_arm["metrics"].get(
-            "service_time_attribution"
-        ),
+        "service_time_attribution": control_arm["metrics"].get("service_time_attribution"),
         "design_sha256": control_arm["design_sha256"],
         "scene_config_sha256": control_arm["scene_config_sha256"],
         "metro_runtime_fingerprint": control_arm["metro_runtime_fingerprint"],
@@ -439,10 +464,7 @@ def main() -> int:
         return 0 if report["status"] == "pass" else 1
     base_request, _ = build_metro_request(base)
     sizing = alignment_entry_admission_preflight(base_request.scenario)
-    required = {
-        str(flow["flow_id"]): int(flow["required_capacity"])
-        for flow in sizing["flows"]
-    }
+    required = {str(flow["flow_id"]): int(flow["required_capacity"]) for flow in sizing["flows"]}
     finite_config = replace(
         base,
         entry_admission_token_capacity=required["entry"],
@@ -476,8 +498,7 @@ def main() -> int:
         report["status"] = (
             "pass"
             if all(
-                arm["source_integrity_gate"]["status"] == "pass"
-                for arm in report["arms"].values()
+                arm["source_integrity_gate"]["status"] == "pass" for arm in report["arms"].values()
             )
             else "fail"
         )
