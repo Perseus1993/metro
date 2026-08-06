@@ -1,0 +1,103 @@
+{
+  "schema_version": "alignment_round26_baseline_provenance.v1",
+  "status": "pass_with_pre_existing_failures",
+  "baseline_git_revision": "55543e2b684c7d66a4f2fb66a9df0acac0cbf9b1",
+  "current_git_revision": "7b31c58b5b699d60284fe6aab38846b85e1a7f62",
+  "decision": {
+    "pr2_merge_blocked": false,
+    "round25_final_merge_blocked": true,
+    "round26_branch_merge_blocked": false,
+    "reason": "All three named failures reproduce at the baseline, so none is introduced by PR-2. However, the source-size test's exact offender set is worse on the current final branch: two post-PR-2 Round-25 files newly exceed their ratchets."
+  },
+  "failures": [
+    {
+      "failure": "same-tick gate release",
+      "test": "tests/test_metro_station_sandbox.py::PassengerFlowTests::test_same_tick_gate_release_uses_spaced_positions_and_times",
+      "baseline_reproduced": true,
+      "baseline_observation": "expected len(gate.active_passes) == 4; observed 1",
+      "current_reproduced": true,
+      "current_observation": "expected len(gate.active_passes) == 4; observed 1",
+      "introduced_commit": null,
+      "classification": "pre_existing_at_55543e2b",
+      "blocks_pr2_merge": false
+    },
+    {
+      "failure": "JuPedSim operational recovery clearance",
+      "test": "tests/test_operational_acceptance.py::OperationalAcceptanceTests::test_real_jupedsim_recovery_scenarios_clear_for_required_seeds",
+      "baseline_reproduced": true,
+      "baseline_observation": "facility_closure_recovery seed 41 returned status=review rather than ok, with physical, queue, movement, terminal-event, and goal-graph clearance blockers",
+      "current_reproduced": true,
+      "current_observation": "same scenario and seed returned the same status and blocker classes",
+      "introduced_commit": null,
+      "classification": "pre_existing_at_55543e2b",
+      "blocks_pr2_merge": false
+    },
+    {
+      "failure": "official source file size budget",
+      "test": "tests/test_source_layout.py::test_official_source_file_size_budget",
+      "baseline_reproduced": true,
+      "baseline_offenders": [
+        {
+          "file": "packages/metro_station/src/metro_station/adapters/simulation/facilities/gate_runtime.py",
+          "lines": 740,
+          "limit": 700
+        },
+        {
+          "file": "packages/metro_station/src/metro_station/adapters/simulation/facilities/runtime_base.py",
+          "lines": 981,
+          "limit": 970
+        }
+      ],
+      "current_reproduced": true,
+      "current_offenders": [
+        {
+          "file": "packages/metro_station/src/metro_station/adapters/simulation/facilities/runtime_base.py",
+          "lines": 981,
+          "limit": 970
+        },
+        {
+          "file": "packages/metro_station/src/metro_station/adapters/simulation/runtime/decision_holding.py",
+          "lines": 747,
+          "limit": 731,
+          "introduced_commit": "8be3d8a8"
+        },
+        {
+          "file": "packages/metro_station/src/metro_station/adapters/simulation/runtime/passenger_demand.py",
+          "lines": 885,
+          "limit": 765,
+          "introduced_commit": "5cc585af"
+        }
+      ],
+      "runtime_base_not_worsened": true,
+      "exact_failure_not_unchanged": true,
+      "classification": "pre_existing_test_failure_with_post_pr2_round25_regression",
+      "blocks_pr2_merge": false,
+      "blocks_round25_final_merge": true,
+      "round26_remediation": "Split downstream admission evidence and platform waiting ordering into focused modules; re-run the source-size test before closing B0."
+    }
+  ],
+  "remediation": {
+    "decision_holding": {
+      "before_lines": 747,
+      "after_lines": 658,
+      "limit": 731,
+      "change": "platform waiting slot ordering moved to platform_waiting_geometry.py"
+    },
+    "passenger_demand": {
+      "before_lines": 885,
+      "after_lines": 738,
+      "limit": 765,
+      "change": "downstream admission calculation moved to downstream_admission_evidence.py"
+    },
+    "post_remediation_source_size_offenders": [
+      {
+        "file": "packages/metro_station/src/metro_station/adapters/simulation/facilities/runtime_base.py",
+        "lines": 981,
+        "limit": 970,
+        "classification": "unchanged_baseline_failure"
+      }
+    ],
+    "directed_tests": "18 passed for extracted admission, platform-ordering, and time-attribution behavior"
+  },
+  "semantic_note": "The Round-25 statement that these failures touch no PR-1 files does not imply that PR-2 did not introduce them. Direct baseline execution is the provenance evidence. Likewise, reproducing one offender at baseline does not prove that a multi-offender ratchet test was not worsened."
+}
