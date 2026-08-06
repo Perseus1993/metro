@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import importlib.util
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 from metro_station_testkit.two_arm_probe import build_two_arm_report
@@ -96,3 +97,25 @@ def test_round24_baseline_is_anchored_to_committed_handoff() -> None:
     assert baseline["arms"]["finite_admission"]["pending_entry"] == 8
     assert baseline["arms"]["finite_admission"]["admission_exhausted"] == 90
     assert baseline["arms"]["finite_admission"]["deferred_downstream"] == 89
+
+
+def test_terminal_diagnostics_retain_lifecycle_closed_owners() -> None:
+    probe = _load_probe_script()
+    runtime = SimpleNamespace(
+        passengers=[],
+        alignment_admission_resources={
+            "exit": SimpleNamespace(
+                owners=(),
+                completed_residences=(
+                    SimpleNamespace(owner_id=145, right_censored=True),
+                    SimpleNamespace(owner_id=131, right_censored=False),
+                ),
+            )
+        },
+    )
+
+    diagnostics = probe._terminal_admission_owner_diagnostics(runtime)
+
+    assert diagnostics == {
+        "exit": [{"owner_id": 145, "passenger_present": False}],
+    }

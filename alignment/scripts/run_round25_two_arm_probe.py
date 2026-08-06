@@ -40,7 +40,12 @@ def _terminal_admission_owner_diagnostics(runtime) -> dict[str, list[dict[str, A
     result: dict[str, list[dict[str, Any]]] = {}
     for flow, resource in sorted(runtime.alignment_admission_resources.items()):
         diagnostics = []
-        for owner_id in sorted(resource.owners, key=str):
+        terminal_owner_ids = tuple(resource.owners) + tuple(
+            residence.owner_id
+            for residence in resource.completed_residences
+            if residence.right_censored
+        )
+        for owner_id in sorted(dict.fromkeys(terminal_owner_ids), key=str):
             passenger = passengers.get(owner_id) if isinstance(owner_id, int) else None
             if passenger is None:
                 diagnostics.append({"owner_id": owner_id, "passenger_present": False})
