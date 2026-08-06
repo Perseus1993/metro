@@ -1,0 +1,33 @@
+{
+  "schema_version": "alignment_round27_baseline_provenance.v1",
+  "status": "pass_with_pre_existing_same_tick_failure",
+  "round27_parent_revision": "27e57b4cdf4745d0523e2415b13dc2caf4462d6e",
+  "round26_code_freeze_revision": "01f64607",
+  "round26_code_freeze_is_ancestor": true,
+  "same_tick_test": "tests/test_metro_station_sandbox.py::PassengerFlowTests::test_same_tick_gate_release_uses_spaced_positions_and_times",
+  "detached_baseline": {
+    "revision": "55543e2b684c7d66a4f2fb66a9df0acac0cbf9b1",
+    "outcome": "failed",
+    "expected_active_passes": 4,
+    "actual_active_passes": 1,
+    "duration_seconds": 10.26
+  },
+  "round27_parent": {
+    "revision": "27e57b4cdf4745d0523e2415b13dc2caf4462d6e",
+    "outcome": "failed",
+    "expected_active_passes": 4,
+    "actual_active_passes": 1,
+    "duration_seconds": 8.81
+  },
+  "classification": "pre_existing_at_55543e2b",
+  "decision": {
+    "blocks_round27_source_reservoir": false,
+    "capacity_tuning_allowed_as_remediation": false,
+    "reason": "The identical mismatch predates PR-2 and Round 26; reservoir or admission capacity must not be enlarged to hide it."
+  },
+  "round26_regression_contract": {
+    "debt_2_replan_retired": true,
+    "debt_5_placement_retry_retired": true,
+    "must_remain_gated": true
+  }
+}

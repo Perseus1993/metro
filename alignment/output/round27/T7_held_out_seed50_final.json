@@ -1,0 +1,289 @@
+{
+  "schema_version": "alignment_round27_source_probe.v1",
+  "revision": "afcb903614542d509fc959fe28b23f90d84d94e6",
+  "seed": 50,
+  "control": {
+    "scene_id": "platform_boarding",
+    "minutes": 10,
+    "demand_minutes": 10,
+    "formal_horizon_steps": 240,
+    "entry_count_hour": 2500,
+    "exit_count_hour": 2200,
+    "entry_admission_token_capacity": null,
+    "exit_admission_token_capacity": null,
+    "design_sha256": "e029a05941243fa9e3fd0d180af6157a26c0e69fd9e1fa9e4a0f24bcfcb13663"
+  },
+  "run_outcome_code": null,
+  "step": 240,
+  "flows": {
+    "entry": {
+      "scheduled_persons": 167,
+      "admitted_persons": 104,
+      "source_waiting_persons": 63,
+      "active_inside_persons": 87,
+      "completed_persons": 17,
+      "not_alighted_persons": 0,
+      "right_censored_persons": 63,
+      "dropped_persons": 0,
+      "conserved": true
+    },
+    "exit": {
+      "scheduled_persons": 134,
+      "admitted_persons": 134,
+      "source_waiting_persons": 0,
+      "active_inside_persons": 96,
+      "completed_persons": 38,
+      "not_alighted_persons": 0,
+      "right_censored_persons": 0,
+      "dropped_persons": 0,
+      "conserved": true
+    }
+  },
+  "admission": {
+    "entry": {
+      "attempts": 331,
+      "exhausted_attempts": 0,
+      "exhausted_ratio": 0.0
+    },
+    "exit": {
+      "attempts": 134,
+      "exhausted_attempts": 0,
+      "exhausted_ratio": 0.0
+    }
+  },
+  "round26_regression": {
+    "placement_retry_attempts": 0,
+    "placement_retry_ratio": 0.0,
+    "stalled_region_replan_attempts": 4,
+    "stalled_region_replan_ratio": 0.01680672268907563,
+    "liveness_violations": 0
+  },
+  "train_manifests": [
+    {
+      "train_run_id": {
+        "platform_id": "platform:default:down",
+        "arrival_sequence": 1
+      },
+      "failure_code": null,
+      "planned_alight_persons": 134,
+      "released_alight_persons": 134,
+      "not_alighted_persons": 0,
+      "actual_departure_step": 135,
+      "boarded_persons": 17,
+      "departure_load_persons": 17,
+      "capacity_persons": 1200,
+      "departure_policy": "FAIL_CAPACITY",
+      "departure_status": "departed",
+      "alighting_release_complete_step": 134,
+      "arrival_step": 75,
+      "scheduled_close_step": 135,
+      "inbound_load_persons": 134,
+      "through_load_persons": 0,
+      "reserved_boarding_persons": 0,
+      "current_onboard_persons": 17,
+      "run_ref": "platform:default:down:1",
+      "dwell_extension_steps": 0
+    }
+  ],
+  "dynamic_gate": {
+    "schema_version": "alignment_round27_dynamic_gate.v1",
+    "status": "fail",
+    "throughput_floors": [
+      {
+        "flow_id": "entry",
+        "scheduled_persons": 167,
+        "minimum_admitted_persons": 107,
+        "minimum_completed_persons": 18,
+        "evidence_ref": "alignment/output/round27/T7_dynamic_floor_qualification.json#runs",
+        "evidence_class": "empirical_qualification",
+        "evidence_sha256": "a8cc900e3e2b09950005a7e8ed702988b37c137438779505a885886640da6ca7",
+        "qualification_revision": "61c692928e4a01c651a7c8abf8f98e4925377025"
+      },
+      {
+        "flow_id": "exit",
+        "scheduled_persons": 134,
+        "minimum_admitted_persons": 134,
+        "minimum_completed_persons": 35,
+        "evidence_ref": "alignment/output/round27/T7_dynamic_floor_qualification.json#runs",
+        "evidence_class": "empirical_qualification",
+        "evidence_sha256": "a8cc900e3e2b09950005a7e8ed702988b37c137438779505a885886640da6ca7",
+        "qualification_revision": "61c692928e4a01c651a7c8abf8f98e4925377025"
+      }
+    ],
+    "checks": [
+      {
+        "id": "run_outcome_success",
+        "operator": "==",
+        "expected": null,
+        "actual": null,
+        "status": "pass"
+      },
+      {
+        "id": "entry.scheduled_frozen",
+        "operator": "==",
+        "expected": 167,
+        "actual": 167,
+        "status": "pass"
+      },
+      {
+        "id": "entry.admission_floor",
+        "operator": ">=",
+        "expected": 107,
+        "actual": 104,
+        "status": "fail"
+      },
+      {
+        "id": "entry.completion_floor",
+        "operator": ">=",
+        "expected": 18,
+        "actual": 17,
+        "status": "fail"
+      },
+      {
+        "id": "entry.dropped_zero",
+        "operator": "==",
+        "expected": 0,
+        "actual": 0,
+        "status": "pass"
+      },
+      {
+        "id": "entry.conserved",
+        "operator": "==",
+        "expected": 167,
+        "actual": 167,
+        "status": "pass"
+      },
+      {
+        "id": "exit.scheduled_frozen",
+        "operator": "==",
+        "expected": 134,
+        "actual": 134,
+        "status": "pass"
+      },
+      {
+        "id": "exit.admission_floor",
+        "operator": ">=",
+        "expected": 134,
+        "actual": 134,
+        "status": "pass"
+      },
+      {
+        "id": "exit.completion_floor",
+        "operator": ">=",
+        "expected": 35,
+        "actual": 38,
+        "status": "pass"
+      },
+      {
+        "id": "exit.dropped_zero",
+        "operator": "==",
+        "expected": 0,
+        "actual": 0,
+        "status": "pass"
+      },
+      {
+        "id": "exit.conserved",
+        "operator": "==",
+        "expected": 134,
+        "actual": 134,
+        "status": "pass"
+      },
+      {
+        "id": "passenger_liveness_zero",
+        "operator": "==",
+        "expected": 0,
+        "actual": 0,
+        "status": "pass"
+      },
+      {
+        "id": "round26_replan_not_regressed",
+        "operator": "<=",
+        "expected": 0.01,
+        "actual": 0.01680672268907563,
+        "status": "fail"
+      },
+      {
+        "id": "round26_placement_retry_not_regressed",
+        "operator": "<=",
+        "expected": 0.01,
+        "actual": 0.0,
+        "status": "pass"
+      }
+    ]
+  },
+  "stress_metrics": {
+    "scheduled_demand_persons": 301,
+    "eligible_service_opportunities": 465,
+    "completed_persons": 55,
+    "source_waiting_persons": 63,
+    "active_inside_persons": 183,
+    "not_alighted_persons": 0,
+    "admission_exhausted_attempts": 0,
+    "dropped_persons": 0,
+    "run_outcome_code": null,
+    "unhandled_expected_capacity_exceptions": 0
+  },
+  "stress_gate": {
+    "schema_version": "alignment_round27_stress_gate.v1",
+    "status": "fail",
+    "throughput_floors": [],
+    "checks": [
+      {
+        "id": "nonzero_demand",
+        "operator": ">",
+        "expected": 0,
+        "actual": 301,
+        "status": "pass"
+      },
+      {
+        "id": "nonzero_service_opportunities",
+        "operator": ">",
+        "expected": 0,
+        "actual": 465,
+        "status": "pass"
+      },
+      {
+        "id": "nonzero_completion",
+        "operator": ">",
+        "expected": 0,
+        "actual": 55,
+        "status": "pass"
+      },
+      {
+        "id": "finiteness_exercised",
+        "operator": ">",
+        "expected": 0,
+        "actual": 0,
+        "status": "fail"
+      },
+      {
+        "id": "dropped_zero",
+        "operator": "==",
+        "expected": 0,
+        "actual": 0,
+        "status": "pass"
+      },
+      {
+        "id": "conserved",
+        "operator": "==",
+        "expected": 301,
+        "actual": 301,
+        "status": "pass"
+      },
+      {
+        "id": "structured_outcome",
+        "operator": "==",
+        "expected": "success_or_capacity_failure",
+        "actual": null,
+        "status": "pass"
+      },
+      {
+        "id": "expected_capacity_exception_zero",
+        "operator": "==",
+        "expected": 0,
+        "actual": 0,
+        "status": "pass"
+      }
+    ]
+  }
+}

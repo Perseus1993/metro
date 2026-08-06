@@ -1,0 +1,22 @@
+{
+  "schema_version": "alignment_round26_service_chain_acceptance.v1",
+  "status": "pass",
+  "tasks": ["T5", "T6"],
+  "runtime_cohort_sha256": "35d5481e18caaca14817c5121c791d3c9189b14c3298ad3f20156e6029fd9f05",
+  "thresholds": {"replan_per_spawned_max": 0.01, "placement_retry_per_spawned_max": 0.01},
+  "formal_rows": [
+    {"horizon_steps": 240, "seed": 42, "spawned": 156, "replan": 0, "replan_ratio": 0.0, "placement_retry": 0, "placement_retry_ratio": 0.0, "source_integrity": "pass", "liveness": 0, "artifact_sha256": "c01c0eb2ccee1a2904851fa4cdd71878a759f3b31973accd2e4695f473bd2f97"},
+    {"horizon_steps": 240, "seed": 43, "spawned": 156, "replan": 1, "replan_ratio": 0.00641025641025641, "placement_retry": 0, "placement_retry_ratio": 0.0, "source_integrity": "pass", "liveness": 0, "artifact_sha256": "68754ef2bb798aeb230beca19b693a3cc5a32be3e38a0a213c195bbaa042fe4a"},
+    {"horizon_steps": 240, "seed": 44, "spawned": 156, "replan": 1, "replan_ratio": 0.00641025641025641, "placement_retry": 0, "placement_retry_ratio": 0.0, "source_integrity": "pass", "liveness": 0, "artifact_sha256": "ea5870bec488083086a4d79c21453ecf4648673bbc1af84af568b7c4a5223065"},
+    {"horizon_steps": 480, "seed": 42, "spawned": 156, "replan": 0, "replan_ratio": 0.0, "placement_retry": 0, "placement_retry_ratio": 0.0, "source_integrity": "pass", "liveness": 0, "artifact_sha256": "bff3eaf9a06fb6e100ee5253f0820c2f563fda4cd89ec34e1c5e9a5fc4d37f3a"},
+    {"horizon_steps": 480, "seed": 43, "spawned": 156, "replan": 1, "replan_ratio": 0.00641025641025641, "placement_retry": 0, "placement_retry_ratio": 0.0, "source_integrity": "pass", "liveness": 0, "artifact_sha256": "9c6931cb4fc30583c41333da385a693475ebf1dc44d4d25306d8a7a5369db0cd"},
+    {"horizon_steps": 480, "seed": 44, "spawned": 156, "replan": 1, "replan_ratio": 0.00641025641025641, "placement_retry": 0, "placement_retry_ratio": 0.0, "source_integrity": "pass", "liveness": 0, "artifact_sha256": "a1c1927c6e5633c9a0b5cdcd3675b869921037c1066ef2b893fa0983c731d8c2"}
+  ],
+  "long_window_cross_checks": [
+    {"horizon_steps": 600, "seed": 42, "spawned": 156, "replan": 0, "placement_retry": 0, "source_integrity": "pass", "liveness": 0},
+    {"horizon_steps": 600, "seed": 43, "spawned": 156, "replan": 1, "placement_retry": 0, "source_integrity": "pass", "liveness": 0},
+    {"horizon_steps": 900, "seed": 42, "spawned": 156, "replan": 0, "placement_retry": 0, "source_integrity": "pass", "liveness": 0},
+    {"horizon_steps": 900, "seed": 43, "spawned": 156, "replan": 1, "placement_retry": 0, "source_integrity": "pass", "liveness": 0}
+  ],
+  "conclusion": "All six formal 240/480 by seed 42/43/44 rows satisfy both <=1% thresholds without source-integrity or liveness regression. DEBT-2 and DEBT-5 are retired."
+}

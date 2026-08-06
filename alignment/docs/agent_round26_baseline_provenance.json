@@ -1,0 +1,93 @@
+{
+  "schema_version": "alignment_agent_review.v2",
+  "round": 26,
+  "agent": "branch_risk",
+  "task_ref": "B0",
+  "status": "fail",
+  "checks": [
+    {
+      "id": "J1",
+      "question": "B0 是否为可信的 PR1/PR2 前独立基线？",
+      "verdict": "pass",
+      "evidence": [
+        "D:/metro/.codex_tmp/round26-b0-baseline@55543e2b detached and clean",
+        "D:/metro/.codex_tmp/gate-runtime-handoff@6941dc98 clean",
+        "PR1 b7e11eb3 does not touch the three tests or gate/runtime_base implementations"
+      ],
+      "note": "PR1 未触碰不等于 PR2 未引入；后者由两个独立工作树实跑判断。"
+    },
+    {
+      "id": "J2",
+      "question": "same-tick gate failure 是否由 PR2 首次引入？",
+      "verdict": "pass",
+      "evidence": [
+        "tests/test_metro_station_sandbox.py:2606 defines the test",
+        "baseline and PR2 both observe active_passes=1 where 4 is required",
+        "the test function is identical between baseline and committed final HEAD"
+      ],
+      "note": "失败在 55543e2b 已存在，blocks_pr2_merge=false。"
+    },
+    {
+      "id": "J3",
+      "question": "JuPedSim operational recovery failure 是否由 PR2 首次引入？",
+      "verdict": "pass",
+      "evidence": [
+        "tests/test_operational_acceptance.py:135 requires ok for two scenarios and seeds 41/42/43",
+        "baseline and PR2 both first fail facility_closure_recovery seed 41 with terminal_persons=12",
+        "baseline and PR2 report the same five clearance blocker classes"
+      ],
+      "note": "干净基线与干净 PR2 的失败指标一致，blocks_pr2_merge=false。"
+    },
+    {
+      "id": "J4",
+      "question": "runtime_base.py 体积棘轮是否由 PR1 或 PR2 引入？",
+      "verdict": "pass",
+      "evidence": [
+        "tests/test_source_layout.py:25 sets the 970-line limit",
+        "runtime_base.py is the same blob and 981 lines at baseline, PR2, main, and final HEAD"
+      ],
+      "note": "该单项是未恶化的基线失败，blocks_pr2_merge=false。"
+    },
+    {
+      "id": "J5",
+      "question": "完整 source-size 结论是否包含 post-main 新 offender？",
+      "verdict": "fail",
+      "evidence": [
+        "baseline offenders: gate_runtime.py 740>700 and runtime_base.py 981>970",
+        "PR2 offender: runtime_base.py 981>970",
+        "committed final offenders add decision_holding.py 747>731 from 8be3d8a8 and passenger_demand.py 885>765 from 5cc585af"
+      ],
+      "note": "两个 post-main 新 offender 在修复前 blocks_merge=true。"
+    }
+  ],
+  "issues": [
+    {
+      "severity": "P1",
+      "scope": "J5",
+      "summary": "当前 committed final 栈新增两个源码体积棘轮 offender。",
+      "evidence": [
+        "decision_holding.py 747>731 from 8be3d8a8",
+        "passenger_demand.py 885>765 from 5cc585af"
+      ],
+      "impact": "修复、拆分或经显式架构批准前阻塞 final 合并；不阻塞 PR2。"
+    }
+  ],
+  "falsification_attempts": [
+    "在 detached 55543e2b 和 clean PR2 工作树实跑三个目标测试。",
+    "比较失败值、测试函数和 runtime_base blob，而不只比较红绿。",
+    "枚举每个 revision 的完整 source-size offender 集合。",
+    "沿历史把两个新 offender 定位到 8be3d8a8 和 5cc585af。"
+  ],
+  "metrics": {
+    "baseline_head": "55543e2b684c7d66a4f2fb66a9df0acac0cbf9b1",
+    "pr2_head": "6941dc9899e8747a6a741d6663c867b84f92ef36",
+    "final_committed_head": "7b31c58b5b699d60284fe6aab38846b85e1a7f62",
+    "targeted_baseline_failures_reproduced": 3,
+    "targeted_failures_introduced_by_pr2": 0,
+    "new_merge_blocking_regressions": 2,
+    "p0": 0,
+    "p1": 1,
+    "p2": 0
+  },
+  "unverified_reason": ""
+}

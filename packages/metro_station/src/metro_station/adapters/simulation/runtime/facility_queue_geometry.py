@@ -327,6 +327,27 @@ class FacilityQueueGeometryMixin:
             include_navigation_waypoints=include_navigation_waypoints,
         )
 
+    def route_to_gate_queue_mouth(
+        self,
+        passenger: PassengerAgent,
+        facility: FacilityProcessAgent,
+        slot_index: int,
+    ) -> tuple[tuple[float, float], ...]:
+        """Route a pending FIFO owner to the lane tail without entering it."""
+
+        ingress = self._gate_queue_ingress_anchors(passenger, facility, int(slot_index))
+        if not ingress:
+            raise RuntimeError(
+                f"facility {facility.facility_id!r} has no compiled gate tail ingress"
+            )
+        binding = self.facility_portal_binding(facility.facility_id)
+        return self._physical_route_for_points(
+            passenger,
+            ingress,
+            level_id=binding.entry_level_id,
+            include_navigation_waypoints=False,
+        ) or (ingress[-1],)
+
     def _gate_queue_ingress_anchors(
         self,
         passenger: PassengerAgent,
@@ -394,6 +415,32 @@ class FacilityQueueGeometryMixin:
             mouth[1]
             + lateral[1] * (clamped_projection - mouth_projection),
         )
+        ordered_tail_projections = tuple(sorted(set(tail_projections)))
+        mouth_index = min(
+            range(len(ordered_tail_projections)),
+            key=lambda index: abs(ordered_tail_projections[index] - mouth_projection),
+        )
+        entry_index = min(
+            range(len(ordered_tail_projections)),
+            key=lambda index: abs(ordered_tail_projections[index] - clamped_projection),
+        )
+        crossed_lanes = abs(entry_index - mouth_index)
+        if crossed_lanes:
+            # A passenger arriving beyond the bank used to share one exact
+            # lateral-distribution waypoint with every nearer lane. Bodies
+            # then formed a physical mutex at that point and could block the
+            # whole bank indefinitely. Stagger each crossed-lane fan-out one
+            # body-safe interval farther upstream while retaining the open
+            # tail aisle and the lane-specific mouth.
+            fanout_spacing = max(
+                float(self.scenario.personal_space_units) * 0.75,
+                float(self.scenario.jupedsim_agent_radius_units)
+                * float(self.scenario.jupedsim_clearance_multiplier),
+            )
+            bank_entry = (
+                bank_entry[0] + axis_unit[0] * fanout_spacing * crossed_lanes,
+                bank_entry[1] + axis_unit[1] * fanout_spacing * crossed_lanes,
+            )
         # The raw tail aisle can coincide with the radius-shrunk navigation
         # boundary. JuPedSim's wall force then balances the desired force for
         # a body moving parallel to the bank and creates a solitary local

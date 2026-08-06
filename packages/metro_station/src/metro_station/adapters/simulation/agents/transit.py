@@ -7,9 +7,9 @@ from metro_station.domain.time_boundaries import (
     positive_steps_to_cover,
 )
 
+from ..planning.plan import AgentState
 from .base import StationAgent
 from .passenger import PassengerAgent
-from ..planning.plan import AgentState
 
 
 class TrainAgent(StationAgent):
@@ -34,8 +34,9 @@ class TrainAgent(StationAgent):
             scenario.tick_seconds,
         )
         self.close_step: int | None = None
-        self.current_load_persons = 0
-        self.reserved_boarding_persons = 0
+        self.arrival_step: int | None = None
+        self._legacy_current_load_persons = 0
+        self._legacy_reserved_boarding_persons = 0
         self.last_departed_load_persons = 0
         self.departed_trains = 0
         self.cancelled_trains = 0
@@ -49,17 +50,62 @@ class TrainAgent(StationAgent):
         return self.state == "boarding"
 
     @property
+    def current_load_persons(self) -> int:
+        lookup = getattr(self.model, "train_exchange_current_onboard_persons", None)
+        if self.is_boarding and callable(lookup):
+            current = lookup(self)
+            if current is not None:
+                return int(current)
+        return int(self._legacy_current_load_persons)
+
+    @current_load_persons.setter
+    def current_load_persons(self, persons: int) -> None:
+        self._legacy_current_load_persons = int(persons)
+
+    @property
+    def reserved_boarding_persons(self) -> int:
+        lookup = getattr(self.model, "train_exchange_reserved_boarding_persons", None)
+        if self.is_boarding and callable(lookup):
+            reserved = lookup(self)
+            if reserved is not None:
+                return int(reserved)
+        return int(self._legacy_reserved_boarding_persons)
+
+    @reserved_boarding_persons.setter
+    def reserved_boarding_persons(self, persons: int) -> None:
+        self._legacy_reserved_boarding_persons = int(persons)
+
+    @property
     def capacity_remaining(self) -> int:
+        lookup = getattr(self.model, "train_boarding_capacity_remaining", None)
+        if self.is_boarding and callable(lookup):
+            remaining = lookup(self)
+            if remaining is not None:
+                return int(remaining)
         capacity = self.model.train_capacity_for_platform(self.platform_id)
         return max(
             0,
             capacity - self.current_load_persons - self.reserved_boarding_persons,
         )
 
+    def reserve_boarding_capacity(self, persons: int) -> None:
+        reserve = getattr(self.model, "reserve_train_boarding_capacity", None)
+        if not callable(reserve):
+            raise RuntimeError("train boarding requires a capacity-ledger reservation")
+        reserve(self, int(persons))
+
+    def commit_boarding_capacity(self, persons: int) -> None:
+        commit = getattr(self.model, "commit_train_boarding", None)
+        if not callable(commit):
+            raise RuntimeError("train boarding requires a capacity-ledger commit")
+        commit(self, int(persons))
+
     def step(self) -> None:
         step = self.model.step_index
 
         if self.state == "away" and step >= self.next_arrival_step:
+            if self.next_arrival_step > self.model.scenario.demand_steps:
+                return
             if self._service_suspended():
                 self.cancelled_trains += 1
                 self.last_cancelled_arrival_step = step
@@ -71,6 +117,7 @@ class TrainAgent(StationAgent):
             if self.reserved_boarding_persons:
                 raise RuntimeError("new train arrived with stale boarding reservations")
             self.arrival_sequence += 1
+            self.arrival_step = step
             self.close_step = step + self._dwell_steps()
             self._record_train_event("record_train_arrival")
             return
@@ -83,6 +130,9 @@ class TrainAgent(StationAgent):
                 # completes; no new boarding can pass the close-time preflight.
                 self.departure_safety_hold_steps += 1
                 return
+            close_exchange = getattr(self.model, "close_train_exchange_for_departure", None)
+            if callable(close_exchange) and not close_exchange(self, step=step):
+                return
             self.state = "away"
             self.last_departed_load_persons = self.current_load_persons
             self.current_load_persons = 0
@@ -90,6 +140,7 @@ class TrainAgent(StationAgent):
             self.last_departure_step = step
             self.next_arrival_step = step + self._layover_steps()
             self.close_step = None
+            self.arrival_step = None
 
     def _has_active_door_crossing(self) -> bool:
         doors_for_train = getattr(self.model, "boarding_doors_for_train", None)

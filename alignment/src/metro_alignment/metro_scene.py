@@ -50,6 +50,21 @@ def build_metro_scenario(config: SceneConfig) -> tuple[StationSandboxScenario, s
         stair_fatigue_cost_down=float(config.stair_fatigue_cost_down),
         stair_bidirectional_conflict_factor=float(config.stair_bidirectional_conflict_factor),
         gate_service_persons_per_min=int(config.gate_service_persons_per_min),
+        entry_admission_residence_seconds=float(
+            config.entry_admission_residence_seconds
+        ) if config.entry_admission_residence_seconds is not None else None,
+        entry_admission_residence_percentile=config.entry_admission_residence_percentile,
+        entry_admission_residence_evidence_ref=config.entry_admission_residence_evidence_ref,
+        exit_admission_residence_seconds=float(
+            config.exit_admission_residence_seconds
+        ) if config.exit_admission_residence_seconds is not None else None,
+        exit_admission_residence_percentile=config.exit_admission_residence_percentile,
+        exit_admission_residence_evidence_ref=config.exit_admission_residence_evidence_ref,
+        admission_residence_evidence_seed=int(config.seed),
+        entry_admission_burst_sigma=float(config.entry_admission_burst_sigma),
+        entry_admission_token_capacity=config.entry_admission_token_capacity,
+        exit_admission_token_capacity=config.exit_admission_token_capacity,
+        train_dwell_seconds=float(config.train_dwell_seconds),
         escalator_speed_units_per_tick=float(config.escalator_speed_units_per_tick),
         stairs_speed_units_per_tick=float(config.stairs_speed_units_per_tick),
         elevator_speed_units_per_tick=float(config.elevator_speed_units_per_tick),

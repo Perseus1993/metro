@@ -3,31 +3,79 @@
     "ArtifactRecord": {
       "additionalProperties": false,
       "properties": {
-        "path": {"title": "Path", "type": "string"},
-        "sha256": {"title": "Sha256", "type": "string"},
-        "size_bytes": {"minimum": 0, "title": "Size Bytes", "type": "integer"}
+        "path": {
+          "title": "Path",
+          "type": "string"
+        },
+        "sha256": {
+          "title": "Sha256",
+          "type": "string"
+        },
+        "size_bytes": {
+          "minimum": 0,
+          "title": "Size Bytes",
+          "type": "integer"
+        }
       },
-      "required": ["path", "sha256", "size_bytes"],
+      "required": [
+        "path",
+        "sha256",
+        "size_bytes"
+      ],
       "title": "ArtifactRecord",
       "type": "object"
     },
     "ControlEvidence": {
       "additionalProperties": false,
       "properties": {
-        "control_id": {"title": "Control Id", "type": "string"},
+        "control_id": {
+          "title": "Control Id",
+          "type": "string"
+        },
         "role": {
-          "enum": ["ladder_rung", "qualification_control"],
+          "enum": [
+            "ladder_rung",
+            "qualification_control"
+          ],
           "title": "Role",
           "type": "string"
         },
-        "order_index": {"minimum": 0, "title": "Order Index", "type": "integer"},
-        "status": {"const": "pass", "title": "Status", "type": "string"},
-        "control_spec_sha256": {"title": "Control Spec Sha256", "type": "string"},
-        "scene_config_sha256": {"title": "Scene Config Sha256", "type": "string"},
-        "control_artifact": {"$ref": "#/$defs/ArtifactRecord"},
-        "simulation_manifest": {"$ref": "#/$defs/ArtifactRecord"},
+        "order_index": {
+          "minimum": 0,
+          "title": "Order Index",
+          "type": "integer"
+        },
+        "status": {
+          "enum": [
+            "pass",
+            "qualification_pass"
+          ],
+          "title": "Status",
+          "type": "string"
+        },
+        "control_spec_sha256": {
+          "title": "Control Spec Sha256",
+          "type": "string"
+        },
+        "scene_config_sha256": {
+          "title": "Scene Config Sha256",
+          "type": "string"
+        },
+        "control_artifact": {
+          "$ref": "#/$defs/ArtifactRecord"
+        },
+        "simulation_manifest": {
+          "$ref": "#/$defs/ArtifactRecord"
+        },
         "saturated_flow_artifact": {
-          "anyOf": [{"$ref": "#/$defs/ArtifactRecord"}, {"type": "null"}],
+          "anyOf": [
+            {
+              "$ref": "#/$defs/ArtifactRecord"
+            },
+            {
+              "type": "null"
+            }
+          ],
           "default": null
         }
       },
@@ -47,12 +95,18 @@
     "RuntimeCohort": {
       "additionalProperties": false,
       "properties": {
-        "scene_id": {"title": "Scene Id", "type": "string"},
+        "scene_id": {
+          "title": "Scene Id",
+          "type": "string"
+        },
         "base_scene_config_sha256": {
           "title": "Base Scene Config Sha256",
           "type": "string"
         },
-        "design_sha256": {"title": "Design Sha256", "type": "string"},
+        "design_sha256": {
+          "title": "Design Sha256",
+          "type": "string"
+        },
         "metro_runtime_fingerprint": {
           "additionalProperties": true,
           "title": "Metro Runtime Fingerprint",
@@ -63,7 +117,10 @@
           "title": "Analysis Runtime Fingerprint",
           "type": "object"
         },
-        "cohort_sha256": {"title": "Cohort Sha256", "type": "string"}
+        "cohort_sha256": {
+          "title": "Cohort Sha256",
+          "type": "string"
+        }
       },
       "required": [
         "scene_id",
@@ -84,18 +141,40 @@
       "title": "Schema Version",
       "type": "string"
     },
-    "ladder_id": {"title": "Ladder Id", "type": "string"},
-    "run_id": {"title": "Run Id", "type": "string"},
-    "scene_id": {"title": "Scene Id", "type": "string"},
-    "profile_id": {"title": "Profile Id", "type": "string"},
-    "profile_sha256": {"title": "Profile Sha256", "type": "string"},
-    "runtime_cohort": {"$ref": "#/$defs/RuntimeCohort"},
+    "ladder_id": {
+      "title": "Ladder Id",
+      "type": "string"
+    },
+    "run_id": {
+      "title": "Run Id",
+      "type": "string"
+    },
+    "scene_id": {
+      "title": "Scene Id",
+      "type": "string"
+    },
+    "profile_id": {
+      "title": "Profile Id",
+      "type": "string"
+    },
+    "profile_sha256": {
+      "title": "Profile Sha256",
+      "type": "string"
+    },
+    "runtime_cohort": {
+      "$ref": "#/$defs/RuntimeCohort"
+    },
     "controls": {
-      "items": {"$ref": "#/$defs/ControlEvidence"},
+      "items": {
+        "$ref": "#/$defs/ControlEvidence"
+      },
       "title": "Controls",
       "type": "array"
     },
-    "publication_control_id": {"title": "Publication Control Id", "type": "string"},
+    "publication_control_id": {
+      "title": "Publication Control Id",
+      "type": "string"
+    },
     "runner_provenance": {
       "additionalProperties": true,
       "title": "Runner Provenance",

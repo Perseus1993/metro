@@ -186,7 +186,7 @@ class BoardingDoorProcessAgent(FacilityProcessAgent):
 
         # Capacity is reserved at admission, while completion and Goal Graph
         # advancement wait for the actual body to cross the door trajectory.
-        train.reserved_boarding_persons += passenger.group_size
+        train.reserve_boarding_capacity(passenger.group_size)
         passenger.physical_motion_layer_id = "train_door:" + str(
             self.spec.source_element_id or self.facility_id
         )
@@ -613,11 +613,7 @@ class BoardingDoorProcessAgent(FacilityProcessAgent):
         train = active.train
         if train.arrival_sequence != active.train_arrival_sequence or not train.is_boarding:
             raise RuntimeError("train-door crossing outlived the train run that admitted it")
-        train.reserved_boarding_persons = max(
-            0,
-            train.reserved_boarding_persons - passenger.group_size,
-        )
-        train.current_load_persons += passenger.group_size
+        train.commit_boarding_capacity(passenger.group_size)
         # JuPedSim owns the body coordinate through the crossing boundary.
         # Preserve its accepted endpoint instead of snapping backwards to the
         # nominal portal point after a small physical overshoot.

@@ -5,7 +5,7 @@ from math import hypot
 from shapely.geometry import Point as ShapelyPoint
 
 from ..facilities.filters import filter_facilities_for_passenger
-from ..planning.goal_choice import MinimumPerceivedCostSelector
+from ..planning.goal_choice import FacilitySelection, MinimumPerceivedCostSelector
 from ..planning.goal_events import DecisionObservation
 from ..planning.plan import AgentIntent, AgentState, FacilityStage
 from ..station.geometry import project_to_safe_point
@@ -13,7 +13,10 @@ from .decision_holding import DecisionHoldingCapacityError, PlatformWaitingCapac
 from .evacuation_journey_rerouting import refresh_evacuation_facility_path
 from .passenger_goal_decision_geometry import PassengerGoalDecisionGeometryMixin
 from .passenger_goal_observation import build_goal_facility_observations
-
+from .service_chain_counters import (
+    WAITING_CAPACITY_RETRY,
+    increment_service_chain_counter,
+)
 
 _DECISION_REGION_STAGES = {
     "entry_gate_decision": FacilityStage.ENTRY_GATE.value,
@@ -44,12 +47,8 @@ class PassengerGoalRegionRouter(PassengerGoalDecisionGeometryMixin):
                 region,
                 stage,
             )
-            preferred_facility_id = (
-                passenger.decision_preferred_facility_id_by_region.get(region)
-            )
-            preferred_facility = model.facilities_by_id.get(
-                preferred_facility_id
-            )
+            preferred_facility_id = passenger.decision_preferred_facility_id_by_region.get(region)
+            preferred_facility = model.facilities_by_id.get(preferred_facility_id)
             if region in {"exit_gate_decision", "boarding_decision"}:
                 if preferred_facility is not None:
                     # Crossing flows must follow the authored paid-side
@@ -64,9 +63,7 @@ class PassengerGoalRegionRouter(PassengerGoalDecisionGeometryMixin):
                         preferred_facility,
                         final_target_override=target,
                         include_navigation_waypoints=True,
-                        preserve_gate_tactical_anchors=(
-                            region == "exit_gate_decision"
-                        ),
+                        preserve_gate_tactical_anchors=(region == "exit_gate_decision"),
                     )
                     if route:
                         return route
@@ -152,8 +149,7 @@ class PassengerGoalRegionRouter(PassengerGoalDecisionGeometryMixin):
             facility
             for facility in candidates
             if level_id is None
-            or model.facility_portal_binding(facility.facility_id).entry_level_id
-            == level_id
+            or model.facility_portal_binding(facility.facility_id).entry_level_id == level_id
         ]
         physical_candidates = [
             facility
@@ -197,6 +193,26 @@ class PassengerGoalRegionRouter(PassengerGoalDecisionGeometryMixin):
             if candidates
             else None
         )
+        if (
+            getattr(passenger, "_force_least_loaded_stalled_replan", False)
+            and stage == FacilityStage.EXIT_GATE.value
+            and selectable
+        ):
+            least_loaded = min(
+                selectable,
+                key=lambda facility: (
+                    -len(model._available_facility_approach_slot_indices(facility)),
+                    len(facility.queue),
+                    str(facility.facility_id),
+                ),
+            )
+            if selection is None or selection.facility_id != least_loaded.facility_id:
+                selection = FacilitySelection(
+                    facility_id=least_loaded.facility_id,
+                    score=0.0,
+                    reason="least_loaded_after_stalled_replan",
+                    action="switch",
+                )
         if not candidates:
             candidates = physical_candidates
         self._record_selection_hysteresis(
@@ -209,9 +225,7 @@ class PassengerGoalRegionRouter(PassengerGoalDecisionGeometryMixin):
             selection.facility_id if selection is not None else candidates[0].facility_id
         )
         preferred_facility = next(
-            facility
-            for facility in candidates
-            if facility.facility_id == preferred_facility_id
+            facility for facility in candidates if facility.facility_id == preferred_facility_id
         )
 
         if selection is not None:
@@ -239,12 +253,9 @@ class PassengerGoalRegionRouter(PassengerGoalDecisionGeometryMixin):
             platform_reservation = model._platform_waiting_reservations.get(
                 int(passenger.unique_id)
             )
-            uses_platform_storage = (
-                stage == FacilityStage.BOARDING_DOOR.value
-                or (
-                    stage == FacilityStage.EXIT_GATE.value
-                    and passenger.intent == AgentIntent.EXIT_STATION.value
-                )
+            uses_platform_storage = stage == FacilityStage.BOARDING_DOOR.value or (
+                stage == FacilityStage.EXIT_GATE.value
+                and passenger.intent == AgentIntent.EXIT_STATION.value
             )
             if platform_reservation is None and uses_platform_storage:
                 platform = model.platform_for_passenger(passenger)
@@ -252,16 +263,15 @@ class PassengerGoalRegionRouter(PassengerGoalDecisionGeometryMixin):
                     try:
                         model._reserve_platform_waiting_slot(passenger, platform)
                     except PlatformWaitingCapacityError:
+                        increment_service_chain_counter(model, WAITING_CAPACITY_RETRY)
                         if stage == FacilityStage.EXIT_GATE.value:
                             # Alighting publication was licensed by this
                             # finite source-side resource. Losing it here is a
                             # model-invalid admission race, not permission to
                             # leave the new body unowned.
                             raise
-                    platform_reservation = (
-                        model._platform_waiting_reservations.get(
-                            int(passenger.unique_id)
-                        )
+                    platform_reservation = model._platform_waiting_reservations.get(
+                        int(passenger.unique_id)
                     )
             if not uses_platform_storage:
                 platform_reservation = None
@@ -279,16 +289,10 @@ class PassengerGoalRegionRouter(PassengerGoalDecisionGeometryMixin):
                     preferred_facility_id=preferred_facility_id,
                 )
                 return target
-            owned_facility_id = (
-                passenger.facility_approach_facility_ids_by_stage.get(stage)
-            )
+            owned_facility_id = passenger.facility_approach_facility_ids_by_stage.get(stage)
             owned_slot_index = passenger.facility_approach_slots_by_stage.get(stage)
             owned_facility = next(
-                (
-                    facility
-                    for facility in candidates
-                    if facility.facility_id == owned_facility_id
-                ),
+                (facility for facility in candidates if facility.facility_id == owned_facility_id),
                 None,
             )
             if owned_facility is not None and owned_slot_index is not None:
@@ -308,9 +312,8 @@ class PassengerGoalRegionRouter(PassengerGoalDecisionGeometryMixin):
                     preferred_facility_id=owned_facility.facility_id,
                 )
                 return target
-            if (
-                stage == FacilityStage.BOARDING_DOOR.value
-                and any(passenger in platform.waiting for platform in model.platforms)
+            if stage == FacilityStage.BOARDING_DOOR.value and any(
+                passenger in platform.waiting for platform in model.platforms
             ):
                 local = self._local_facilities_at_position(
                     model,
@@ -361,12 +364,8 @@ class PassengerGoalRegionRouter(PassengerGoalDecisionGeometryMixin):
             passenger.pos,
             area,
         )
-        if (
-            decision_region.covers(passenger_point)
-            and any(
-                facility.facility_id == preferred_facility_id
-                for facility in local_at_position
-            )
+        if decision_region.covers(passenger_point) and any(
+            facility.facility_id == preferred_facility_id for facility in local_at_position
         ):
             self._record_decision_context(
                 passenger,
@@ -377,9 +376,7 @@ class PassengerGoalRegionRouter(PassengerGoalDecisionGeometryMixin):
             )
             return tuple(passenger.pos)
         preferred_records = tuple(
-            record
-            for record in approach_records
-            if record[0].facility_id == preferred_facility_id
+            record for record in approach_records if record[0].facility_id == preferred_facility_id
         )
         nearest_facility, nearest = min(
             preferred_records or approach_records,
@@ -425,15 +422,12 @@ class PassengerGoalRegionRouter(PassengerGoalDecisionGeometryMixin):
         stage = _DECISION_REGION_STAGES.get(region)
         if stage is None:
             return tuple(candidates)
-        recorded_ids = set(
-            passenger.decision_facility_ids_by_region.get(region, ())
-        )
+        recorded_ids = set(passenger.decision_facility_ids_by_region.get(region, ()))
         if recorded_ids:
             return tuple(
                 facility
                 for facility in candidates
-                if facility.spec.stage == stage
-                and facility.facility_id in recorded_ids
+                if facility.spec.stage == stage and facility.facility_id in recorded_ids
             )
         area = model.jupedsim_walkable_area(passenger.current_level_id)
         local = self._local_facilities_at_position(
@@ -483,9 +477,7 @@ class PassengerGoalRegionRouter(PassengerGoalDecisionGeometryMixin):
             sorted(facility.facility_id for facility in facilities)
         )
         passenger.decision_target_by_region[region] = tuple(target)
-        passenger.decision_preferred_facility_id_by_region[region] = (
-            preferred_facility_id
-        )
+        passenger.decision_preferred_facility_id_by_region[region] = preferred_facility_id
 
     def _tactical_facility_selection(
         self,
@@ -501,9 +493,7 @@ class PassengerGoalRegionRouter(PassengerGoalDecisionGeometryMixin):
 
         region = self._base_region(region_id)
         if current_facility_id is None:
-            current_facility_id = (
-                passenger.decision_preferred_facility_id_by_region.get(region)
-            )
+            current_facility_id = passenger.decision_preferred_facility_id_by_region.get(region)
         reconsider_after_seconds = (
             passenger.decision_reconsider_after_seconds_by_region.get(region)
             if current_facility_id is not None
@@ -524,12 +514,8 @@ class PassengerGoalRegionRouter(PassengerGoalDecisionGeometryMixin):
                 candidates=observations,
                 committed_facility_id=current_facility_id,
                 reconsider_after_seconds=reconsider_after_seconds,
-                commitment_duration_seconds=float(
-                    model.scenario.facility_commitment_seconds
-                ),
-                replan_cooldown_seconds=float(
-                    model.scenario.facility_replan_cooldown_seconds
-                ),
+                commitment_duration_seconds=float(model.scenario.facility_commitment_seconds),
+                replan_cooldown_seconds=float(model.scenario.facility_replan_cooldown_seconds),
                 minimum_improvement_seconds=float(
                     model.scenario.facility_replan_minimum_improvement_seconds
                 ),
@@ -608,9 +594,7 @@ class PassengerGoalRegionRouter(PassengerGoalDecisionGeometryMixin):
                 continue
             if (
                 passenger.current_level_id is not None
-                and model.facility_portal_binding(
-                    facility.facility_id
-                ).entry_level_id
+                and model.facility_portal_binding(facility.facility_id).entry_level_id
                 != passenger.current_level_id
             ):
                 continue
@@ -621,14 +605,11 @@ class PassengerGoalRegionRouter(PassengerGoalDecisionGeometryMixin):
                 area,
             ):
                 continue
-            if (
-                stage != FacilityStage.BOARDING_DOOR.value
-                and (
-                    not facility.is_available_for_choice
-                    or not model.facility_has_reservable_approach_slot(
-                        passenger,
-                        facility,
-                    )
+            if stage != FacilityStage.BOARDING_DOOR.value and (
+                not facility.is_available_for_choice
+                or not model.facility_has_reservable_approach_slot(
+                    passenger,
+                    facility,
                 )
             ):
                 continue
@@ -649,9 +630,7 @@ class PassengerGoalRegionRouter(PassengerGoalDecisionGeometryMixin):
                 return False
             return True
 
-        current_facility_id = passenger.decision_preferred_facility_id_by_region.get(
-            region
-        )
+        current_facility_id = passenger.decision_preferred_facility_id_by_region.get(region)
         if current_facility_id not in viable_recorded_ids:
             current_facility_id = min(viable_recorded_ids)
         selection = self._tactical_facility_selection(
@@ -706,11 +685,7 @@ class PassengerGoalRegionRouter(PassengerGoalDecisionGeometryMixin):
         )
         facilities = model._facilities_for_stage(stage)
         assigned = model.facilities_by_id.get(passenger.assigned_facility_id)
-        ordered = (
-            [assigned]
-            if assigned is not None and assigned.spec.stage == stage
-            else []
-        )
+        ordered = [assigned] if assigned is not None and assigned.spec.stage == stage else []
         ordered.extend(
             facility
             for facility in sorted(facilities, key=lambda item: item.facility_id)
@@ -721,8 +696,7 @@ class PassengerGoalRegionRouter(PassengerGoalDecisionGeometryMixin):
             facility
             for facility in ordered
             if level_id is None
-            or model.facility_portal_binding(facility.facility_id).exit_level_id
-            == level_id
+            or model.facility_portal_binding(facility.facility_id).exit_level_id == level_id
         ]
         if not anchors:
             raise ValueError(
@@ -732,11 +706,7 @@ class PassengerGoalRegionRouter(PassengerGoalDecisionGeometryMixin):
         completed_position = getattr(passenger, "last_completed_facility_position", None)
         completed_facility_id = getattr(passenger, "last_completed_facility_id", None)
         completed_facility = next(
-            (
-                item
-                for item in anchors
-                if item.facility_id == completed_facility_id
-            ),
+            (item for item in anchors if item.facility_id == completed_facility_id),
             None,
         )
         if (
@@ -754,9 +724,7 @@ class PassengerGoalRegionRouter(PassengerGoalDecisionGeometryMixin):
                 model.facility_portal_binding(item.facility_id).exit_point,
             ),
         )
-        exit_position = tuple(
-            model.facility_portal_binding(facility.facility_id).exit_point
-        )
+        exit_position = tuple(model.facility_portal_binding(facility.facility_id).exit_point)
         coverage_radius = max(
             float(model.scenario.jupedsim_target_radius_units),
             float(getattr(facility.spec, "traversal_width_m", 0.0) or 0.0) / 2.0

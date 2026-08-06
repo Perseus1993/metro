@@ -15,6 +15,7 @@ from .metrics import (
     station_persons,
     vertical_queue_persons,
 )
+from .external_demand_reservoir import DemandSourceKind
 
 if TYPE_CHECKING:
     from ..agents.passenger import PassengerAgent
@@ -56,8 +57,7 @@ class PassengerSnapshot:
             if passenger.goal_runtime is None
             else passenger.goal_runtime.snapshot(),
             physical_layer_id=_optional_str(
-                getattr(passenger, "physical_motion_layer_id", None)
-                or passenger.current_level_id
+                getattr(passenger, "physical_motion_layer_id", None) or passenger.current_level_id
             ),
         )
 
@@ -272,6 +272,7 @@ class MetricSnapshot:
     walking_cost_evaluation_count: int
     walking_cost_source_counts: dict[str, int]
     spatial_capacity_event_counts: dict[str, int]
+    service_chain_event_counts: dict[str, int]
     audit_counts: dict[str, int]
 
     @classmethod
@@ -283,7 +284,11 @@ class MetricSnapshot:
             vertical_queue_persons=vertical_queue_persons(model),
             door_queue_persons=sum(door.queue_persons for door in model.boarding_doors),
             platform_waiting_persons=platform_waiting_persons(model),
-            pending_alighting_persons=int(model.pending_alighting_groups * scenario.group_size),
+            pending_alighting_persons=int(
+                model.external_demand_reservoir.pending_persons(
+                    DemandSourceKind.TRAIN_ALIGHTING
+                )
+            ),
             boarded_persons=int(model.boarded_persons),
             departed_persons=int(model.departed_persons),
             evacuated_persons=int(model.evacuated_persons),
@@ -338,6 +343,7 @@ class MetricSnapshot:
             walking_cost_evaluation_count=int(model.walking_cost_evaluation_count),
             walking_cost_source_counts=dict(model.walking_cost_source_counts),
             spatial_capacity_event_counts=dict(model.spatial_capacity_event_counts),
+            service_chain_event_counts=dict(model.service_chain_event_counts),
             audit_counts=dict(model.audit.summary()),
         )
 
@@ -389,15 +395,15 @@ class MetricSnapshot:
             ),
             walking_cost_source_counts={
                 str(key): int(value)
-                for key, value in dict(
-                    payload.get("walking_cost_source_counts", {})
-                ).items()
+                for key, value in dict(payload.get("walking_cost_source_counts", {})).items()
             },
             spatial_capacity_event_counts={
                 str(key): int(value)
-                for key, value in dict(
-                    payload.get("spatial_capacity_event_counts", {})
-                ).items()
+                for key, value in dict(payload.get("spatial_capacity_event_counts", {})).items()
+            },
+            service_chain_event_counts={
+                str(key): int(value)
+                for key, value in dict(payload.get("service_chain_event_counts", {})).items()
             },
             audit_counts=dict(payload.get("audit_counts", {})),
         )

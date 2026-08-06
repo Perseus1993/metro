@@ -20,7 +20,7 @@ from ..spatial_capacity_admission import (
 from ..station.geometry import project_to_safe_point
 from .base import FacilityAgent
 from .facility_queue import FacilityQueue
-from .process import FacilitySpec
+from .process import FacilityKind, FacilitySpec
 
 if TYPE_CHECKING:
     from ..agents.passenger import PassengerAgent
@@ -130,8 +130,7 @@ class FacilityProcessAgent(FacilityAgent):
     ) -> bool:
         if not self._queue_authorized(passenger, authority):
             return False
-        # Joining is an idempotent ownership operation.  Goal coordination may
-        # reassert the same queue command while a passenger waits for a shared
+        # Joining is idempotent while a passenger waits for a shared
         # physical resource; replaying enter_facility_queue would duplicate
         # lifecycle evidence and reset semantic state without changing FIFO.
         if passenger in self.queue:
@@ -144,6 +143,7 @@ class FacilityProcessAgent(FacilityAgent):
             passenger,
             settle=settle_after_walking,
             preferred_slot_index=preferred_slot_index,
+            reservation_orders_fifo=self.spec.kind != FacilityKind.GATE.value,
         )
         if not joined:
             return False

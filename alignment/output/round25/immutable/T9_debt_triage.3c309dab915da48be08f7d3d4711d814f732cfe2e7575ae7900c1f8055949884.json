@@ -1,0 +1,105 @@
+{
+  "schema_version": "alignment_round25_debt_triage.v1",
+  "status": "pass",
+  "design_sha256": "e029a05941243fa9e3fd0d180af6157a26c0e69fd9e1fa9e4a0f24bcfcb13663",
+  "scene_config_sha256": "ee79aede12fa6e534469360b4ff20bead3bd31fe1e915d721fdfad92a876a020",
+  "metro_runtime_fingerprint": {
+    "schema_version": "metro_source_fingerprint.v2",
+    "package_version": "0.1.0",
+    "python": "CPython 3.12.13",
+    "dependency_versions": {
+      "jupedsim": "1.4.2",
+      "mesa": "3.5.1",
+      "numpy": "2.5.1",
+      "pandas": "3.0.5",
+      "pedpy": "1.5.1",
+      "shapely": "2.1.2"
+    },
+    "python_file_count": 271,
+    "source_tree_sha256": "6a6b0b1a24e3e3ef221d43fb7fb7d35754c2d557493ac23ccbbb4c099dc0bfe3"
+  },
+  "analysis_runtime_fingerprint": {
+    "schema_version": "alignment_analysis_runtime.v2",
+    "python": "CPython 3.12.13",
+    "pedpy_version": "1.5.1",
+    "file_count": 42,
+    "content_sha256": "70cf6b08d76dba7987e169c2cd8912ea324b6d2515f9190204b1ab1e8d3d379a"
+  },
+  "register": "alignment/docs/debt_register.md",
+  "baseline_policy": {
+    "rule": "entries may only decrease or narrow; any net increase requires explicit review justification",
+    "round25_baseline_registration": true,
+    "previously_unclassified_risk_candidates": 6,
+    "registered_debt": 5,
+    "registered_debt_delta": null,
+    "registered_debt_delta_reason": "Round 24 had no comparable register; Round 25 establishes the five-entry baseline",
+    "unclassified_candidates_current": 0,
+    "unclassified_candidate_delta": -6,
+    "new_failure_modes_introduced_by_round25": 0
+  },
+  "classifications": [
+    {
+      "candidate": "alighting_source_lateral_offset_m = 10.0",
+      "decision": "debt",
+      "debt_id": "DEBT-1"
+    },
+    {
+      "candidate": "passenger_replanned_stalled_region_approach",
+      "decision": "debt",
+      "debt_id": "DEBT-2",
+      "observed_triggers": 618,
+      "spawned_persons": 784,
+      "trigger_ratio": 0.7882653061224489
+    },
+    {
+      "candidate": "jupedsim recovery/degraded counters",
+      "decision": "legitimate_design",
+      "external_basis": "https://opentelemetry.io/docs/concepts/signals/metrics/"
+    },
+    {
+      "candidate": "boarding doors 6 to 7",
+      "decision": "debt",
+      "debt_id": "DEBT-3"
+    },
+    {
+      "candidate": "sandbox.metro_station_sandbox compatibility surface",
+      "decision": "legitimate_design",
+      "runtime_surface_python_files": 111,
+      "non_forward_runtime_surface_files": 0,
+      "external_basis": "https://semver.org/"
+    },
+    {
+      "candidate": "Import Linter migration rule",
+      "decision": "legitimate_design",
+      "external_basis": "https://import-linter.readthedocs.io/en/stable/"
+    },
+    {
+      "candidate": "nominal exit service versus completed-throughput gap",
+      "decision": "debt",
+      "debt_id": "DEBT-4",
+      "nominal_to_observed_ratio": 18.91891891891892
+    },
+    {
+      "candidate": "high-frequency placement and waiting recovery",
+      "decision": "debt",
+      "debt_id": "DEBT-5",
+      "T5_dynamic_blocked": 16,
+      "T5_spawned_persons": 138,
+      "T5_trigger_ratio": 0.11594202898550725,
+      "T8_dynamic_blocked": 21,
+      "T8_spawned_persons": 156,
+      "T8_trigger_ratio": 0.1346153846153846,
+      "uninstrumented_recovery_paths": [
+        "waiting-capacity retry",
+        "stalled-platform parking"
+      ]
+    }
+  ],
+  "external_sources": [
+    "https://www.merl.com/publications/TR2023-099",
+    "https://opentelemetry.io/docs/concepts/signals/metrics/",
+    "https://semver.org/",
+    "https://import-linter.readthedocs.io/en/stable/"
+  ],
+  "artifact_sha256": "3c309dab915da48be08f7d3d4711d814f732cfe2e7575ae7900c1f8055949884"
+}

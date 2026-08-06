@@ -1,0 +1,19 @@
+{
+  "schema_version": "alignment_agent_review.v2",
+  "round": 25,
+  "agent": "conservation",
+  "task_ref": "T2",
+  "status": "pass",
+  "checks": [
+    {"id": "B1", "question": "守恒断言是否覆盖所有 spawn phase", "verdict": "pass", "evidence": ["alignment/src/metro_alignment/metro_executor.py:742", "alignment/src/metro_alignment/metro_executor.py:905"], "note": "入口和下车 spawn phase 的正常、阻塞和提前退出路径均在 phase 边界执行守恒检查。"},
+    {"id": "B2", "question": "所有 group 状态转移是否维持 admitted/pending 二分", "verdict": "pass", "evidence": ["alignment/src/metro_alignment/metro_executor.py:773", "packages/metro_station/src/metro_station/adapters/simulation/runtime/passenger_demand.py:500"], "note": "成功 commit 到 admitted，任何失败恢复当前 group 和 tail 到 pending，不存在第三态窗口。"},
+    {"id": "B3", "question": "requested=1 admitted=0 pending=0 是否失败", "verdict": "pass", "evidence": ["alignment/src/metro_alignment/metro_executor.py:1020", "alignment/tests/test_metro_executor.py:1157"], "note": "独立构造该状态会触发 conservation conflict。"},
+    {"id": "B4", "question": "dropped 指标写入点与当前可达性", "verdict": "pass", "evidence": ["alignment/src/metro_alignment/metro_executor.py:1020"], "note": "dropped 由 requested-admitted-pending 差值派生，不存在独立丢弃写路径；当前 phase 完整持有到期需求。"},
+    {"id": "B5", "question": "horizon 结束的 pending 是否仍被显式持有", "verdict": "pass", "evidence": ["alignment/src/metro_alignment/metro_executor.py:580", "alignment/src/metro_alignment/metro_executor.py:905"], "note": "pending deque 属于 model 生命周期状态，horizon 结束不会静默清理，终结证据读取同一队列。"},
+    {"id": "B6", "question": "守恒 gate 是否可绕过或在 gate 前发布", "verdict": "pass", "evidence": ["alignment/src/metro_alignment/metro_executor.py:1020", "alignment/scripts/run_alignment_scene.py:826"], "note": "异常不被吞掉，正式发布发生在 gate 与 runtime-cohort 校验之后。"}
+  ],
+  "issues": [],
+  "falsification_attempts": ["枚举入口和下车 demand 的 admit、defer、retry、exception、horizon 终止路径。", "独立构造 requested=1/admitted=0/pending=0，守恒断言按预期拒绝。", "追踪旧六门 dropped=57 的差值来源，当前实现不再截断 due groups。"],
+  "metrics": {"p0": 0, "p1": 0, "p2": 0, "checks_passed": 6, "current_regression_passed": 138, "current_regression_skipped": 7, "reviewed_head": "e522d67234eace8f89532c400ff7b765b00b32b8"},
+  "unverified_reason": ""
+}

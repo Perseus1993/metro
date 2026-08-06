@@ -1,0 +1,20 @@
+{
+  "schema_version": "alignment_agent_review.v2",
+  "round": 25,
+  "agent": "sizing",
+  "task_ref": "T3",
+  "status": "pass",
+  "checks": [
+    {"id": "C1", "question": "需求率是否独立复算", "verdict": "pass", "evidence": ["alignment/output/round25/T3_preflight_sizing.json"], "note": "2500/3600=0.694444 人/秒；2200/3600=0.611111 人/秒。"},
+    {"id": "C2", "question": "W 口径与分位数是否有效", "verdict": "pass", "evidence": ["alignment/output/round25/T1_residence_time.json", "packages/metro_station/src/metro_station/adapters/simulation/facilities/admission_resource.py:23"], "note": "从 credit acquire 到 downstream ownership release；入口 83/83/0，p50/p90/p99=18/29/36；出站 73/68/5，p50/p90=219/351，p99 右删失，下界 785。"},
+    {"id": "C3", "question": "L=lambda*W 及容量依据", "verdict": "pass", "evidence": ["alignment/output/round25/T3_preflight_sizing.json"], "note": "入口采用完整 p99=36；出站采用完整 p90=351，未把右删失 p99 伪装为完成分位数。"},
+    {"id": "C4", "question": "突发余量是否适配确定性排程", "verdict": "pass", "evidence": ["alignment/src/metro_alignment/metro_executor.py:131", "alignment/src/metro_alignment/metro_scene.py:63"], "note": "生产容量使用确定性排程在 W 窗口内的最大到达包络 26/73；Poisson 只保留为参考计算。"},
+    {"id": "C5", "question": "preflight 与推导是否一致", "verdict": "pass", "evidence": ["alignment/src/metro_alignment/metro_executor.py:184", "alignment/src/metro_alignment/metro_executor.py:209", "alignment/output/round25/T3_preflight_sizing.json"], "note": "证据 scope、设计、seed、需求、移动参数、分位数、hash 均绑定。"},
+    {"id": "C6", "question": "欠配是否 fail-closed 且不覆盖旧 bundle", "verdict": "pass", "evidence": ["alignment/output/round25/T3_preflight_sizing.json", "alignment/tests/test_runner_publication.py"], "note": "25/72 低于 26/73 时 runtime 不启动，结构化 blocker 写临时结果，旧正式 bundle 不切换。"},
+    {"id": "C7", "question": "名义出站能力缺口是否被解释", "verdict": "pass", "evidence": ["alignment/docs/debt_register.md", "alignment/output/round25/T9_debt_triage.json"], "note": "1400/74=18.9189；admission 重构不解释下游服务缺口，已登记 DEBT-4。"}
+  ],
+  "issues": [{"severity": "P2", "title": "名义出站能力与观测完成量仍相差约 19 倍", "evidence": ["alignment/docs/debt_register.md#debt-4", "alignment/output/round25/T9_debt_triage.json"], "repro": "复算 3 lanes * 55 persons/min * 有效时长与 exit_gate_served=74。", "suggested_fix": "Round 26 分解 travel/queue/service-ready/release-blocked/completion 时间并校准。"}],
+  "falsification_attempts": ["分别按完成样本和右删失样本复算 W，未用不存在的出站 p99 作为点估计。", "用泊松近似与确定性到达包络对比，确认生产容量取后者。", "将容量设为 25/72，preflight 在 runtime 前拒绝。"],
+  "metrics": {"lambda_entry_per_second": 0.6944444444, "lambda_exit_per_second": 0.6111111111, "entry_capacity": 26, "exit_capacity": 73, "entry_W_p50": 18, "entry_W_p90": 29, "entry_W_p99": 36, "exit_W_p50": 219, "exit_W_p90": 351, "exit_W_p99": null, "exit_W_lower_bound_p99": 785, "nominal_to_observed_exit_ratio": 18.9189189189, "p0": 0, "p1": 0, "p2": 1},
+  "unverified_reason": ""
+}

@@ -1,0 +1,21 @@
+{
+  "schema_version": "alignment_agent_review.v2",
+  "round": 25,
+  "agent": "generality",
+  "task_ref": "T5",
+  "status": "pass",
+  "checks": [
+    {"id": "D1", "question": "容量是否从配置与证据排程派生", "verdict": "pass", "evidence": ["alignment/src/metro_alignment/metro_executor.py:131", "alignment/src/metro_alignment/admission_tokens.py:47", "cmd: rg production Python for 26/73 | output: no effective-capacity constants"], "note": "默认容量取已登记 W 窗口内确定性排程的最大到达数。"},
+    {"id": "D2", "question": "需求率 2500/5000/800 是否自洽", "verdict": "pass", "evidence": ["alignment/src/metro_alignment/metro_scene.py:23", "alignment/src/metro_alignment/metro_executor.py:309", "cmd: rate probe | output: envelopes 26/52/9; old evidence for 5000/800 fails scope_mismatch"], "note": "排程和容量随率重算，旧证据不能跨作用域复用。"},
+    {"id": "D3", "question": "lane 数改变是否要求修改 admission", "verdict": "pass", "evidence": ["alignment/src/metro_alignment/scenes/designs.py:101", "alignment/src/metro_alignment/metro_executor.py:184"], "note": "容量公式不读 lane 常量；设计改变使旧 W 的 design hash 失效，需重测证据而非改 admission 逻辑。"},
+    {"id": "D4", "question": "seed 43/44 是否暴露 seed42 特判", "verdict": "pass", "evidence": ["alignment/src/metro_alignment/metro_scene.py:63", "packages/metro_station/src/metro_station/adapters/simulation/runtime/demand_scheduler.py:94", "cmd: seed probe | output: 42/43/44 envelope=26; old seed42 evidence fails for 43/44"], "note": "seed 进入 demand scheduler 且被证据 scope 绑定。"},
+    {"id": "D5", "question": "其他场景是否被破坏", "verdict": "pass", "evidence": ["alignment/src/metro_alignment/scenes/corridor_unidirectional.py:10", "alignment/src/metro_alignment/scenes/bottleneck.py:10"], "note": "两场景保持既有缺 Metro 几何适配器的 fail-closed pending 状态；未虚构为已运行验证。"},
+    {"id": "D6", "question": "是否有 scene_id/platform_boarding 特判", "verdict": "pass", "evidence": ["cmd: rg \"scene_id\\s*(==|!=)|platform_boarding\" admission runtime paths | output: no scene-specific branch"], "note": "新路径只按 passenger intent 映射 entry/exit flow。"},
+    {"id": "D7", "question": "缺数据是否 fail-closed/hold", "verdict": "pass", "evidence": ["alignment/src/metro_alignment/admission_tokens.py:38", "alignment/src/metro_alignment/metro_executor.py:746", "cmd: remove entry/exit/both W | output: admission_residence_evidence_missing"], "note": "缺 W 是配置 blocker；运行期 token 或 placement 阻塞进入 FIFO pending。"},
+    {"id": "D8", "question": "是否存在默认 W 绕过 preflight", "verdict": "pass", "evidence": ["alignment/src/metro_alignment/admission_tokens.py:47", "alignment/src/metro_alignment/metro_executor.py:209", "alignment/scripts/run_alignment_scene.py:826"], "note": "缺 W 时 required_capacity=None，不能以 0 或默认秒数放行。"}
+  ],
+  "issues": [],
+  "falsification_attempts": ["搜索容量、需求率、W 的生产字面量。", "反事实运行 5000/800 人每小时和 seed 43/44 的纯排程探针。", "移除 entry、exit 和两侧证据，三种情形全部 fail-closed。", "搜索 scene_id 与 platform_boarding 专属 admission 分支。"],
+  "metrics": {"hardcoded_effective_capacity_constants": 0, "scene_specific_admission_branches": 0, "rate_probe": {"2500": 26, "5000": 52, "800": 9}, "seed_probe": {"42": 26, "43": 26, "44": 26}, "missing_evidence_cases_fail_closed": 3, "reviewed_head": "e522d67234eace8f89532c400ff7b765b00b32b8"},
+  "unverified_reason": ""
+}

@@ -1,0 +1,142 @@
+{
+  "schema_version": "alignment_round25_dynamic_blocked_attribution.v1",
+  "status": "pass",
+  "design_sha256": "e029a05941243fa9e3fd0d180af6157a26c0e69fd9e1fa9e4a0f24bcfcb13663",
+  "scene_config_sha256": "ee79aede12fa6e534469360b4ff20bead3bd31fe1e915d721fdfad92a876a020",
+  "metro_runtime_fingerprint": {
+    "schema_version": "metro_source_fingerprint.v2",
+    "package_version": "0.1.0",
+    "python": "CPython 3.12.13",
+    "dependency_versions": {
+      "jupedsim": "1.4.2",
+      "mesa": "3.5.1",
+      "numpy": "2.5.1",
+      "pandas": "3.0.5",
+      "pedpy": "1.5.1",
+      "shapely": "2.1.2"
+    },
+    "python_file_count": 271,
+    "source_tree_sha256": "6a6b0b1a24e3e3ef221d43fb7fb7d35754c2d557493ac23ccbbb4c099dc0bfe3"
+  },
+  "analysis_runtime_fingerprint": {
+    "schema_version": "alignment_analysis_runtime.v2",
+    "python": "CPython 3.12.13",
+    "pedpy_version": "1.5.1",
+    "file_count": 42,
+    "content_sha256": "70cf6b08d76dba7987e169c2cd8912ea324b6d2515f9190204b1ab1e8d3d379a"
+  },
+  "source_artifacts": [
+    "alignment/output/round25/T5_tripwire_120.json",
+    "alignment/output/round25/T8_ladder_240.json"
+  ],
+  "T5_120": {
+    "finite": {
+      "total": 16,
+      "by_code": {
+        "placement.dynamic_blocked": 16
+      },
+      "by_region": {
+        "release:entry_gate_bank_a|entry_gate|in|l1_platform|l1_platform|entry_gate:entry_gate_bank_a:lane_2|release_apron|entry_gate:entry_gate_bank_a:lane_2": 7,
+        "release:entry_gate_bank_a|entry_gate|in|l1_platform|l1_platform|entry_gate:entry_gate_bank_a:lane_1|release_apron|entry_gate:entry_gate_bank_a:lane_1": 5,
+        "release:entry_gate_bank_a|entry_gate|in|l1_platform|l1_platform|entry_gate:entry_gate_bank_a:lane_3|release_apron|entry_gate:entry_gate_bank_a:lane_3": 4
+      },
+      "top3_regions": [
+        {
+          "region": "release:entry_gate_bank_a|entry_gate|in|l1_platform|l1_platform|entry_gate:entry_gate_bank_a:lane_2|release_apron|entry_gate:entry_gate_bank_a:lane_2",
+          "count": 7
+        },
+        {
+          "region": "release:entry_gate_bank_a|entry_gate|in|l1_platform|l1_platform|entry_gate:entry_gate_bank_a:lane_1|release_apron|entry_gate:entry_gate_bank_a:lane_1",
+          "count": 5
+        },
+        {
+          "region": "release:entry_gate_bank_a|entry_gate|in|l1_platform|l1_platform|entry_gate:entry_gate_bank_a:lane_3|release_apron|entry_gate:entry_gate_bank_a:lane_3",
+          "count": 4
+        }
+      ]
+    },
+    "enlarged_capacity_control": {
+      "total": 16,
+      "by_code": {
+        "placement.dynamic_blocked": 16
+      },
+      "by_region": {
+        "release:entry_gate_bank_a|entry_gate|in|l1_platform|l1_platform|entry_gate:entry_gate_bank_a:lane_2|release_apron|entry_gate:entry_gate_bank_a:lane_2": 7,
+        "release:entry_gate_bank_a|entry_gate|in|l1_platform|l1_platform|entry_gate:entry_gate_bank_a:lane_1|release_apron|entry_gate:entry_gate_bank_a:lane_1": 5,
+        "release:entry_gate_bank_a|entry_gate|in|l1_platform|l1_platform|entry_gate:entry_gate_bank_a:lane_3|release_apron|entry_gate:entry_gate_bank_a:lane_3": 4
+      },
+      "top3_regions": [
+        {
+          "region": "release:entry_gate_bank_a|entry_gate|in|l1_platform|l1_platform|entry_gate:entry_gate_bank_a:lane_2|release_apron|entry_gate:entry_gate_bank_a:lane_2",
+          "count": 7
+        },
+        {
+          "region": "release:entry_gate_bank_a|entry_gate|in|l1_platform|l1_platform|entry_gate:entry_gate_bank_a:lane_1|release_apron|entry_gate:entry_gate_bank_a:lane_1",
+          "count": 5
+        },
+        {
+          "region": "release:entry_gate_bank_a|entry_gate|in|l1_platform|l1_platform|entry_gate:entry_gate_bank_a:lane_3|release_apron|entry_gate:entry_gate_bank_a:lane_3",
+          "count": 4
+        }
+      ]
+    }
+  },
+  "T8_240": {
+    "finite": {
+      "total": 21,
+      "by_code": {
+        "placement.dynamic_blocked": 21
+      },
+      "by_region": {
+        "release:entry_gate_bank_a|entry_gate|in|l1_platform|l1_platform|entry_gate:entry_gate_bank_a:lane_2|release_apron|entry_gate:entry_gate_bank_a:lane_2": 10,
+        "release:entry_gate_bank_a|entry_gate|in|l1_platform|l1_platform|entry_gate:entry_gate_bank_a:lane_1|release_apron|entry_gate:entry_gate_bank_a:lane_1": 6,
+        "release:entry_gate_bank_a|entry_gate|in|l1_platform|l1_platform|entry_gate:entry_gate_bank_a:lane_3|release_apron|entry_gate:entry_gate_bank_a:lane_3": 5
+      },
+      "top3_regions": [
+        {
+          "region": "release:entry_gate_bank_a|entry_gate|in|l1_platform|l1_platform|entry_gate:entry_gate_bank_a:lane_2|release_apron|entry_gate:entry_gate_bank_a:lane_2",
+          "count": 10
+        },
+        {
+          "region": "release:entry_gate_bank_a|entry_gate|in|l1_platform|l1_platform|entry_gate:entry_gate_bank_a:lane_1|release_apron|entry_gate:entry_gate_bank_a:lane_1",
+          "count": 6
+        },
+        {
+          "region": "release:entry_gate_bank_a|entry_gate|in|l1_platform|l1_platform|entry_gate:entry_gate_bank_a:lane_3|release_apron|entry_gate:entry_gate_bank_a:lane_3",
+          "count": 5
+        }
+      ]
+    },
+    "enlarged_capacity_control": {
+      "total": 21,
+      "by_code": {
+        "placement.dynamic_blocked": 21
+      },
+      "by_region": {
+        "release:entry_gate_bank_a|entry_gate|in|l1_platform|l1_platform|entry_gate:entry_gate_bank_a:lane_2|release_apron|entry_gate:entry_gate_bank_a:lane_2": 10,
+        "release:entry_gate_bank_a|entry_gate|in|l1_platform|l1_platform|entry_gate:entry_gate_bank_a:lane_1|release_apron|entry_gate:entry_gate_bank_a:lane_1": 6,
+        "release:entry_gate_bank_a|entry_gate|in|l1_platform|l1_platform|entry_gate:entry_gate_bank_a:lane_3|release_apron|entry_gate:entry_gate_bank_a:lane_3": 5
+      },
+      "top3_regions": [
+        {
+          "region": "release:entry_gate_bank_a|entry_gate|in|l1_platform|l1_platform|entry_gate:entry_gate_bank_a:lane_2|release_apron|entry_gate:entry_gate_bank_a:lane_2",
+          "count": 10
+        },
+        {
+          "region": "release:entry_gate_bank_a|entry_gate|in|l1_platform|l1_platform|entry_gate:entry_gate_bank_a:lane_1|release_apron|entry_gate:entry_gate_bank_a:lane_1",
+          "count": 6
+        },
+        {
+          "region": "release:entry_gate_bank_a|entry_gate|in|l1_platform|l1_platform|entry_gate:entry_gate_bank_a:lane_3|release_apron|entry_gate:entry_gate_bank_a:lane_3",
+          "count": 5
+        }
+      ]
+    }
+  },
+  "same_region_histogram_between_arms": {
+    "T5_120": true,
+    "T8_240": true
+  },
+  "conclusion": "All dynamic blocks are placement.dynamic_blocked events in the same three entry-gate release-apron lane certificates in both arms. The identical arm histograms show that admission capacity is not the cause; the remaining events are downstream spatial-release contention.",
+  "artifact_sha256": "a41d8759d61c74ea28b351e4f4fe0238ddcc1abbfc7febe0404759c6b30f1481"
+}

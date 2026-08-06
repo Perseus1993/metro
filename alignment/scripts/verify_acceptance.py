@@ -449,6 +449,12 @@ def _step4() -> StepResult:
 
 
 def _require_source_preflight_semantics(preflight: dict) -> dict:
+    scene_class = preflight.get("scene_class")
+    scene_config = preflight.get("scene_config")
+    if scene_class not in {"observation_matched", "synthetic_declared"}:
+        raise ValueError("source preflight must declare a supported scene_class")
+    if not isinstance(scene_config, dict) or scene_config.get("scene_class") != scene_class:
+        raise ValueError("source preflight scene_class must match scene_config")
     report = preflight.get("preflight")
     if not isinstance(report, dict):
         raise TypeError("source preflight report must be an object")

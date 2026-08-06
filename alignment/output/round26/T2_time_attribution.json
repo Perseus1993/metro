@@ -1,0 +1,102 @@
+{
+  "schema_version": "alignment_round26_time_attribution.v1",
+  "status": "pass",
+  "task": "T2",
+  "runtime_cohort_sha256": "35d5481e18caaca14817c5121c791d3c9189b14c3298ad3f20156e6029fd9f05",
+  "source_artifact": {
+    "path": "alignment/output/round26/T4_final_900_seed42.json",
+    "artifact_sha256": "506a7ad56e22d8af4d70c0298dd5eb9b6c4dd5f558eb14010e7cdb833c5334d7"
+  },
+  "phase_contract": [
+    "travel",
+    "queue",
+    "service_ready_wait",
+    "release_blocked",
+    "completion"
+  ],
+  "entry": {
+    "owners": 83,
+    "phase_total_steps": {
+      "travel": 2505,
+      "queue": 357,
+      "service_ready_wait": 89,
+      "release_blocked": 230,
+      "completion": 257
+    },
+    "phase_mean_steps": {
+      "travel": 30.180722891566266,
+      "queue": 4.301204819277109,
+      "service_ready_wait": 1.072289156626506,
+      "release_blocked": 2.7710843373493974,
+      "completion": 3.0963855421686746
+    },
+    "phase_median_steps": {
+      "travel": 18,
+      "queue": 4,
+      "service_ready_wait": 1,
+      "release_blocked": 3,
+      "completion": 3
+    },
+    "travel_breakdown_total_steps": {
+      "moving": 1132,
+      "stationary": 2,
+      "upstream_wait": 1371,
+      "upstream_service": 0,
+      "unclassified": 0
+    },
+    "measured_residence_total_steps": 3438,
+    "attributed_total_steps": 3438,
+    "residual_ratio": 0.0,
+    "residence_p50_steps": 28,
+    "residence_p90_steps": 78,
+    "residence_p99_steps": 88,
+    "right_censored": 0
+  },
+  "exit": {
+    "owners": 73,
+    "phase_total_steps": {
+      "travel": 8645,
+      "queue": 586,
+      "service_ready_wait": 83,
+      "release_blocked": 154,
+      "completion": 244
+    },
+    "phase_mean_steps": {
+      "travel": 118.42465753424658,
+      "queue": 8.027397260273972,
+      "service_ready_wait": 1.1369863013698631,
+      "release_blocked": 2.1095890410958904,
+      "completion": 3.3424657534246576
+    },
+    "phase_median_steps": {
+      "travel": 105,
+      "queue": 6,
+      "service_ready_wait": 1,
+      "release_blocked": 2,
+      "completion": 3
+    },
+    "travel_breakdown_total_steps": {
+      "moving": 4507,
+      "stationary": 1,
+      "upstream_wait": 4137,
+      "upstream_service": 0,
+      "unclassified": 0
+    },
+    "travel_breakdown_median_steps": {
+      "moving": 56,
+      "stationary": 0,
+      "upstream_wait": 51,
+      "upstream_service": 0,
+      "unclassified": 0
+    },
+    "measured_residence_total_steps": 9712,
+    "attributed_total_steps": 9712,
+    "residual_ratio": 0.0,
+    "residence_p50_steps": 124,
+    "residence_p90_steps": 220,
+    "residence_p99_steps": 294,
+    "right_censored": 0
+  },
+  "conclusion": "The original 219-step exit median is no longer reproduced after the service-chain fix. In the final cohort the seed-42 median is 124 steps, dominated by pre-gate travel: moving plus upstream waiting. The five canonical phases reconcile exactly for both flows.",
+  "scope_limit": "T2 passes. This artifact does not independently reconstruct the historical 18.9x nominal-to-observed service ratio, so it does not retire DEBT-4 or complete T7."
+}

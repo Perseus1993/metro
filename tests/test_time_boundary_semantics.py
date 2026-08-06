@@ -4,7 +4,6 @@ from dataclasses import replace
 from random import Random
 
 import pytest
-
 from metro_station.adapters.simulation.agents.transit import TrainAgent
 from metro_station.adapters.simulation.design import create_design
 from metro_station.adapters.simulation.runtime.demand_scheduler import DemandScheduler
@@ -91,6 +90,30 @@ def test_train_boundaries_may_be_late_by_less_than_one_tick_but_never_early() ->
     assert arrivals[0] >= scenario.initial_train_offset_seconds
     assert departures[0] - arrivals[0] >= scenario.train_dwell_seconds
     assert arrivals[1] - arrivals[0] >= scenario.train_headway_seconds
+
+
+def test_recovery_window_does_not_schedule_new_train_arrivals() -> None:
+    scenario = _scenario(
+        minutes=2,
+        demand_minutes=1,
+        initial_train_offset_seconds=10,
+        train_dwell_seconds=5,
+        train_headway_seconds=20,
+    )
+    model = MetroStationModel(scenario, seed=42)
+    train = TrainAgent(model)
+    arrivals: list[float] = []
+    previous = train.state
+
+    for step in range(scenario.horizon_steps + 1):
+        model.step_index = step
+        train.step()
+        if train.state == "boarding" and previous == "away":
+            arrivals.append(model.current_time_seconds)
+        previous = train.state
+
+    assert arrivals == [10.0, 30.0, 50.0]
+    assert all(arrival <= scenario.demand_minutes * 60 for arrival in arrivals)
 
 
 def test_non_integral_fixed_step_horizon_is_rejected_instead_of_truncated() -> None:

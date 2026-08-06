@@ -46,7 +46,7 @@ def _manifest() -> LadderManifest:
             control_id="entry-tail-saturated-flow",
             role="qualification_control",
             order_index=1,
-            status="pass",
+            status="qualification_pass",
             control_spec_sha256="3" * 64,
             scene_config_sha256="4" * 64,
             control_artifact=_record("control-saturated.json"),

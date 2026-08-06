@@ -10,6 +10,10 @@ import pedpy
 ROOT = Path(__file__).resolve().parents[2]
 
 
+def _normalized_text_bytes(path: Path) -> bytes:
+    return path.read_bytes().replace(b"\r\n", b"\n").replace(b"\r", b"\n")
+
+
 def analysis_runtime_fingerprint() -> dict[str, Any]:
     """Content-address the code and lock inputs that define alignment metrics."""
 
@@ -24,10 +28,10 @@ def analysis_runtime_fingerprint() -> dict[str, Any]:
         relative = path.relative_to(ROOT).as_posix()
         digest.update(relative.encode("utf-8"))
         digest.update(b"\0")
-        digest.update(path.read_bytes())
+        digest.update(_normalized_text_bytes(path))
         digest.update(b"\0")
     return {
-        "schema_version": "alignment_analysis_runtime.v1",
+        "schema_version": "alignment_analysis_runtime.v2",
         "python": f"{platform.python_implementation()} {platform.python_version()}",
         "pedpy_version": str(getattr(pedpy, "__version__", "unknown")),
         "file_count": len(files),

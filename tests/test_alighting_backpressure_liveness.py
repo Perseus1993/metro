@@ -1,11 +1,14 @@
 from __future__ import annotations
 
 from dataclasses import replace
-from unittest.mock import patch
+from unittest.mock import Mock, patch
 
 import pytest
-
 from metro_station.adapters.simulation.agents.passenger import PassengerAgent
+from metro_station.adapters.simulation.planning.goal_commands import (
+    GoalCommand,
+    GoalCommandKind,
+)
 from metro_station.adapters.simulation.planning.goal_state import (
     FacilityInteractionState,
 )
@@ -15,16 +18,14 @@ from metro_station.adapters.simulation.planning.plan import (
     AgentState,
     FacilityStage,
 )
-from metro_station.adapters.simulation.planning.goal_commands import (
-    GoalCommand,
-    GoalCommandKind,
-)
 from metro_station.adapters.simulation.runtime.mesa_model import MetroStationModel
 from metro_station.adapters.simulation.runtime.passenger_goal_command_executor import (
     ProductionGoalCommandContext,
 )
 from metro_station.adapters.simulation.runtime.progress_monitor import (
+    ExplicitReplanPolicy,
     PassengerLivenessViolation,
+    ProgressMonitor,
 )
 from metro_station_testkit.alighting_backpressure_scenario import (
     alighting_backpressure_scenario,
@@ -37,24 +38,19 @@ class DeferredPassiveLayoutBackend(InstantMovementBackend):
         return True
 
 
-def test_alighting_stays_pending_without_downstream_approach_ownership() -> None:
+def test_direct_alighting_helper_requires_manifest_instead_of_scalar_ownership() -> None:
     model = MetroStationModel(
         alighting_backpressure_scenario(),
         seed=42,
         movement_backend=InstantMovementBackend(),
     )
 
-    model._spawn_alighting_passengers_for_train(model.train, 4)
+    with pytest.raises(RuntimeError, match="train exchange manifest required"):
+        model._spawn_alighting_passengers_for_train(model.train, 4)
 
-    assert model.pending_alighting_groups == 4
+    assert model.pending_alighting_groups == 0
     assert not model.passengers
     assert model.spawned_persons_by_intent[AgentIntent.EXIT_STATION.value] == 0
-    assert (
-        model.audit.counts[
-            "alighting_demand_deferred_without_downstream_admission"
-        ]
-        == 4
-    )
 
 
 def test_entry_stays_pending_without_downstream_ownership() -> None:
@@ -241,6 +237,46 @@ def test_owned_evaluate_candidate_stall_also_fails_fast() -> None:
 
     assert '"structurally_unowned": false' in str(exc_info.value)
     assert model.audit.counts["passenger_liveness_violation"] == 1
+
+
+def test_owned_walking_stall_gets_last_chance_replan_before_liveness_failure() -> None:
+    scenario = replace(
+        alighting_backpressure_scenario(disable_exit_gates=False),
+        liveness_fail_fast_seconds=2.0,
+        liveness_min_displacement_units=0.01,
+    )
+    model = MetroStationModel(
+        scenario,
+        seed=46,
+        movement_backend=InstantMovementBackend(),
+    )
+    passenger = PassengerAgent(
+        model,
+        group_size=1,
+        created_step=0,
+        intent=AgentIntent.EXIT_STATION,
+    )
+    passenger.state = AgentState.WALKING_TO_EXIT_GATE.value
+    passenger.decision_holding_target_by_region["exit_gate_decision"] = (
+        passenger.pos[0] + 10.0,
+        passenger.pos[1],
+    )
+    replan_policy = Mock(spec=ExplicitReplanPolicy)
+    replan_policy.replan.return_value = True
+    monitor = ProgressMonitor(replan_policy=replan_policy)
+
+    for step in range(3):
+        model.step_index = step
+        monitor.observe(model, [passenger])
+
+    replan_policy.replan.assert_called_once_with(
+        model,
+        passenger,
+        reason="movement_stalled",
+        stalled_seconds=2.0,
+    )
+    assert monitor.liveness_records[passenger.unique_id].started_step == 2
+    assert model.audit.counts["passenger_liveness_violation"] == 0
 
 
 def test_no_eligible_exit_facility_wait_claims_finite_platform_staging() -> None:

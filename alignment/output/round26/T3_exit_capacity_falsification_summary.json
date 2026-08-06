@@ -1,0 +1,21 @@
+{
+  "schema_version": "alignment_round26_finiteness_probe.v1",
+  "status": "fail",
+  "task": "T3",
+  "runtime_cohort_sha256": "35d5481e18caaca14817c5121c791d3c9189b14c3298ad3f20156e6029fd9f05",
+  "source_artifact": {"path": "alignment/output/round26/T3_exit_capacity_falsification.json", "artifact_sha256": "5d6d18645c2b83886b5e6b4ff7e12f374fa8719baf536e8a94e805ab1c1848c3"},
+  "exit_capacity": 40,
+  "exit_scheduled": 73,
+  "exit_spawned": 50,
+  "exit_pending": 23,
+  "exit_admission_attempts": 78,
+  "exit_admission_exhausted_attempts": 28,
+  "exit_admission_exhausted_ratio": 0.358974358974359,
+  "dropped": 0,
+  "conserved": true,
+  "liveness": 0,
+  "source_integrity": "fail",
+  "mechanism_nonvacuous": true,
+  "completion_criteria_met": false,
+  "conclusion": "The positive exhaustion ratio proves the finite resource binds, but spawned != scheduled and terminal pending is nonzero. T3 does not pass and DEBT-6 remains open."
+}

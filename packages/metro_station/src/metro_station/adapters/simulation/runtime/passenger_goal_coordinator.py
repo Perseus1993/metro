@@ -7,18 +7,25 @@ from ..planning.goal_commands import GoalCommand, GoalCommandKind
 from ..planning.goal_events import GoalEvent, GoalEventKind
 from ..planning.goal_graph import GoalNodeKind
 from ..planning.goal_state import FacilityInteractionState
-from ..planning.plan import AgentIntent, FacilityStage
+from ..planning.plan import AgentIntent, AgentState, FacilityStage
+from .decision_holding import PlatformWaitingCapacityError
+from .evacuation_journey_rerouting import refresh_evacuation_facility_path
+from .goal_event_ids import runtime_event_id
 from .passenger_goal_command_executor import (
     ProductionGoalCommandContext,
     ProductionGoalCommandExecutor,
 )
-from .passenger_goal_train_observer import PassengerGoalTrainObserver
 from .passenger_goal_service_observer import (
     ProductionGoalServiceEventObserver,
     ProductionServiceObservationContext,
 )
-from .goal_event_ids import runtime_event_id
-from .evacuation_journey_rerouting import refresh_evacuation_facility_path
+from .passenger_goal_train_observer import PassengerGoalTrainObserver
+from .service_chain_counters import (
+    STALLED_PLATFORM_PARKING,
+    WAITING_CAPACITY_RETRY,
+    increment_service_chain_counter,
+)
+from .stalled_gate_ingress_recovery import advance_stalled_gate_ingress_turn
 
 
 class PassengerGoalCoordinator:
@@ -120,19 +127,14 @@ class PassengerGoalCoordinator:
             passenger.last_completed_facility_event_id = event.event_id
             passenger.last_completed_facility_level_id = passenger.current_level_id
         self.handle(passenger, event)
-        event_was_processed = (
-            event.event_id in passenger.goal_runtime.state.processed_event_ids
-        )
+        event_was_processed = event.event_id in passenger.goal_runtime.state.processed_event_ids
         if (
             kind == GoalEventKind.SERVICE_COMPLETED
             and event_was_processed
             and passenger.assigned_facility_id == facility_id
         ):
             passenger.assigned_facility_id = None
-        if (
-            kind == GoalEventKind.SERVICE_COMPLETED
-            and not event_was_processed
-        ):
+        if kind == GoalEventKind.SERVICE_COMPLETED and not event_was_processed:
             (
                 passenger.last_completed_facility_id,
                 passenger.last_completed_facility_position,
@@ -155,11 +157,12 @@ class PassengerGoalCoordinator:
         )
         self.handle(passenger, event)
         changed = passenger.goal_runtime.state.retry_count > before
-        if (
-            not changed
-            and reason == "movement_stalled"
-        ):
-            changed = self._restore_stalled_committed_work(
+        if not changed and reason == "movement_stalled":
+            changed = advance_stalled_gate_ingress_turn(
+                self.model,
+                passenger,
+                reason=reason,
+            ) or self._restore_stalled_committed_work(
                 passenger,
                 reason=reason,
             ) or self._reroute_stalled_region_approach(passenger, reason=reason)
@@ -183,12 +186,8 @@ class PassengerGoalCoordinator:
         if state.commitment is None:
             return False
         command_kind = {
-            FacilityInteractionState.APPROACH_QUEUE.value: (
-                GoalCommandKind.WALK_TO_QUEUE.value
-            ),
-            FacilityInteractionState.CAPTURE_QUEUE.value: (
-                GoalCommandKind.JOIN_QUEUE.value
-            ),
+            FacilityInteractionState.APPROACH_QUEUE.value: (GoalCommandKind.WALK_TO_QUEUE.value),
+            FacilityInteractionState.CAPTURE_QUEUE.value: (GoalCommandKind.JOIN_QUEUE.value),
         }.get(state.interaction_state)
         if command_kind is None:
             return False
@@ -218,17 +217,73 @@ class PassengerGoalCoordinator:
 
         state = passenger.goal_runtime.state
         node = passenger.goal_runtime.graph.node(state.current_node_id)
-        if (
-            state.commitment is not None
-            or self.model.passenger_has_active_facility_service(passenger)
+        if state.commitment is not None or self.model.passenger_has_active_facility_service(
+            passenger
         ):
             return False
         active = self._active_decision_route(passenger, node, state)
         if active is None:
             return False
         region_id, stage = active
+        before_replan = {
+            "state": str(passenger.state),
+            "position": [float(passenger.pos[0]), float(passenger.pos[1])],
+            "target": [float(passenger.target[0]), float(passenger.target[1])],
+            "route": [[float(point[0]), float(point[1])] for point in passenger.route],
+            "holding_regions": sorted(passenger.decision_holding_target_by_region),
+            "approach_facilities": dict(
+                sorted(passenger.facility_approach_facility_ids_by_stage.items())
+            ),
+            "preferred_facility_id": (
+                passenger.decision_preferred_facility_id_by_region.get(region_id)
+            ),
+        }
         router = self.executor.region_router
         base_region = router._base_region(region_id)
+        platform_reservation = self.model._platform_waiting_reservations.get(
+            int(passenger.unique_id)
+        )
+        if (
+            base_region == "boarding_decision"
+            and str(getattr(passenger, "intent", "")) == "enter_and_board"
+        ):
+            platform = self.model.platform_for_passenger(passenger)
+            if platform is not None:
+                if platform_reservation is None:
+                    try:
+                        self.model._reserve_platform_waiting_slot(
+                            passenger,
+                            platform,
+                        )
+                    except PlatformWaitingCapacityError:
+                        increment_service_chain_counter(self.model, WAITING_CAPACITY_RETRY)
+                    platform_reservation = self.model._platform_waiting_reservations.get(
+                        int(passenger.unique_id)
+                    )
+                if platform_reservation is None:
+                    platform = None
+            if platform is not None:
+                platform.join_waiting(passenger)
+                increment_service_chain_counter(self.model, STALLED_PLATFORM_PARKING)
+                if passenger.state == AgentState.WAITING_PLATFORM.value:
+                    passenger.set_target(
+                        tuple(passenger.pos),
+                        goal_kind="waiting",
+                        goal_label="stalled platform holding",
+                    )
+                passenger.last_replan_reason = reason
+                self.model.audit.record(
+                    "passenger_parked_stalled_platform_approach",
+                    source="goal_runtime",
+                    step=int(self.model.step_index),
+                    context={
+                        "passenger_id": int(passenger.unique_id),
+                        "region_id": region_id,
+                        "stage": stage,
+                        "reason": reason,
+                    },
+                )
+                return True
         # A finite holding or approach reservation is intentional
         # backpressure, not a stale route.  Releasing it on every crowd-induced
         # stall makes dense passengers synchronously reshuffle finite cells and
@@ -236,33 +291,143 @@ class PassengerGoalCoordinator:
         # facility.  Preserve the owned target while recomputing the tactical
         # path; ``route`` can atomically exchange holding for approach as soon
         # as a facility becomes selectable.
-        has_holding_reservation = (
-            base_region in passenger.decision_holding_target_by_region
-        )
+        has_holding_reservation = base_region in passenger.decision_holding_target_by_region
         has_approach_reservation = (
             stage in passenger.facility_approach_slots_by_stage
             and stage in passenger.facility_approach_facility_ids_by_stage
         )
+        if (
+            has_approach_reservation
+            and (
+                passenger.last_replan_reason == reason
+                or (
+                    reason == "movement_stalled"
+                    and base_region == "exit_gate_decision"
+                )
+            )
+        ):
+            self.model._clear_facility_targeting_reservation(passenger, stage)
+            router.clear_decision_context(
+                passenger,
+                region_id,
+                preserve_preference=False,
+            )
+            has_approach_reservation = False
         if not (has_holding_reservation or has_approach_reservation):
+            # Platform storage is intentionally persistent while a passenger
+            # waits for boarding capacity.  During an active region approach,
+            # however, a movement-stalled body must be allowed to exchange an
+            # unreachable reserved cell for a currently body-clear one.  The
+            # exit-flow reservation remains untouched because it licenses
+            # finite alighting admission upstream.
+            if (
+                base_region == "boarding_decision"
+                and str(getattr(passenger, "intent", "")) == "enter_and_board"
+            ):
+                self.model._clear_platform_waiting_reservation(passenger)
             self.model._clear_all_facility_targeting_reservations(passenger)
             router.clear_decision_context(
                 passenger,
                 region_id,
                 preserve_preference=False,
             )
-        self._execute(
-            passenger,
-            (
-                GoalCommand(
-                    kind=GoalCommandKind.WALK_TO_REGION.value,
-                    goal_node_id=state.current_node_id,
-                    stage=stage,
-                    target_region_id=region_id,
-                    reason=reason,
-                ),
-            ),
+        # Expose a narrow recovery scope while the route command reserves a
+        # replacement platform cell; a persistent replan reason would also
+        # change later, ordinary platform allocations.
+        passenger._platform_waiting_stall_recovery = True
+        passenger._force_least_loaded_stalled_replan = (
+            base_region == "exit_gate_decision"
         )
+        try:
+            self._execute(
+                passenger,
+                (
+                    GoalCommand(
+                        kind=GoalCommandKind.WALK_TO_REGION.value,
+                        goal_node_id=state.current_node_id,
+                        stage=stage,
+                        target_region_id=region_id,
+                        reason=reason,
+                    ),
+                ),
+            )
+        finally:
+            passenger._platform_waiting_stall_recovery = False
+            passenger._force_least_loaded_stalled_replan = False
+        if (
+            base_region == "exit_gate_decision"
+            and passenger.current_goal.kind == "goal_region"
+            and not passenger.route
+        ):
+            target = tuple(passenger.target)
+            if target != tuple(passenger.pos):
+                passenger.set_route(
+                    (target,),
+                    goal_kind="goal_region",
+                    goal_label=region_id,
+                )
         passenger.last_replan_reason = reason
+        commitment = state.commitment
+        candidate_facility_ids = tuple(
+            passenger.decision_facility_ids_by_region.get(base_region, ())
+        )
+        target_facility_id = (
+            None if commitment is None else str(commitment.facility_id)
+        )
+        if target_facility_id is None:
+            target_facility_id = passenger.assigned_facility_id
+        if target_facility_id is None:
+            target_facility_id = passenger.decision_preferred_facility_id_by_region.get(
+                base_region
+            )
+        stage_order = {
+            "entry_gate": 0,
+            "vertical": 1,
+            "exit_gate": 2,
+            "boarding": 3,
+        }
+
+        def occupancy_for(facility) -> dict[str, object]:
+            queue = getattr(facility, "queue", None)
+            return {
+                "facility_id": str(facility.facility_id),
+                "stage": str(getattr(facility.spec.stage, "value", facility.spec.stage)),
+                "queue_persons": 0 if queue is None else len(queue),
+                "active_persons": len(getattr(facility, "active_passes", ())),
+                "approach_reservations": (
+                    0
+                    if queue is None
+                    else len(queue.approach_slot_reservations)
+                ),
+                "queue_capacity": int(
+                    getattr(queue, "max_length", 0) or 0
+                ),
+                "forced_disabled": bool(getattr(facility, "is_forced_disabled", False)),
+                "service_blocked_reason": getattr(
+                    facility, "service_blocked_reason", None
+                ),
+            }
+
+        facility_occupancy = [
+            occupancy_for(facility)
+            for facility in sorted(
+                self.model.facilities,
+                key=lambda item: str(item.facility_id),
+            )
+        ]
+        current_stage_order = stage_order.get(str(stage), 0)
+        upstream_occupancy = [
+            item
+            for item in facility_occupancy
+            if stage_order.get(str(item["stage"]), current_stage_order)
+            < current_stage_order
+        ]
+        downstream_occupancy = [
+            item
+            for item in facility_occupancy
+            if stage_order.get(str(item["stage"]), current_stage_order)
+            > current_stage_order
+        ]
         self.model.audit.record(
             "passenger_replanned_stalled_region_approach",
             source="goal_runtime",
@@ -272,6 +437,18 @@ class PassengerGoalCoordinator:
                 "region_id": region_id,
                 "stage": stage,
                 "reason": reason,
+                "before_replan": before_replan,
+                "after_target": [float(passenger.target[0]), float(passenger.target[1])],
+                "after_route": [[float(point[0]), float(point[1])] for point in passenger.route],
+                "passenger_state": str(passenger.state),
+                "goal_kind": str(passenger.current_goal.kind),
+                "goal_node_id": state.current_node_id,
+                "interaction_state": state.interaction_state,
+                "target_facility_id": target_facility_id,
+                "candidate_facility_ids": list(candidate_facility_ids),
+                "upstream_occupancy": upstream_occupancy,
+                "downstream_occupancy": downstream_occupancy,
+                "facility_occupancy": facility_occupancy,
             },
         )
         return True
@@ -421,8 +598,7 @@ class PassengerGoalCoordinator:
 
     def _active_decision_route(self, passenger, node, state) -> tuple[str, str] | None:
         if (
-            state.interaction_state
-            == FacilityInteractionState.APPROACH_DECISION_REGION.value
+            state.interaction_state == FacilityInteractionState.APPROACH_DECISION_REGION.value
             and node.decision_region_id is not None
             and state.current_stage is not None
         ):

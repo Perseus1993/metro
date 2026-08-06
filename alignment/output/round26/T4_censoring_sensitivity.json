@@ -1,0 +1,23 @@
+{
+  "schema_version": "alignment_round26_censoring_sensitivity.v1",
+  "status": "pass",
+  "task": "T4",
+  "runtime_cohort_sha256": "35d5481e18caaca14817c5121c791d3c9189b14c3298ad3f20156e6029fd9f05",
+  "rows": [
+    {"horizon_steps": 480, "seed": 42, "completed": 73, "censored": 0, "p90_steps": 220, "p99_steps": 294, "artifact_sha256": "bff3eaf9a06fb6e100ee5253f0820c2f563fda4cd89ec34e1c5e9a5fc4d37f3a"},
+    {"horizon_steps": 480, "seed": 43, "completed": 73, "censored": 0, "p90_steps": 210, "p99_steps": 303, "artifact_sha256": "9c6931cb4fc30583c41333da385a693475ebf1dc44d4d25306d8a7a5369db0cd"},
+    {"horizon_steps": 480, "seed": 44, "completed": 73, "censored": 0, "p90_steps": 212, "p99_steps": 278, "artifact_sha256": "a1c1927c6e5633c9a0b5cdcd3675b869921037c1066ef2b893fa0983c731d8c2"},
+    {"horizon_steps": 600, "seed": 42, "completed": 73, "censored": 0, "p90_steps": 220, "p99_steps": 294, "artifact_sha256": "ad1df58f806a682d180ce96a4792f14c8909b14e9a91dd866901b1391b6643bd"},
+    {"horizon_steps": 600, "seed": 43, "completed": 73, "censored": 0, "p90_steps": 210, "p99_steps": 303, "artifact_sha256": "1c28ffe4b9f90512099ef26d7b0e9e70d88d07efee9ba9739e2daf29dce32e1f"},
+    {"horizon_steps": 900, "seed": 42, "completed": 73, "censored": 0, "p90_steps": 220, "p99_steps": 294, "artifact_sha256": "506a7ad56e22d8af4d70c0298dd5eb9b6c4dd5f558eb14010e7cdb833c5334d7"},
+    {"horizon_steps": 900, "seed": 43, "completed": 73, "censored": 0, "p90_steps": 210, "p99_steps": 303, "artifact_sha256": "8de359d65001973a9bc099cc2f05bf1316738b33d1bf5b3b8f095cff4b65dd97"}
+  ],
+  "conservative_exit_W_steps": 303,
+  "convergence": {
+    "seed_42_p99_480_600_900": [294, 294, 294],
+    "seed_43_p99_480_600_900": [303, 303, 303],
+    "monotone_growth_with_horizon": false,
+    "right_censoring_at_480_or_later": false
+  },
+  "scope_limit": "This is a two-minute short-demand residence measurement. It makes W observable and stable, but cannot by itself register production admission capacities for the ten-minute ladder."
+}

@@ -6,10 +6,21 @@ from typing import Any
 from ..agents.passenger import PassengerAgent
 from ..facilities.runtime import FacilityProcessAgent
 from ..movement.backend import MovementResult
+from .external_demand_reservoir import DemandSourceKind
+from .source_boundary_metrics import source_boundary_metrics
 
 
 class SimulationLifecycleMixin:
     """Expose run/step lifecycle, stopping, evidence frames, and snapshots."""
+
+    @property
+    def pending_alighting_groups(self) -> int:
+        """Compatibility view backed exclusively by the external reservoir."""
+
+        reservoir = getattr(self, "external_demand_reservoir", None)
+        if reservoir is None:
+            return 0
+        return reservoir.pending_groups(DemandSourceKind.TRAIN_ALIGHTING)
 
     def step(self) -> None:
         self.step_orchestrator.step(self)
@@ -67,14 +78,14 @@ class SimulationLifecycleMixin:
             self.step_index >= self.scenario.demand_steps
             and not self.passengers
             and not self._has_pending_alighting_demand()
-            and not any(self.pending_spawn_groups.values())
+            and not self.external_demand_reservoir.pending_tickets(DemandSourceKind.ENTRY)
             and not self.disruption_controller.has_pending_events
             and not self.train_disruption_controller.has_pending_events
             and not self.control_timeline_controller.has_pending_events
         )
 
     def _has_pending_alighting_demand(self) -> bool:
-        if self.pending_alighting_groups > 0:
+        if self.external_demand_reservoir.pending_tickets(DemandSourceKind.TRAIN_ALIGHTING):
             return True
         return any(
             step >= self.step_index and count > 0 for step, count in self.alighting_schedule.items()
@@ -86,16 +97,19 @@ class SimulationLifecycleMixin:
     ) -> list[dict[str, Any]]:
         self.running = True
         total_steps = int(self.scenario.horizon_steps)
-        if progress_callback is not None:
-            progress_callback(self.step_index, total_steps)
-        while self.running:
-            self.step()
+        try:
             if progress_callback is not None:
                 progress_callback(self.step_index, total_steps)
-        self._finalize_facilities()
+            while self.running:
+                self.step()
+                if progress_callback is not None:
+                    progress_callback(self.step_index, total_steps)
+        finally:
+            self._finalize_facilities()
         return self.frames
 
     def _finalize_facilities(self) -> None:
+        self.external_demand_reservoir.close(int(self.step_index))
         for facility in self.facilities:
             finalize = getattr(facility, "finalize", None)
             if not callable(finalize):
@@ -121,4 +135,6 @@ class SimulationLifecycleMixin:
             self,
             include_events=False,
         )
+        payload["run_outcome_code"] = self.run_outcome_code
+        payload["source_boundaries"] = source_boundary_metrics(self)
         return payload

@@ -7,10 +7,7 @@ from ..agents.passenger import PassengerAgent
 from ..agents.transit import TrainAgent
 from ..facilities.runtime import FacilityProcessAgent
 from ..planning.goal_events import GoalEventKind
-from ..planning.goal_graph import GoalNodeKind
 from ..planning.plan import AgentIntent, FacilityStage
-from ..station.alighting_source_geometry import ALIGHTING_SOURCE_SEARCH_WINDOW
-from ..station.evacuation import EVACUATION_MODE
 from ..spatial_capacity_admission import (
     CertifiedPlacementTemporarilyBlocked,
     SpatialCapacityAdmissionError,
@@ -18,58 +15,37 @@ from ..spatial_capacity_admission import (
     SpatialCapacityExhausted,
     record_spatial_capacity_event,
 )
+from ..station.alighting_source_geometry import ALIGHTING_SOURCE_SEARCH_WINDOW
+from ..station.evacuation import EVACUATION_MODE
+from .downstream_admission_evidence import downstream_admission_evidence
+from .external_demand_reservoir import (
+    DemandSourceKind,
+    TemporaryDemandBlockReason,
+)
+from .source_publication_transaction import (
+    PassengerPublicationTransaction,
+    commit_alighting_publication,
+)
+from .source_demand_runtime import spawn_alighting_demand, spawn_entry_demand
 
 
 class PassengerDemandMixin:
     """Scheduled passenger creation, alighting distribution, and evacuation conversion."""
 
     def spawn_passengers(self) -> None:
-        due_by_intent = Counter(self.pending_spawn_groups)
-        self.pending_spawn_groups.clear()
-        due_by_intent.update(self.demand_scheduler.due_by_intent(self.step_index))
-        for intent, count in due_by_intent.items():
-            for attempt in range(count):
-                try:
-                    self._spawn_passenger(intent)
-                except SpatialCapacityAdmissionError:
-                    # Admission is upstream of PassengerAgent ownership. Keep
-                    # the deterministic demand pending instead of creating an
-                    # overlapping body or losing the group.
-                    self.pending_spawn_groups[str(intent)] += count - attempt
-                    break
+        spawn_entry_demand(self)
 
     def spawn_alighting_passengers(self) -> None:
-        newly_due = self.demand_scheduler.due_alightings(self.step_index)
-        due = self.pending_alighting_groups + newly_due
-        if due <= 0:
-            return
+        spawn_alighting_demand(self)
 
-        boarding_trains = [train for train in self.trains if train.is_boarding]
-        if not boarding_trains:
-            self.pending_alighting_groups = due
-            self.max_pending_alighting_groups = max(
-                self.max_pending_alighting_groups,
-                self.pending_alighting_groups,
-            )
-            self.audit.record(
-                "alighting_demand_deferred_without_boarding_train",
-                source="demand_scheduler",
-                severity="warning",
-                step=self.step_index,
-                context={
-                    "newly_due_groups": newly_due,
-                    "pending_groups": self.pending_alighting_groups,
-                },
-            )
-            return
+    def _record_alighting_demand_due(self, newly_due_groups: int) -> None:
+        del newly_due_groups
 
-        self.pending_alighting_groups = 0
-        for train, count in zip(
-            boarding_trains,
-            self._split_count(due, len(boarding_trains)),
-            strict=True,
-        ):
-            self._spawn_alighting_passengers_for_train(train, count)
+    def _record_unavailable_alighting_manifest_remainder(self, groups: int) -> None:
+        del groups
+
+    def _require_alighting_spawn_conservation(self) -> None:
+        pass
 
     def _spawn_passenger(
         self,
@@ -80,21 +56,21 @@ class PassengerDemandMixin:
     ) -> PassengerAgent:
         spawn_certificate = None
         spawn_node = None
+        explicit_initial_position = initial_position is not None
         intent_value = intent.value if isinstance(intent, AgentIntent) else str(intent)
         if initial_position is None:
             initial_position, initial_level_id, spawn_certificate, spawn_node = (
                 self._certified_spawn_location(intent)
             )
         if initial_level_id is not None:
-            downstream = self._downstream_admission_evidence(
+            downstream = self._source_admission_evidence(
                 intent_value,
                 release_levels={str(initial_level_id)},
             )
             if not downstream["available"]:
                 evidence = SpatialCapacityEvidence(
                     certificate_id=(
-                        f"downstream_admission:{intent_value}:"
-                        f"{downstream['decision_region_id']}"
+                        f"downstream_admission:{intent_value}:{downstream['decision_region_id']}"
                     ),
                     resource_kind="stage_storage",
                     owner_id=str(
@@ -102,12 +78,8 @@ class PassengerDemandMixin:
                         or downstream["downstream_stage"]
                         or intent_value
                     ),
-                    certified_body_capacity=int(
-                        downstream["certified_downstream_slots"]
-                    ),
-                    current_occupancy_bodies=int(
-                        downstream["occupied_downstream_slots"]
-                    ),
+                    certified_body_capacity=int(downstream["certified_downstream_slots"]),
+                    current_occupancy_bodies=int(downstream["occupied_downstream_slots"]),
                     requested_bodies=1,
                     passenger_id=None,
                 )
@@ -132,55 +104,88 @@ class PassengerDemandMixin:
         target_direction = None
         if intent_value == AgentIntent.TRANSFER.value:
             target_line_id, target_direction = self._default_transfer_target()
-        passenger = PassengerAgent(
-            self,
-            group_size=self.scenario.group_size,
-            created_step=self.step_index,
-            intent=intent,
-            target_line_id=target_line_id,
-            target_direction=target_direction,
-            initial_position=initial_position,
-            initial_level_id=initial_level_id,
-        )
-        if spawn_node is not None:
-            passenger.spawn_source_element_id = spawn_node.element_id
-        if spawn_certificate is not None:
-            evidence = SpatialCapacityEvidence(
-                certificate_id=spawn_certificate.certificate_id,
-                resource_kind=spawn_certificate.resource_kind,
-                owner_id=spawn_certificate.owner_id,
-                certified_body_capacity=spawn_certificate.certified_body_capacity,
-                current_occupancy_bodies=self._spawn_reservoir_occupancy(
-                    spawn_certificate
-                ),
-                requested_bodies=1,
-                passenger_id=int(passenger.unique_id),
-            )
-            try:
-                self.movement_backend.resolve_certified_placement(
-                    passenger,
-                    tuple(passenger.pos),
-                    level_id=spawn_certificate.level_id,
+        passenger: PassengerAgent | None = None
+        placement_blocked = None
+        try:
+            with PassengerPublicationTransaction(self) as publication:
+                passenger = PassengerAgent(
+                    self,
+                    group_size=self.scenario.group_size,
+                    created_step=self.step_index,
+                    intent=intent,
+                    target_line_id=target_line_id,
+                    target_direction=target_direction,
+                    initial_position=initial_position,
+                    initial_level_id=initial_level_id,
                 )
-            except RuntimeError as exc:
+                if spawn_node is not None:
+                    passenger.spawn_source_element_id = spawn_node.element_id
+                if spawn_certificate is not None or explicit_initial_position:
+                    evidence = SpatialCapacityEvidence(
+                        certificate_id=(
+                            spawn_certificate.certificate_id
+                            if spawn_certificate is not None
+                            else f"runtime_source_placement:{intent_value}:{initial_level_id}"
+                        ),
+                        resource_kind=(
+                            spawn_certificate.resource_kind
+                            if spawn_certificate is not None
+                            else "source_placement"
+                        ),
+                        owner_id=(
+                            spawn_certificate.owner_id
+                            if spawn_certificate is not None
+                            else f"{intent_value}_source"
+                        ),
+                        certified_body_capacity=(
+                            spawn_certificate.certified_body_capacity
+                            if spawn_certificate is not None
+                            else 1
+                        ),
+                        current_occupancy_bodies=(
+                            self._spawn_reservoir_occupancy(spawn_certificate)
+                            if spawn_certificate is not None
+                            else 0
+                        ),
+                        requested_bodies=1,
+                        passenger_id=int(passenger.unique_id),
+                    )
+                    try:
+                        self.movement_backend.resolve_certified_placement(
+                            passenger,
+                            tuple(passenger.pos),
+                            level_id=(
+                                spawn_certificate.level_id
+                                if spawn_certificate is not None
+                                else str(initial_level_id)
+                            ),
+                        )
+                    except RuntimeError as exc:
+                        placement_blocked = CertifiedPlacementTemporarilyBlocked(
+                            f"spawn cell {tuple(passenger.pos)!r} was blocked before admission",
+                            evidence,
+                        )
+                        raise placement_blocked from exc
+                self.passengers.append(passenger)
+                self.passenger_goal_runtimes[int(passenger.unique_id)] = passenger.goal_runtime
+                self.spawned_persons += passenger.group_size
+                self.spawned_persons_by_intent[passenger.intent] += passenger.group_size
+                if passenger.spawn_source_element_id is not None:
+                    self.spawned_persons_by_entrance[passenger.spawn_source_element_id] += (
+                        passenger.group_size
+                    )
+                self._spawned_since_last_frame = True
+                publication.commit()
+        except CertifiedPlacementTemporarilyBlocked as exc:
+            if exc is placement_blocked:
                 record_spatial_capacity_event(
                     self,
                     "spawn.dynamic_blocked",
-                    evidence,
+                    exc.evidence,
                 )
-                raise CertifiedPlacementTemporarilyBlocked(
-                    f"spawn cell {tuple(passenger.pos)!r} was blocked before admission",
-                    evidence,
-                ) from exc
-        self.passengers.append(passenger)
-        self.passenger_goal_runtimes[int(passenger.unique_id)] = passenger.goal_runtime
-        self.spawned_persons += passenger.group_size
-        self.spawned_persons_by_intent[passenger.intent] += passenger.group_size
-        if passenger.spawn_source_element_id is not None:
-            self.spawned_persons_by_entrance[passenger.spawn_source_element_id] += (
-                passenger.group_size
-            )
-        self._spawned_since_last_frame = True
+            raise
+        if passenger is None:
+            raise RuntimeError("passenger publication committed without a Passenger")
         return passenger
 
     def _certified_spawn_location(
@@ -202,9 +207,7 @@ class PassengerDemandMixin:
             if item.resource_kind == "spawn_reservoir"
         }
         candidates = tuple(
-            (node, certificates[node.node_id])
-            for node in nodes
-            if node.node_id in certificates
+            (node, certificates[node.node_id]) for node in nodes if node.node_id in certificates
         )
         if not candidates:
             evidence = SpatialCapacityEvidence(
@@ -298,10 +301,10 @@ class PassengerDemandMixin:
     def _default_transfer_target(self) -> tuple[str | None, str | None]:
         if not self.platforms:
             return None, None
-        platform = sorted(
+        platform = min(
             self.platforms,
             key=lambda item: (item.line_id, item.direction, item.platform_id),
-        )[0]
+        )
         return platform.line_id, platform.direction
 
     def _activate_evacuation_if_due(self) -> None:
@@ -360,22 +363,17 @@ class PassengerDemandMixin:
         disabled_ids = {
             facility.facility_id
             for facility in self.facilities
-            if isinstance(facility, FacilityProcessAgent)
-            and facility.is_forced_disabled
+            if isinstance(facility, FacilityProcessAgent) and facility.is_forced_disabled
         }
         refreshed = 0
         for passenger in tuple(self.passengers):
             path = tuple(passenger.evacuation_facility_path)
-            if (
-                passenger.intent != AgentIntent.EVACUATE_STATION.value
-                or (
-                    not force_all
-                    and (
-                        not path
-                        or not (
-                            disabled_ids.intersection(path)
-                            or changed_facility_ids.intersection(path)
-                        )
+            if passenger.intent != AgentIntent.EVACUATE_STATION.value or (
+                not force_all
+                and (
+                    not path
+                    or not (
+                        disabled_ids.intersection(path) or changed_facility_ids.intersection(path)
                     )
                 )
             ):
@@ -432,70 +430,90 @@ class PassengerDemandMixin:
         if count <= 0:
             return
 
+        run_ref = self._train_run_ref(train)
+        if run_ref not in self.train_exchange_manifests:
+            raise RuntimeError(f"train exchange manifest required for alighting demand: {run_ref}")
         doors = self.boarding_doors_for_train(train)
         if not doors:
-            self.audit.record(
-                "alighting_train_has_no_doors",
-                source="demand_scheduler",
-                severity="error",
-                step=self.step_index,
-                context={
-                    "train_id": train.unique_id,
-                    "platform_id": train.platform_id,
-                    "due_persons": count,
-                },
-            )
-            return
+            raise RuntimeError(f"model_invalid: train {run_ref} has no mapped doors")
 
         door_spawn_counts: Counter[str] = Counter()
         reserved_positions: list[tuple[tuple[float, float], str]] = []
         for index in range(count):
-            downstream = self._alighting_downstream_admission_evidence(doors)
+            claim = self.external_demand_reservoir.claim_next(
+                DemandSourceKind.TRAIN_ALIGHTING,
+                run_ref,
+                step=int(self.step_index),
+            )
+            if claim is None:
+                break
+            try:
+                downstream = self._alighting_source_admission_reservation(doors)
+            except BaseException:
+                self.external_demand_reservoir.defer(
+                    claim,
+                    step=int(self.step_index),
+                    reason=TemporaryDemandBlockReason.DOWNSTREAM_CAPACITY_EXHAUSTED,
+                )
+                raise
             if not downstream["available"]:
-                deferred = count - index
-                self.pending_alighting_groups += deferred
-                self.max_pending_alighting_groups = max(
-                    self.max_pending_alighting_groups,
-                    self.pending_alighting_groups,
+                self.external_demand_reservoir.defer(
+                    claim,
+                    step=int(self.step_index),
+                    reason=TemporaryDemandBlockReason.ADMISSION_CREDIT_EXHAUSTED,
                 )
                 self.audit.record(
                     "alighting_demand_deferred_without_downstream_admission",
                     source="demand_scheduler",
                     severity="warning",
-                    count=deferred,
+                    count=1,
                     step=self.step_index,
                     context={
                         "train_id": train.unique_id,
                         "platform_id": train.platform_id,
-                        "deferred_groups": deferred,
-                        "pending_groups": self.pending_alighting_groups,
+                        "deferred_groups": 1,
+                        "pending_groups": count - index,
                         **downstream,
                     },
                 )
                 break
-            preferred_door_index = (
-                index + self.step_index + train.departed_trains
-            ) % len(doors)
+            preferred_door_index = (index + self.step_index + train.departed_trains) % len(doors)
             placement: tuple[FacilityProcessAgent, tuple[float, float], str] | None = None
-            for door_offset in range(len(doors)):
-                door = doors[(preferred_door_index + door_offset) % len(doors)]
-                level_id = door.spec.exit_level_id or door.spec.entry_level_id
-                if level_id is None:
-                    continue
-                position = self._alighting_spawn_position(
-                    door,
-                    door_spawn_counts[door.facility_id],
-                    reserved_positions=reserved_positions,
+            try:
+                for door_offset in range(len(doors)):
+                    door = doors[(preferred_door_index + door_offset) % len(doors)]
+                    level_id = door.spec.exit_level_id or door.spec.entry_level_id
+                    if level_id is None:
+                        continue
+                    position = self._alighting_spawn_position(
+                        door,
+                        door_spawn_counts[door.facility_id],
+                        reserved_positions=reserved_positions,
+                    )
+                    if position is None:
+                        continue
+                    placement = (door, position, level_id)
+                    break
+            except BaseException:
+                self._release_alighting_source_admission_reservation(
+                    downstream,
+                    reason="source_placement_exception",
                 )
-                if position is None:
-                    continue
-                placement = (door, position, level_id)
-                break
+                self.external_demand_reservoir.defer(
+                    claim,
+                    step=int(self.step_index),
+                    reason=TemporaryDemandBlockReason.SOURCE_PLACEMENT_BLOCKED,
+                )
+                raise
             if placement is None:
-                self.pending_alighting_groups += 1
-                self.max_pending_alighting_groups = max(
-                    self.max_pending_alighting_groups,
-                    self.pending_alighting_groups,
+                self._release_alighting_source_admission_reservation(
+                    downstream,
+                    reason="source_placement_blocked",
+                )
+                self.external_demand_reservoir.defer(
+                    claim,
+                    step=int(self.step_index),
+                    reason=TemporaryDemandBlockReason.SOURCE_PLACEMENT_BLOCKED,
                 )
                 self.audit.record(
                     "alighting_demand_deferred_without_clear_spawn_cell",
@@ -505,21 +523,83 @@ class PassengerDemandMixin:
                     context={
                         "train_id": train.unique_id,
                         "platform_id": train.platform_id,
-                        "pending_groups": self.pending_alighting_groups,
+                        "deferred_groups": 1,
+                        "pending_groups": count - index,
                     },
                 )
-                continue
+                break
             door, position, level_id = placement
             door_spawn_counts[door.facility_id] += 1
             reserved_positions.append((position, level_id))
-            passenger = self._spawn_passenger(
-                AgentIntent.EXIT_STATION,
-                initial_position=position,
-                initial_level_id=level_id,
+            try:
+                passenger = self._spawn_passenger(
+                    AgentIntent.EXIT_STATION,
+                    initial_position=position,
+                    initial_level_id=level_id,
+                )
+            except SpatialCapacityAdmissionError:
+                self._release_alighting_source_admission_reservation(
+                    downstream,
+                    reason="physical_placement_retry",
+                )
+                self.external_demand_reservoir.defer(
+                    claim,
+                    step=int(self.step_index),
+                    reason=TemporaryDemandBlockReason.SOURCE_PLACEMENT_BLOCKED,
+                )
+                break
+            except BaseException:
+                self._release_alighting_source_admission_reservation(
+                    downstream,
+                    reason="spawn_exception",
+                )
+                self.external_demand_reservoir.defer(
+                    claim,
+                    step=int(self.step_index),
+                    reason=TemporaryDemandBlockReason.SOURCE_PLACEMENT_BLOCKED,
+                )
+                raise
+            commit_alighting_publication(
+                self,
+                claim=claim,
+                passenger=passenger,
+                admission_reservation=downstream,
+                manifest=self.train_exchange_manifests[run_ref],
             )
             passenger.assigned_platform_id = train.platform_id
             passenger.assigned_line_id = train.line_id
             passenger.assigned_direction = train.direction
+
+    def _defer_alighting_groups(self, count: int) -> None:
+        del count
+
+    def _alighting_source_admission_reservation(
+        self,
+        doors: list[FacilityProcessAgent],
+    ) -> dict[str, object]:
+        """Reserve admission before publishing one alighting body.
+
+        The base runtime preserves its existing downstream-evidence policy.
+        Alignment overrides this seam with a geometry-free counting credit and
+        uses the paired commit/release hooks to make publication transactional.
+        """
+
+        return self._alighting_downstream_admission_evidence(doors)
+
+    def _release_alighting_source_admission_reservation(
+        self,
+        reservation: dict[str, object],
+        *,
+        reason: str,
+    ) -> None:
+        del reservation, reason
+
+    def _commit_alighting_source_admission_reservation(
+        self,
+        reservation: dict[str, object],
+        passenger: PassengerAgent,
+    ) -> None:
+        del reservation, passenger
 
     def _alighting_downstream_admission_evidence(
         self,
@@ -538,8 +618,7 @@ class PassengerDemandMixin:
         release_levels = {
             str(level_id)
             for door in doors
-            if (level_id := door.spec.exit_level_id or door.spec.entry_level_id)
-            is not None
+            if (level_id := door.spec.exit_level_id or door.spec.entry_level_id) is not None
         }
         return self._downstream_admission_evidence(
             AgentIntent.EXIT_STATION.value,
@@ -552,139 +631,29 @@ class PassengerDemandMixin:
         *,
         release_levels: set[str],
     ) -> dict[str, object]:
-        graph = self.goal_graph_catalog.graph_for_intent(str(intent))
-        first_facility_node = next(
-            (
-                node
-                for node in graph.nodes
-                if node.kind == GoalNodeKind.USE_FACILITY_STAGE.value
-                and node.facility_stage is not None
-            ),
-            None,
+        return downstream_admission_evidence(
+            self,
+            intent,
+            release_levels=release_levels,
         )
-        stage = (
-            None
-            if first_facility_node is None
-            else first_facility_node.facility_stage
+
+    def _source_admission_evidence(
+        self,
+        intent: str,
+        *,
+        release_levels: set[str],
+    ) -> dict[str, object]:
+        """Return the source publication licence for this runtime.
+
+        The default Metro runtime retains its compiler-certified physical
+        storage policy. Alignment overrides this seam with independent flow
+        credits, leaving physical placement to the existing placement path.
+        """
+
+        return self._downstream_admission_evidence(
+            intent,
+            release_levels=release_levels,
         )
-        decision_region_id = (
-            None
-            if first_facility_node is None
-            else first_facility_node.decision_region_id
-        )
-        facilities = [] if stage is None else self._facilities_for_stage(stage)
-        physical = [
-            facility
-            for facility in facilities
-            if self.facility_portal_binding(facility.facility_id).entry_level_id
-            in release_levels
-        ]
-        enabled = [
-            facility
-            for facility in physical
-            if not bool(getattr(facility, "is_forced_disabled", False))
-        ]
-        # Existing station bodies may wait at a physical decision anchor
-        # during a temporary total closure.  Train-side demand is stricter:
-        # do not publish a new body unless at least one enabled downstream
-        # facility can ultimately consume that holding/approach ownership.
-        eligible = enabled
-        available_slots = sum(
-            len(self._available_facility_approach_slot_indices(facility))
-            for facility in eligible
-            if facility.is_available_for_choice
-        )
-        certified_approach_slots = sum(
-            len(self._facility_approach_slot_indices(facility))
-            for facility in eligible
-        )
-        anchors_by_level: dict[str, list[tuple[float, float]]] = {
-            level_id: [] for level_id in release_levels
-        }
-        for facility in eligible:
-            binding = self.facility_portal_binding(facility.facility_id)
-            if binding.entry_level_id in anchors_by_level:
-                anchors_by_level[binding.entry_level_id].extend(
-                    self._facility_approach_positions(facility)
-                )
-        available_holding_points: tuple[tuple[float, float], ...] = ()
-        available_holding_slots = 0
-        certified_holding_slots = 0
-        additional_region_ids = self._decision_holding_upstream_region_ids(
-            str(intent),
-            str(decision_region_id),
-        )
-        if decision_region_id is not None:
-            available_holding_points = tuple(
-                point
-                for level_id, anchors in anchors_by_level.items()
-                if anchors
-                for point in self._available_decision_holding_slots(
-                        level_id=level_id,
-                        region_id=decision_region_id,
-                        anchors=tuple(anchors),
-                        additional_region_ids=additional_region_ids,
-                    )
-            )
-            available_holding_slots = len(available_holding_points)
-        available_platform_staging_slots = 0
-        certified_platform_staging_slots = 0
-        if eligible:
-            certified_holding_slots = sum(
-                len(
-                    self._decision_holding_candidates(
-                        level_id,
-                        region_id=decision_region_id,
-                        anchors=tuple(anchors),
-                        additional_region_ids=additional_region_ids,
-                    )
-                )
-                for level_id, anchors in anchors_by_level.items()
-                if anchors
-            )
-        if eligible and str(intent) == AgentIntent.EXIT_STATION.value:
-            available_platform_staging_slots = sum(
-                self._available_platform_waiting_slot_count(
-                    level_id=level_id,
-                    limit=1,
-                )
-                for level_id in release_levels
-            )
-            certified_platform_staging_slots = len(
-                tuple(self.layout_graph.platform_waiting_slots())
-            )
-        # Source admission is intentionally stricter than in-system recovery.
-        # Entry demand must own a first-stage approach; a remote holding cell
-        # can lie behind the occupied holding lattice and is not a publication
-        # licence. Alighting is different: a compiler-certified platform cell
-        # is the finite source-side storage that lets a train unload before a
-        # fare-gate approach opens. In both cases every published body owns a
-        # concrete downstream cell; no current-position fallback is allowed.
-        if str(intent) == AgentIntent.EXIT_STATION.value:
-            available_total = available_slots + available_platform_staging_slots
-            certified_total = (
-                certified_approach_slots + certified_platform_staging_slots
-            )
-        else:
-            available_total = available_slots
-            certified_total = certified_approach_slots
-        return {
-            "available": available_total > 0,
-            "downstream_stage": stage,
-            "decision_region_id": decision_region_id,
-            "release_level_ids": sorted(release_levels),
-            "eligible_facility_count": len(eligible),
-            "available_approach_slots": available_slots,
-            "available_holding_slots": available_holding_slots,
-            "available_holding_position": (
-                available_holding_points[0] if available_holding_points else None
-            ),
-            "certified_holding_slots": certified_holding_slots,
-            "available_platform_staging_slots": available_platform_staging_slots,
-            "certified_platform_staging_slots": certified_platform_staging_slots,
-            "certified_downstream_slots": certified_total,
-            "occupied_downstream_slots": max(0, certified_total - available_total),
-        }
 
     def _alighting_spawn_position(
         self,
@@ -738,9 +707,7 @@ class PassengerDemandMixin:
         for position, occupied_level_id in (*reserved_positions, *occupied):
             if occupied_level_id != level_id:
                 continue
-            if hypot(candidate[0] - position[0], candidate[1] - position[1]) < (
-                minimum_distance
-            ):
+            if hypot(candidate[0] - position[0], candidate[1] - position[1]) < (minimum_distance):
                 return False
         return True
 

@@ -66,6 +66,7 @@ class FacilityQueue(list):
         *,
         settle: bool = False,
         preferred_slot_index: int | None = None,
+        reservation_orders_fifo: bool = True,
     ) -> bool:
         if passenger in self:
             return True
@@ -73,15 +74,14 @@ class FacilityQueue(list):
             return False
         passenger_id = id(passenger)
         unique_id = int(getattr(passenger, "unique_id", passenger_id))
-        priority = self._reservation_priority_by_unique_id.get(unique_id)
+        priority = self._reservation_priority_by_unique_id.get(unique_id) if reservation_orders_fifo else None
         if priority is None:
             priority = self._allocate_priority()
-
         # A physical portal reservation is also a FIFO reservation.  A later
         # arrival must wait outside the queue while an earlier reservation is
         # still approaching; otherwise a recycled standing-slot index can let
         # it overtake the earlier passenger.
-        if settle and any(
+        if settle and reservation_orders_fifo and any(
             other_unique_id != unique_id and other_priority < priority
             for other_unique_id, other_priority in self._reservation_priority_by_unique_id.items()
         ):

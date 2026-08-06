@@ -1,0 +1,111 @@
+{
+  "schema_version": "alignment_round27_dynamic_floor_qualification.v2",
+  "status": "qualified",
+  "qualification_revision": "61c692928e4a01c651a7c8abf8f98e4925377025",
+  "scenario": {
+    "horizon_steps": 240,
+    "demand_seconds": 600,
+    "entry_count_hour": 2500,
+    "exit_count_hour": 2200,
+    "audit_print_events": false
+  },
+  "preregistered_contract_ref": "alignment/output/round27/T0_preregistered_prediction_contract.json",
+  "qualification_seeds": [41, 42, 43, 44, 45],
+  "qualification_evidence_sha256": "a8cc900e3e2b09950005a7e8ed702988b37c137438779505a885886640da6ca7",
+  "floor_rule": "minimum observed admitted and terminal-completed persons across the five frozen qualification seeds; no blocked interval is excluded",
+  "frozen_floors_sha256": "9d729f45cda6bec4db0888363a25b0f0f3d9cc31727feb15aba21ac849150edc",
+  "interpretation": "empirical non-vacuity floor for the frozen 240-step dynamic run; not a physical capacity or clearance service-rate proof",
+  "runs": [
+    {
+      "seed": 41,
+      "run_outcome_code": null,
+      "entry": {"scheduled_persons": 167, "admitted_persons": 107, "source_waiting_persons": 60, "completed_persons": 19, "dropped_persons": 0, "conserved": true},
+      "exit": {"scheduled_persons": 134, "admitted_persons": 134, "source_waiting_persons": 0, "completed_persons": 42, "not_alighted_persons": 0, "dropped_persons": 0, "conserved": true},
+      "placement_retry_ratio": 0.0,
+      "waiting_capacity_retry_ratio": 0.0,
+      "stalled_region_replan_ratio": 0.004149377593360996,
+      "entry_admission_exhaustion_attempts": 0,
+      "exit_admission_exhaustion_attempts": 0,
+      "train_alighting_release_complete_step": 134,
+      "train_actual_departure_step": 135
+    },
+    {
+      "seed": 42,
+      "run_outcome_code": null,
+      "entry": {"scheduled_persons": 167, "admitted_persons": 111, "source_waiting_persons": 56, "completed_persons": 21, "dropped_persons": 0, "conserved": true},
+      "exit": {"scheduled_persons": 134, "admitted_persons": 134, "source_waiting_persons": 0, "completed_persons": 39, "not_alighted_persons": 0, "dropped_persons": 0, "conserved": true},
+      "placement_retry_ratio": 0.0,
+      "waiting_capacity_retry_ratio": 0.004081632653061225,
+      "stalled_region_replan_ratio": 0.004081632653061225,
+      "entry_admission_exhaustion_attempts": 0,
+      "exit_admission_exhaustion_attempts": 0,
+      "train_alighting_release_complete_step": 134,
+      "train_actual_departure_step": 135
+    },
+    {
+      "seed": 43,
+      "run_outcome_code": null,
+      "entry": {"scheduled_persons": 167, "admitted_persons": 112, "source_waiting_persons": 55, "completed_persons": 20, "dropped_persons": 0, "conserved": true},
+      "exit": {"scheduled_persons": 134, "admitted_persons": 134, "source_waiting_persons": 0, "completed_persons": 38, "not_alighted_persons": 0, "dropped_persons": 0, "conserved": true},
+      "placement_retry_ratio": 0.0,
+      "waiting_capacity_retry_ratio": 0.0,
+      "stalled_region_replan_ratio": 0.0,
+      "entry_admission_exhaustion_attempts": 0,
+      "exit_admission_exhaustion_attempts": 0,
+      "train_alighting_release_complete_step": 134,
+      "train_actual_departure_step": 135
+    },
+    {
+      "seed": 44,
+      "run_outcome_code": null,
+      "entry": {"scheduled_persons": 167, "admitted_persons": 111, "source_waiting_persons": 56, "completed_persons": 18, "dropped_persons": 0, "conserved": true},
+      "exit": {"scheduled_persons": 134, "admitted_persons": 134, "source_waiting_persons": 0, "completed_persons": 35, "not_alighted_persons": 0, "dropped_persons": 0, "conserved": true},
+      "placement_retry_ratio": 0.0,
+      "waiting_capacity_retry_ratio": 0.004081632653061225,
+      "stalled_region_replan_ratio": 0.0,
+      "entry_admission_exhaustion_attempts": 0,
+      "exit_admission_exhaustion_attempts": 0,
+      "train_alighting_release_complete_step": 134,
+      "train_actual_departure_step": 135
+    },
+    {
+      "seed": 45,
+      "run_outcome_code": null,
+      "entry": {"scheduled_persons": 167, "admitted_persons": 112, "source_waiting_persons": 55, "completed_persons": 21, "dropped_persons": 0, "conserved": true},
+      "exit": {"scheduled_persons": 134, "admitted_persons": 134, "source_waiting_persons": 0, "completed_persons": 38, "not_alighted_persons": 0, "dropped_persons": 0, "conserved": true},
+      "placement_retry_ratio": 0.0,
+      "waiting_capacity_retry_ratio": 0.0,
+      "stalled_region_replan_ratio": 0.0,
+      "entry_admission_exhaustion_attempts": 0,
+      "exit_admission_exhaustion_attempts": 0,
+      "train_alighting_release_complete_step": 134,
+      "train_actual_departure_step": 135
+    }
+  ],
+  "frozen_dynamic_floors": [
+    {
+      "flow_id": "entry",
+      "scheduled_persons": 167,
+      "minimum_admitted_persons": 107,
+      "minimum_completed_persons": 18,
+      "evidence_ref": "alignment/output/round27/T7_dynamic_floor_qualification.json#runs",
+      "evidence_class": "empirical_qualification",
+      "evidence_sha256": "a8cc900e3e2b09950005a7e8ed702988b37c137438779505a885886640da6ca7",
+      "qualification_revision": "61c692928e4a01c651a7c8abf8f98e4925377025"
+    },
+    {
+      "flow_id": "exit",
+      "scheduled_persons": 134,
+      "minimum_admitted_persons": 134,
+      "minimum_completed_persons": 35,
+      "evidence_ref": "alignment/output/round27/T7_dynamic_floor_qualification.json#runs",
+      "evidence_class": "empirical_qualification",
+      "evidence_sha256": "a8cc900e3e2b09950005a7e8ed702988b37c137438779505a885886640da6ca7",
+      "qualification_revision": "61c692928e4a01c651a7c8abf8f98e4925377025"
+    }
+  ],
+  "clearance_effect": {
+    "status": "prediction_unavailable",
+    "reason": "The runs qualify a dynamic non-vacuity floor only. They do not observe a complete demand-off drain, prove a positive per-bottleneck minimum rate, or bound downstream tail latency."
+  }
+}

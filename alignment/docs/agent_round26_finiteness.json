@@ -1,0 +1,55 @@
+{
+  "schema_version": "alignment_agent_review.v2",
+  "round": 26,
+  "agent": "finiteness",
+  "task_ref": "T3/T4/T5/T6/T8",
+  "status": "fail",
+  "checks": [
+    {"id": "I1", "question": "审计是否锁定指定提交和同一 cohort", "verdict": "pass", "evidence": ["git:01f64607", "alignment/output/round26/T3_exit_capacity_falsification.json", "alignment/output/round26/T5_T6_final_480_seed42.json"], "note": "当前 canonical 工件自哈希通过，runtime cohort 为 35d5481e...。"},
+    {"id": "I2", "question": "容量40是否非空洞触发 exit admission", "verdict": "pass", "evidence": ["alignment/output/round26/T3_exit_capacity_falsification.json"], "note": "78 attempts、28 exhausted，ratio=0.358974；机制真实约束。"},
+    {"id": "I3", "question": "T3 是否同时保持终端 source integrity", "verdict": "fail", "evidence": ["alignment/output/round26/T3_exit_capacity_falsification.json#arm.source_integrity_gate"], "note": "spawned 50/73，pending 23，最大 pending residence 124，source gate fail。"},
+    {"id": "I4", "question": "DEBT-6 是否满足退休条件", "verdict": "fail", "evidence": ["alignment/docs/debt_register.md#debt-6", "alignment/output/round26/T3_exit_capacity_falsification.json"], "note": "只满足正耗尽，没有满足 source integrity unchanged。"},
+    {"id": "I5", "question": "包络是否是固定 W 窗口而非 horizon 配额", "verdict": "pass", "evidence": ["alignment/src/metro_alignment/metro_executor.py:183", "alignment/src/metro_alignment/metro_executor.py:194"], "note": "全 horizon 需求的 exit envelope 480/600/900 为 293/267/275，非单调累计；算法不是 horizon quota。"},
+    {"id": "I6", "question": "原始包络是否可注册为 validated required_capacity", "verdict": "fail", "evidence": ["alignment/src/metro_alignment/admission_tokens.py:48", "alignment/src/metro_alignment/metro_executor.py:206", "alignment/output/round25/T1_residence_time.json"], "note": "当前 source/analysis 与注册 residence 证据 scope/fingerprint 不同，preflight required_capacity 为 null；原始 envelope 只能作诊断。"},
+    {"id": "I7", "question": "是否存在当前 cohort 的完整 T4_final 480/600/900 命名梯子", "verdict": "fail", "evidence": ["alignment/output/round26/T5_T6_final_480_seed42.json", "alignment/output/round26/T4_final_600_seed42.json", "alignment/output/round26/T4_final_900_seed42.json"], "note": "当前 cohort 有可用 480 residence 证据，但未生成同名 T4_final_480 工件；不能冒充正式 T9 ladder。"},
+    {"id": "I8", "question": "T5/T6 六个短需求工件是否通过", "verdict": "pass", "evidence": ["alignment/output/round26/T5_T6_service_chain_acceptance.json"], "note": "六个 current-cohort 控制臂均 source pass、pending 0、placement retry 0、replan <=0.641%。"},
+    {"id": "I9", "question": "1200-step 高需求测量是否完成", "verdict": "fail", "evidence": ["alignment/output/round26/T8_resizing.json"], "note": "step 192 因 entry_gate_decision 没有 body-clear slot 抛 DecisionHoldingCapacityError，不能注册容量。"}
+  ],
+  "issues": [
+    {"severity": "P1", "title": "T3 绑定但不满足 DEBT-6 source-integrity 条件", "evidence": ["alignment/output/round26/T3_exit_capacity_falsification.json"], "repro": "读取 source gate: 50/73 spawned, 23 pending, ratio 35.90%.", "suggested_fix": "保持 cap40、240-step、seed 和门限不变，修复释放链后原样重跑。"},
+    {"severity": "P1", "title": "冻结实现当前没有 validated required_capacity", "evidence": ["alignment/src/metro_alignment/metro_executor.py:206", "alignment/output/round25/T1_residence_time.json"], "repro": "当前 cohort 运行 preflight，required_capacity 为 null。", "suggested_fix": "按冻结 source/analysis 与正式 demand scope 重新生成 residence 证据。"},
+    {"severity": "P1", "title": "正式高需求测量被有限 entry holding 硬错误阻断", "evidence": ["alignment/output/round26/T8_resizing.json"], "repro": "1200-step、10-minute、seed42 control-only 在 step192 失败。", "suggested_fix": "把槽位耗尽改为守恒、可等待的有限状态，再按原判据重跑。"},
+    {"severity": "P2", "title": "缺少当前 cohort 的 T4_final_480 同名证据", "evidence": ["alignment/output/round26/T5_T6_final_480_seed42.json"], "repro": "当前 480 数据来自 T5_T6 canonical aliases。", "suggested_fix": "正式梯子时生成并锚定精确 T4/T9 480 工件。"},
+    {"severity": "P2", "title": "pandas lock/runtime 漂移", "evidence": ["alignment/uv.lock", "alignment/output/round26/T3_exit_capacity_falsification.json#runtime_cohort"], "repro": "证据 3.0.3，lock 3.0.5。", "suggested_fix": "统一环境后重跑正式注册证据。"}
+  ],
+  "falsification_attempts": [
+    "独立复算 canonical artifact hashes。",
+    "由 attempts×ratio 反算 T3 exhausted=28，并同时审计 pending owners。",
+    "直接调用 preflight，未把 raw envelope 冒充 required capacity。",
+    "按固定短需求、全 horizon 与正式需求独立复算 480/600/900 包络。",
+    "校验 T8 日志 SHA 并沿 traceback 定位有限 holding error。"
+  ],
+  "metrics": {
+    "audit_head": "01f64607b7e488339d2d7faf5fd3165d4fcdf4dc",
+    "runtime_cohort_sha256": "35d5481e18caaca14817c5121c791d3c9189b14c3298ad3f20156e6029fd9f05",
+    "t3_status": "fail",
+    "t3_exit_capacity": 40,
+    "t3_exit_attempts": 78,
+    "t3_exit_exhaustions": 28,
+    "t3_exit_exhaustion_ratio": 0.358974358974359,
+    "t3_exit_scheduled": 73,
+    "t3_exit_spawned": 50,
+    "t3_exit_pending": 23,
+    "short_demand_entry_envelope_480_600_900": [26, 26, 26],
+    "short_demand_exit_envelope_480_600_900": [73, 73, 73],
+    "full_horizon_exit_envelope_480_600_900": [293, 267, 275],
+    "validated_required_capacity_entry": null,
+    "validated_required_capacity_exit": null,
+    "t5_t6_final_artifacts_passed": 6,
+    "t8_terminated_step": 192,
+    "p0": 0,
+    "p1": 3,
+    "p2": 2
+  },
+  "unverified_reason": "The high-demand run ended at step 192; later sizing, clearance and ladder metrics are unverified."
+}

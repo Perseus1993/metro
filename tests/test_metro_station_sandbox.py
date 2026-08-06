@@ -1,43 +1,15 @@
 from __future__ import annotations
 
 import unittest
-from math import inf, nan, pi
-from math import hypot
-from random import Random
 from dataclasses import replace
+from math import hypot, inf, nan, pi
+from random import Random
 from time import monotonic, sleep
 from types import SimpleNamespace
 from unittest.mock import patch
 
-from shapely.geometry import LineString, Point
-
-from sandbox.metro_station_sandbox.planning.plan import (
-    AgentIntent,
-    AgentState,
-    CROWD_INTERACTION_STATES,
-    FacilityStage,
-    PASSIVE_STATES,
-    RouteKey,
-    WALKING_STATES,
-)
-from sandbox.metro_station_sandbox.agents import PassengerAgent
-from sandbox.metro_station_sandbox.planning.behavior import (
-    BehaviorActionKind,
-    behavior_status_for_passenger,
-)
-from sandbox.metro_station_sandbox.planning.goal_commands import (
-    GoalCommand,
-    GoalCommandKind,
-)
-from sandbox.metro_station_sandbox.planning.goal_events import GoalEventKind
-from sandbox.metro_station_sandbox.design import (
-    DesignConnection,
-    DesignPort,
-    StationDesignDocument,
-    apply_react_flow_edges,
-    create_design,
-    to_react_flow,
-    validate_design,
+from metro_station.adapters.simulation.runtime.stalled_gate_ingress_recovery import (
+    advance_stalled_gate_ingress_turn,
 )
 from metro_station_designer.server import (
     build_design_payload,
@@ -47,7 +19,48 @@ from metro_station_designer.server import (
     start_simulation_job,
     template_catalog_payload,
 )
-from sandbox.metro_station_sandbox.station.payload import geometry_payload
+from metro_station_testkit.goal_journey_fixture import (
+    compile_micro_facility_portal_binding,
+)
+from metro_station_visualizer.field_routing import (
+    QueueAttractivenessField,
+    QueueFieldCandidate,
+)
+from metro_station_visualizer.floor_field import GridFloorField
+from metro_station_visualizer.generate_jps_tracks import (
+    ENTRY_GATE_PORTAL_RADIUS_M,
+    POST_GATE_RADIUS_M,
+    post_gate_portal_radius,
+    queue_field_switching_is_enabled,
+)
+from metro_station_visualizer.geometry import load_station_geometry, meters
+from metro_station_visualizer.layout import layout_payload
+from metro_station_visualizer.mesa_export import mesa_frames_to_visual_tracks
+from metro_station_visualizer.queue_runtime import (
+    QUEUE_CAPTURE_APRONS_N,
+    NativeQueueRuntime,
+)
+from metro_station_visualizer.region_flow import (
+    build_point_capture_flow,
+    build_region_capture_flow,
+)
+from metro_station_visualizer.specs import FACILITY_QUEUES, GATE_QUEUE_SPECS
+from metro_station_visualizer.tracks.vertical_choice import (
+    VerticalChoiceOption,
+    vertical_choice_probabilities,
+)
+from shapely.geometry import LineString, Point
+
+from sandbox.metro_station_sandbox.agents import PassengerAgent
+from sandbox.metro_station_sandbox.design import (
+    DesignConnection,
+    DesignPort,
+    StationDesignDocument,
+    apply_react_flow_edges,
+    create_design,
+    to_react_flow,
+    validate_design,
+)
 from sandbox.metro_station_sandbox.facilities.facility_queue import FacilityQueue
 from sandbox.metro_station_sandbox.facilities.filters import (
     filter_boarding_doors_for_passenger,
@@ -76,57 +89,50 @@ from sandbox.metro_station_sandbox.facilities.vertical import (
     EscalatorMode,
     VerticalFacilityConfig,
 )
-from sandbox.metro_station_sandbox.movement.jps_adapter import JuPedSimAdapter
 from sandbox.metro_station_sandbox.movement.backend import (
     BatchedJuPedSimMovementBackend,
     JuPedSimMovementBackend,
     MovementBackend,
     MovementResult,
 )
+from sandbox.metro_station_sandbox.movement.jps_adapter import JuPedSimAdapter
+from sandbox.metro_station_sandbox.planning.behavior import (
+    BehaviorActionKind,
+    behavior_status_for_passenger,
+)
+from sandbox.metro_station_sandbox.planning.goal_commands import (
+    GoalCommand,
+    GoalCommandKind,
+)
+from sandbox.metro_station_sandbox.planning.goal_events import GoalEventKind
+from sandbox.metro_station_sandbox.planning.plan import (
+    CROWD_INTERACTION_STATES,
+    PASSIVE_STATES,
+    WALKING_STATES,
+    AgentIntent,
+    AgentState,
+    FacilityStage,
+    RouteKey,
+)
 from sandbox.metro_station_sandbox.planning.selection import pick_least_loaded, pick_logit
+from sandbox.metro_station_sandbox.runtime.demand_scheduler import DemandScheduler
 from sandbox.metro_station_sandbox.runtime.mesa_model import MetroStationModel
 from sandbox.metro_station_sandbox.runtime.passenger_goal_command_executor import (
     ProductionGoalCommandContext,
     ProductionGoalCommandExecutor,
 )
-from sandbox.metro_station_sandbox.runtime.demand_scheduler import DemandScheduler
 from sandbox.metro_station_sandbox.runtime.snapshots import FacilitySnapshot, PassengerSnapshot
-from sandbox.metro_station_sandbox.station.graph import StationGraph
-from sandbox.metro_station_sandbox.station.layout_graph import LayoutGraph
 from sandbox.metro_station_sandbox.station.geometry import (
     document_walkable_geometry,
     level_walkable_geometry,
 )
-from sandbox.metro_station_sandbox.station.scenario import GateSpec, StationGeometry, StationSandboxScenario
-from metro_station_visualizer.geometry import load_station_geometry, meters
-from metro_station_visualizer.layout import layout_payload
-from metro_station_visualizer.field_routing import (
-    QueueAttractivenessField,
-    QueueFieldCandidate,
-)
-from metro_station_visualizer.floor_field import GridFloorField
-from metro_station_visualizer.generate_jps_tracks import (
-    ENTRY_GATE_PORTAL_RADIUS_M,
-    POST_GATE_RADIUS_M,
-    post_gate_portal_radius,
-    queue_field_switching_is_enabled,
-)
-from metro_station_visualizer.tracks.vertical_choice import (
-    VerticalChoiceOption,
-    vertical_choice_probabilities,
-)
-from metro_station_visualizer.queue_runtime import (
-    QUEUE_CAPTURE_APRONS_N,
-    NativeQueueRuntime,
-)
-from metro_station_visualizer.mesa_export import mesa_frames_to_visual_tracks
-from metro_station_visualizer.region_flow import (
-    build_point_capture_flow,
-    build_region_capture_flow,
-)
-from metro_station_visualizer.specs import FACILITY_QUEUES, GATE_QUEUE_SPECS
-from metro_station_testkit.goal_journey_fixture import (
-    compile_micro_facility_portal_binding,
+from sandbox.metro_station_sandbox.station.graph import StationGraph
+from sandbox.metro_station_sandbox.station.layout_graph import LayoutGraph
+from sandbox.metro_station_sandbox.station.payload import geometry_payload
+from sandbox.metro_station_sandbox.station.scenario import (
+    GateSpec,
+    StationGeometry,
+    StationSandboxScenario,
 )
 
 
@@ -1594,9 +1600,8 @@ class PassengerFlowTests(unittest.TestCase):
         with patch(
             "sandbox.metro_station_sandbox.runtime.mesa_model.DesignCompiler.compile",
             return_value=compiled_without_facilities,
-        ):
-            with self.assertRaisesRegex(ValueError, "entry gate facility"):
-                MetroStationModel(scenario, movement_backend=InstantMovementBackend())
+        ), self.assertRaisesRegex(ValueError, "entry gate facility"):
+            MetroStationModel(scenario, movement_backend=InstantMovementBackend())
 
     def test_model_exposes_no_facility_choice_or_preselection_api(self) -> None:
         model = MetroStationModel(
@@ -3013,7 +3018,7 @@ class PassengerFlowTests(unittest.TestCase):
         self.assertEqual("waiting", passenger.current_goal.kind)
         self.assertIn(passenger, platform.waiting)
 
-    def test_movement_stall_on_use_stage_preserves_provisional_slot_and_reroutes(
+    def test_repeated_movement_stall_releases_stale_provisional_slot(
         self,
     ) -> None:
         model = MetroStationModel(
@@ -3065,6 +3070,119 @@ class PassengerFlowTests(unittest.TestCase):
             gate.queue.approach_slot_reservation(int(passenger.unique_id)),
         )
         self.assertEqual(rerouted_target, passenger.target)
+
+        with patch.object(router, "route", return_value=(rerouted_target,)):
+            changed_again = model.goal_coordinator.replan(
+                passenger,
+                reason="movement_stalled",
+            )
+
+        self.assertTrue(changed_again)
+        self.assertNotIn(
+            FacilityStage.ENTRY_GATE.value,
+            passenger.facility_approach_slots_by_stage,
+        )
+        self.assertIsNone(
+            gate.queue.approach_slot_reservation(int(passenger.unique_id))
+        )
+
+    def test_movement_stall_advances_reached_gate_ingress_turn_without_replan(
+        self,
+    ) -> None:
+        model = MetroStationModel(
+            replace(
+                scenario_for("visual_demo_station"),
+                audit_enabled=True,
+                audit_print_events=False,
+            ),
+            seed=204,
+            movement_backend=InstantMovementBackend(),
+        )
+        model.spawn_schedule.clear()
+        passenger = PassengerAgent(
+            model,
+            group_size=1,
+            created_step=0,
+            intent=AgentIntent.ENTER_AND_BOARD,
+        )
+        model.passengers.append(passenger)
+        gate = model.gates[1]
+        slot_index = model._reserve_facility_approach_slot(passenger, gate)
+        ingress = model._gate_queue_ingress_anchors(passenger, gate, slot_index)
+        self.assertGreaterEqual(len(ingress), 2)
+        final_target = model._facility_approach_slot_position(gate, slot_index)
+        passenger.set_route(
+            (*ingress, final_target),
+            goal_kind="queue_approach",
+            goal_label="test gate queue approach",
+            facility_id=gate.facility_id,
+            stage=gate.spec.stage,
+        )
+        reached_turn = tuple(passenger.target)
+        passenger.pos = (
+            reached_turn[0],
+            reached_turn[1] + model.scenario.jupedsim_target_radius_units * 0.75,
+        )
+
+        advanced = advance_stalled_gate_ingress_turn(
+            model,
+            passenger,
+            reason="movement_stalled",
+        )
+
+        self.assertTrue(advanced)
+        self.assertEqual(ingress[1], passenger.target)
+        self.assertEqual(
+            1,
+            model.audit.counts.get("passenger_advanced_stalled_gate_ingress_turn", 0),
+        )
+        self.assertEqual(
+            0,
+            model.audit.counts.get("passenger_replanned_stalled_region_approach", 0),
+        )
+
+    def test_movement_stall_recovers_exhausted_gate_tail_route(self) -> None:
+        model = MetroStationModel(
+            replace(
+                scenario_for("visual_demo_station"),
+                audit_enabled=True,
+                audit_print_events=False,
+            ),
+            seed=205,
+            movement_backend=InstantMovementBackend(),
+        )
+        model.spawn_schedule.clear()
+        passenger = PassengerAgent(
+            model,
+            group_size=1,
+            created_step=0,
+            intent=AgentIntent.ENTER_AND_BOARD,
+        )
+        model.passengers.append(passenger)
+        gate = model.gates[1]
+        slot_index = model._reserve_facility_approach_slot(passenger, gate)
+        mouth = model._gate_queue_ingress_anchors(passenger, gate, slot_index)[-1]
+        passenger.set_route(
+            (mouth,),
+            goal_kind="queue_approach",
+            goal_label="test gate queue tail approach",
+            facility_id=gate.facility_id,
+            stage=gate.spec.stage,
+        )
+        passenger.pos = (mouth[0] + model.scenario.personal_space_units * 1.9, mouth[1])
+
+        advanced = advance_stalled_gate_ingress_turn(
+            model,
+            passenger,
+            reason="movement_stalled",
+        )
+
+        self.assertTrue(advanced)
+        self.assertEqual("gate tail stall recovery", passenger.current_goal.label)
+        self.assertEqual(
+            model._facility_approach_slot_position(gate, slot_index),
+            passenger.target,
+        )
 
     def test_movement_stall_preserves_owned_decision_holding_target(self) -> None:
         model = MetroStationModel(
@@ -3129,6 +3247,55 @@ class PassengerFlowTests(unittest.TestCase):
         )
         self.assertEqual(holding_target, passenger.target)
 
+    def test_movement_stall_restores_boarding_waiting_ownership_and_parks(self) -> None:
+        model = MetroStationModel(
+            scenario_for("visual_demo_station"),
+            seed=203,
+            movement_backend=InstantMovementBackend(),
+        )
+        model.spawn_schedule.clear()
+        passenger = PassengerAgent(
+            model,
+            group_size=1,
+            created_step=0,
+            intent=AgentIntent.ENTER_AND_BOARD,
+        )
+        model.passengers.append(passenger)
+        platform = model.platforms[0]
+        passenger.assigned_platform_id = platform.platform_id
+        original_target = model._reserve_platform_waiting_slot(passenger, platform)
+        passenger_id = int(passenger.unique_id)
+        model._clear_platform_waiting_reservation(passenger)
+        node = next(
+            item
+            for item in passenger.goal_runtime.graph.nodes
+            if item.kind == "use_facility_stage"
+            and item.facility_stage == FacilityStage.BOARDING_DOOR.value
+        )
+        passenger.goal_runtime.state = replace(
+            passenger.goal_runtime.state,
+            current_node_id=node.node_id,
+            interaction_state="approach_decision_region",
+            current_stage=node.facility_stage,
+            commitment=None,
+            queued_facility_id=None,
+        )
+        router = model.goal_coordinator.executor.region_router
+        with patch.object(router, "route") as route:
+            changed = model.goal_coordinator.replan(
+                passenger,
+                reason="movement_stalled",
+            )
+
+        self.assertTrue(changed)
+        route.assert_not_called()
+        self.assertIn(passenger_id, model._platform_waiting_reservations)
+        self.assertIsNotNone(original_target)
+        self.assertIn(passenger, platform.waiting)
+        self.assertEqual(AgentState.WAITING_PLATFORM.value, passenger.state)
+        self.assertEqual(passenger.pos, passenger.target)
+        self.assertEqual("stalled platform holding", passenger.current_goal.label)
+
     def test_generated_passengers_clear_without_runtime_replans(self) -> None:
         scenario = replace(
             scenario_for("visual_demo_station", minutes=12),
@@ -3172,8 +3339,7 @@ class PassengerFlowTests(unittest.TestCase):
         recovery_codes = {
             code
             for code in model.audit.summary()
-            if code.startswith("passenger_replanned")
-            or code.startswith("passenger_replan")
+            if code.startswith(("passenger_replanned", "passenger_replan"))
             or code == "passenger_completed_stalled_boarding"
         }
         self.assertEqual(set(), recovery_codes)

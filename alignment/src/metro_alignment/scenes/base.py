@@ -7,6 +7,7 @@ from typing import Literal
 from metro_alignment.datasets.registry import PORTABLE_DATASET_ID, is_portable_basename
 
 SceneStatus = Literal["ready", "pending"]
+SceneClass = Literal["observation_matched", "synthetic_declared"]
 GeometryEvidenceStatus = Literal["proxy", "observed_matched"]
 
 
@@ -15,6 +16,7 @@ class SceneConfig:
     scene_id: str
     status: SceneStatus
     minutes: int
+    scene_class: SceneClass = "observation_matched"
     tick_seconds: int = 1
     entry_count_hour: int = 1000
     exit_count_hour: int = 0
@@ -31,6 +33,16 @@ class SceneConfig:
     stair_fatigue_cost_down: float = 0.15
     stair_bidirectional_conflict_factor: float = 0.3
     gate_service_persons_per_min: int = 55
+    entry_admission_residence_seconds: float | None = None
+    entry_admission_residence_percentile: str | None = None
+    entry_admission_residence_evidence_ref: str | None = None
+    exit_admission_residence_seconds: float | None = None
+    exit_admission_residence_percentile: str | None = None
+    exit_admission_residence_evidence_ref: str | None = None
+    entry_admission_burst_sigma: float = 3.0
+    entry_admission_token_capacity: int | None = None
+    exit_admission_token_capacity: int | None = None
+    train_dwell_seconds: float = 60.0
     escalator_speed_units_per_tick: float = 2.3
     stairs_speed_units_per_tick: float = 1.55
     elevator_speed_units_per_tick: float = 4.2
@@ -55,6 +67,10 @@ class SceneConfig:
             raise ValueError("scene_id must be a lowercase portable slug")
         if self.status not in {"ready", "pending"}:
             raise ValueError("scene status must be ready or pending")
+        if self.scene_class not in {"observation_matched", "synthetic_declared"}:
+            raise ValueError(
+                "scene_class must be observation_matched or synthetic_declared"
+            )
         for name in ("minutes", "tick_seconds", "demand_minutes", "jupedsim_iterations_per_tick"):
             value = getattr(self, name)
             if not isinstance(value, int) or isinstance(value, bool) or value <= 0:
@@ -77,6 +93,7 @@ class SceneConfig:
             "jupedsim_desired_speed_mps",
             "jupedsim_free_speed_min_mps",
             "jupedsim_free_speed_max_mps",
+            "train_dwell_seconds",
             "escalator_speed_units_per_tick",
             "stairs_speed_units_per_tick",
             "elevator_speed_units_per_tick",
@@ -89,6 +106,52 @@ class SceneConfig:
                 or value <= 0.0
             ):
                 raise ValueError(f"{name} must be finite and > 0")
+        for name in (
+            "entry_admission_residence_seconds",
+            "exit_admission_residence_seconds",
+        ):
+            value = getattr(self, name)
+            if value is not None and (
+                not isinstance(value, (int, float))
+                or isinstance(value, bool)
+                or not isfinite(value)
+                or value <= 0.0
+            ):
+                raise ValueError(f"{name} must be finite and > 0 when provided")
+        for name in (
+            "entry_admission_residence_percentile",
+            "exit_admission_residence_percentile",
+        ):
+            value = getattr(self, name)
+            if value is not None and value not in {"p90", "p99"}:
+                raise ValueError(f"{name} must be p90 or p99 when provided")
+        for name in (
+            "entry_admission_residence_evidence_ref",
+            "exit_admission_residence_evidence_ref",
+        ):
+            value = getattr(self, name)
+            if value is not None and not str(value).strip():
+                raise ValueError(f"{name} must be non-empty when provided")
+        if (
+            not isinstance(self.entry_admission_burst_sigma, (int, float))
+            or isinstance(self.entry_admission_burst_sigma, bool)
+            or not isfinite(self.entry_admission_burst_sigma)
+            or self.entry_admission_burst_sigma < 0.0
+        ):
+            raise ValueError(
+                "entry_admission_burst_sigma must be finite and non-negative"
+            )
+        for name in (
+            "entry_admission_token_capacity",
+            "exit_admission_token_capacity",
+        ):
+            value = getattr(self, name)
+            if value is not None and (
+                not isinstance(value, int)
+                or isinstance(value, bool)
+                or value <= 0
+            ):
+                raise ValueError(f"{name} must be a positive integer")
         for name in (
             "stairs_preference_share",
             "stair_fatigue_cost_up",

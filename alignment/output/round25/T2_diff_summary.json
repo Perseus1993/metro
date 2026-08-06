@@ -1,0 +1,50 @@
+{
+  "schema_version": "alignment_round25_t2_diff_summary.v1",
+  "status": "implemented",
+  "design_sha256": "e029a05941243fa9e3fd0d180af6157a26c0e69fd9e1fa9e4a0f24bcfcb13663",
+  "scene_config_sha256": "ee79aede12fa6e534469360b4ff20bead3bd31fe1e915d721fdfad92a876a020",
+  "metro_runtime_fingerprint": {
+    "schema_version": "metro_source_fingerprint.v2",
+    "package_version": "0.1.0",
+    "python": "CPython 3.12.13",
+    "dependency_versions": {
+      "jupedsim": "1.4.2",
+      "mesa": "3.5.1",
+      "numpy": "2.5.1",
+      "pandas": "3.0.5",
+      "pedpy": "1.5.1",
+      "shapely": "2.1.2"
+    },
+    "python_file_count": 271,
+    "source_tree_sha256": "6a6b0b1a24e3e3ef221d43fb7fb7d35754c2d557493ac23ccbbb4c099dc0bfe3"
+  },
+  "analysis_runtime_fingerprint": {
+    "schema_version": "alignment_analysis_runtime.v2",
+    "python": "CPython 3.12.13",
+    "pedpy_version": "1.5.1",
+    "file_count": 42,
+    "content_sha256": "70cf6b08d76dba7987e169c2cd8912ea324b6d2515f9190204b1ab1e8d3d379a"
+  },
+  "production_files": [
+    "packages/metro_station/src/metro_station/adapters/simulation/facilities/admission_resource.py",
+    "packages/metro_station/src/metro_station/adapters/simulation/runtime/passenger_demand.py",
+    "alignment/src/metro_alignment/admission_tokens.py",
+    "alignment/src/metro_alignment/metro_executor.py"
+  ],
+  "resource_contract": {
+    "flows": [
+      "entry",
+      "exit"
+    ],
+    "geometry_fields": [],
+    "capacity_type": "positive integer",
+    "failure_semantics": "FIFO pending; never drop",
+    "publication": "exact placement before passenger append/counters/frame",
+    "termination": "active owners released as lifecycle_right_censored"
+  },
+  "targeted_tests": {
+    "command": "python -m pytest alignment/tests/test_admission_tokens.py alignment/tests/test_metro_executor.py tests/test_spatial_capacity_certificates.py::test_explicit_source_position_is_rejected_before_publication -q",
+    "latest_result": "pass"
+  },
+  "artifact_sha256": "50e77267d7eb632ba095c6fa0f087aa474f3b5a44e60bf025e5132ad09230505"
+}

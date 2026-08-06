@@ -1,0 +1,57 @@
+{
+  "schema_version": "alignment_agent_round28_closing_audit.v1",
+  "round": 28,
+  "status": "pass_pending_main_merge",
+  "p0_open": 0,
+  "metrics": {
+    "debt_retired": ["DEBT-3"],
+    "debt_data_blocked": ["DEBT-1", "DEBT-4"],
+    "debt_known_limitation": ["DEBT-2"],
+    "service_ratio_recomputed": {
+      "scheduled_persons": 2404,
+      "completed_persons": 571,
+      "ratio": 0.2375207987,
+      "source": "alignment/output/round28/T1_T2_T3_debt2_attempts.json"
+    },
+    "branches_merged": false
+  },
+  "checks": [
+    {
+      "id": "scene-class",
+      "status": "pass",
+      "evidence": [
+        "alignment/src/metro_alignment/scenes/base.py",
+        "alignment/src/metro_alignment/scenes/platform_boarding.py",
+        "alignment/data/metrics/platform_boarding_source_preflight.json",
+        "alignment/docs/reviews/round_28_closing_review.md"
+      ],
+      "finding": "platform_boarding is explicitly synthetic_declared; no observation-matched geometry claim is made."
+    },
+    {
+      "id": "data-blocked-debts",
+      "status": "pass",
+      "finding": "DEBT-1 requires observed emergence positions and uncertainty; DEBT-4 requires observed lane opportunity/effective-window/throughput data. Code-only changes cannot provide either external evidence."
+    },
+    {
+      "id": "debt2-fields",
+      "status": "pass",
+      "finding": "DEBT-2 records trigger cohort, final ratio range, eliminated source-loss/placement/liveness causes, and the impact boundary."
+    },
+    {
+      "id": "three-attempt-timebox",
+      "status": "pass",
+      "evidence": ["alignment/output/round28/T1_T2_T3_debt2_attempts.json"],
+      "finding": "T1, T2, and T3 each have a hypothesis, targeted modification, fixed-cohort rerun, and outcome; T3 improved but did not meet 1%."
+    },
+    {
+      "id": "scientific-blockers",
+      "status": "pass",
+      "finding": "Each blocker states missing data, what that data would unlock, and why it is not an engineering task."
+    },
+    {
+      "id": "gate-integrity",
+      "status": "pass",
+      "finding": "No floor, denominator, one-percent threshold, 600/900 horizon, clearance run, DEBT-4 attribution, DEBT-1 offset claim, Step-6 claim, or runtime_base size claim was introduced."
+    }
+  ]
+}

@@ -29,15 +29,15 @@ def validate_compiled_station_design(
     scenario: Any,
 ) -> CompiledStationValidation:
     from ..station.layout_facilities import _facility_specs_from_station_graph
+    from .decision_holding_regions import (
+        compile_decision_holding_regions,
+        validate_decision_holding_regions,
+    )
     from .facility_portals import (
         compile_facility_portal_bindings,
         compile_reversed_escalator_portal_binding,
         validate_facility_portals,
         validate_portal_binding_compatibility,
-    )
-    from .decision_holding_regions import (
-        compile_decision_holding_regions,
-        validate_decision_holding_regions,
     )
     from .spatial_capacity import (
         compile_spatial_capacity_certificates,
@@ -144,6 +144,7 @@ def validate_compiled_station_design(
                 graph,
                 (*bindings, *variants),
                 policy=policy,
+                scenario=scenario,
                 facilities=facilities,
             )
             portal_issues.extend(validate_decision_holding_regions(holding_regions))

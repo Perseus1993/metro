@@ -1,0 +1,18 @@
+{
+  "schema_version": "alignment_round28_same_tick_provenance.v1",
+  "round": 28,
+  "status": "pass_with_pre_existing_failure",
+  "test": "tests/test_metro_station_sandbox.py::PassengerFlowTests::test_same_tick_gate_release_uses_spaced_positions_and_times",
+  "baseline_revision": "55543e2b684c7d66a4f2fb66a9df0acac0cbf9b1",
+  "outcome": "failed",
+  "expected_active_passes": 4,
+  "actual_active_passes": 1,
+  "classification": "pre_existing_at_55543e2b",
+  "prior_evidence": "alignment/output/round27/B0_baseline_and_same_tick_provenance.json",
+  "decision": {
+    "blocks_round28": false,
+    "capacity_tuning_allowed": false,
+    "round27_regression": false,
+    "interpretation": "The same-tick fixture reproduces the baseline failure on the frozen 55543e2b revision; it is not evidence against the Round27 source-reservoir result."
+  }
+}

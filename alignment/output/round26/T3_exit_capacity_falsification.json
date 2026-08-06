@@ -1,0 +1,4262 @@
+{
+  "schema_version": "alignment_round25_residence_probe.v1",
+  "status": "fail",
+  "runtime_cohort": {
+    "metro_runtime_fingerprint": {
+      "schema_version": "metro_source_fingerprint.v2",
+      "package_version": "0.1.0",
+      "python": "CPython 3.12.13",
+      "dependency_versions": {
+        "jupedsim": "1.4.2",
+        "mesa": "3.5.1",
+        "numpy": "2.5.1",
+        "pandas": "3.0.3",
+        "pedpy": "1.5.1",
+        "shapely": "2.1.2"
+      },
+      "python_file_count": 275,
+      "source_tree_sha256": "62f8126553788cc82e8e8b082c22b69582be0b2f6748cd821dc074b6681e70c6"
+    },
+    "analysis_runtime_fingerprint": {
+      "schema_version": "alignment_analysis_runtime.v2",
+      "python": "CPython 3.12.13",
+      "pedpy_version": "1.5.1",
+      "file_count": 43,
+      "content_sha256": "0a01992b8d59664c1b83ec01426c9fc5193dd65bfe984c1069d004102785469e"
+    }
+  },
+  "runtime_cohort_sha256": "35d5481e18caaca14817c5121c791d3c9189b14c3298ad3f20156e6029fd9f05",
+  "arm": {
+    "mode": "configured_capacity_probe",
+    "seed": 42,
+    "design_sha256": "e029a05941243fa9e3fd0d180af6157a26c0e69fd9e1fa9e4a0f24bcfcb13663",
+    "scene_config_sha256": "d61f0e410dba73e14990ccfca306d690a17faf7f92b27d9625523c25e9cb00ed",
+    "scene_config": {
+      "scene_id": "platform_boarding",
+      "status": "ready",
+      "minutes": 4,
+      "tick_seconds": 1,
+      "entry_count_hour": 2500,
+      "exit_count_hour": 2200,
+      "demand_minutes": 2,
+      "movement_trace_sample_seconds": 0.2,
+      "entry_entrance_weights": [
+        [
+          "entrance_a",
+          1.0
+        ],
+        [
+          "exit_a",
+          0.0
+        ]
+      ],
+      "jupedsim_dt_seconds": 0.01,
+      "jupedsim_iterations_per_tick": 150,
+      "jupedsim_desired_speed_mps": 1.22,
+      "jupedsim_free_speed_min_mps": 0.75,
+      "jupedsim_free_speed_max_mps": 1.65,
+      "stairs_preference_share": 0.18,
+      "stair_fatigue_cost_up": 0.6,
+      "stair_fatigue_cost_down": 0.15,
+      "stair_bidirectional_conflict_factor": 0.3,
+      "gate_service_persons_per_min": 55,
+      "entry_admission_residence_seconds": 36.0,
+      "entry_admission_residence_percentile": "p99",
+      "entry_admission_residence_evidence_ref": "alignment/output/round25/T1_residence_time.json#entry.p99",
+      "exit_admission_residence_seconds": 351.0,
+      "exit_admission_residence_percentile": "p90",
+      "exit_admission_residence_evidence_ref": "alignment/output/round25/T1_residence_time.json#exit.p90",
+      "entry_admission_burst_sigma": 3.0,
+      "entry_admission_token_capacity": 100000,
+      "exit_admission_token_capacity": 40,
+      "train_dwell_seconds": 60.0,
+      "escalator_speed_units_per_tick": 2.3,
+      "stairs_speed_units_per_tick": 1.55,
+      "elevator_speed_units_per_tick": 4.2,
+      "seed": 42,
+      "observed_dataset_id": "eindhoven_platform_v1",
+      "measurement_bounds_m": [
+        4.0,
+        10.0,
+        86.269,
+        27.597
+      ],
+      "measurement_area_id": "eindhoven_platform_bbox_translation_v1",
+      "comparison_frame_id": "eindhoven_platform_shared_v1",
+      "coordinate_transform_id": "metro_station_identity_v1",
+      "coordinate_translation_m": [
+        0.0,
+        0.0
+      ],
+      "pending_reason": "",
+      "geometry_evidence_status": "proxy",
+      "geometry_evidence": "Eindhoven days 01-10 trajectory bounding-box dimensions only; internal obstacles, access points, and train-door positions are not observed-matched",
+      "geometry_evidence_sha256": null,
+      "platform_length_m": 82.269,
+      "platform_width_m": 17.597,
+      "train_door_x_m": 18.0,
+      "alighting_source_lateral_offset_m": 10.0
+    },
+    "entry_count_hour": 2500,
+    "exit_count_hour": 2200,
+    "horizon_steps": 240,
+    "demand_steps": 120,
+    "movement_model": {
+      "backend": "jupedsim",
+      "dt_seconds": 0.01,
+      "iterations_per_tick": 150,
+      "desired_speed_mps": 1.22
+    },
+    "admission_evidence_scope": {
+      "seed": 42,
+      "entry_count_hour": 2500,
+      "exit_count_hour": 2200,
+      "demand_minutes": 2,
+      "entry_scheduled_persons": 83,
+      "exit_scheduled_persons": 73,
+      "entry_last_scheduled_step": 118,
+      "exit_last_scheduled_step": 134,
+      "measurement_horizon_steps": 240,
+      "group_size": 1,
+      "gate_service_persons_per_min": 55,
+      "train_dwell_seconds": 60.0,
+      "train_headway_seconds": 240,
+      "initial_train_offset_seconds": 75,
+      "jupedsim_dt_seconds": 0.01,
+      "jupedsim_iterations_per_tick": 150,
+      "jupedsim_desired_speed_mps": 1.22,
+      "jupedsim_free_speed_min_mps": 0.75,
+      "jupedsim_free_speed_max_mps": 1.65,
+      "jupedsim_agent_radius_units": 0.18,
+      "jupedsim_clearance_multiplier": 2.2,
+      "movement_backend_name": "jupedsim",
+      "jupedsim_operational_model": "collision_free_speed"
+    },
+    "metro_runtime_fingerprint": {
+      "schema_version": "metro_source_fingerprint.v2",
+      "package_version": "0.1.0",
+      "python": "CPython 3.12.13",
+      "dependency_versions": {
+        "jupedsim": "1.4.2",
+        "mesa": "3.5.1",
+        "numpy": "2.5.1",
+        "pandas": "3.0.3",
+        "pedpy": "1.5.1",
+        "shapely": "2.1.2"
+      },
+      "python_file_count": 275,
+      "source_tree_sha256": "62f8126553788cc82e8e8b082c22b69582be0b2f6748cd821dc074b6681e70c6"
+    },
+    "analysis_runtime_fingerprint": {
+      "schema_version": "alignment_analysis_runtime.v2",
+      "python": "CPython 3.12.13",
+      "pedpy_version": "1.5.1",
+      "file_count": 43,
+      "content_sha256": "0a01992b8d59664c1b83ec01426c9fc5193dd65bfe984c1069d004102785469e"
+    },
+    "residence_evidence_artifacts": {
+      "entry": {
+        "reference": "alignment/output/round25/T1_residence_time.json#entry.p99",
+        "artifact_sha256": "4e3652c1b4faad6df9bd3e9ebdfbbed19a76aa43f91a105f2d2530153d85416e"
+      },
+      "exit": {
+        "reference": "alignment/output/round25/T1_residence_time.json#exit.p90",
+        "artifact_sha256": "4e3652c1b4faad6df9bd3e9ebdfbbed19a76aa43f91a105f2d2530153d85416e"
+      }
+    },
+    "metrics": {
+      "scheduled_entry": 83,
+      "spawned_entry": 83,
+      "pending_entry": 0,
+      "scheduled_exit": 73,
+      "spawned_exit": 50,
+      "pending_exit": 23,
+      "admission_exhausted": 28,
+      "deferred_downstream": 0,
+      "dynamic_blocked": 0,
+      "dropped": 0,
+      "conserved": true,
+      "passenger_liveness_violation": 0,
+      "entry_admission_attempts": 83,
+      "entry_admission_exhausted_ratio": 0.0,
+      "exit_admission_attempts": 78,
+      "exit_admission_exhausted_ratio": 0.358974358974359,
+      "placement_retry_attempts": 0,
+      "placement_retry_ratio": 0.0,
+      "waiting_capacity_retry_attempts": 0,
+      "waiting_capacity_retry_ratio": 0.0,
+      "stalled_platform_parking_attempts": 2,
+      "stalled_platform_parking_ratio": 0.015037593984962405,
+      "replanned_stalled_region_approach_attempts": 0,
+      "replanned_stalled_region_approach_ratio": 0.0,
+      "advanced_stalled_gate_ingress_turn_attempts": 8,
+      "service_time_attribution": {
+        "entry": {
+          "owners": 83,
+          "phase_total_steps": {
+            "travel": 2563,
+            "queue": 381,
+            "service_ready_wait": 86,
+            "release_blocked": 233,
+            "completion": 257
+          },
+          "phase_mean_steps": {
+            "travel": 30.879518072289155,
+            "queue": 4.590361445783133,
+            "service_ready_wait": 1.036144578313253,
+            "release_blocked": 2.8072289156626504,
+            "completion": 3.0963855421686746
+          },
+          "phase_median_steps": {
+            "travel": 18.0,
+            "queue": 4.0,
+            "service_ready_wait": 1.0,
+            "release_blocked": 3.0,
+            "completion": 3.0
+          },
+          "owner_phase_steps": {
+            "102": {
+              "travel": 15,
+              "queue": 4,
+              "service_ready_wait": 1,
+              "release_blocked": 5,
+              "completion": 3
+            },
+            "105": {
+              "travel": 66,
+              "queue": 4,
+              "service_ready_wait": 1,
+              "release_blocked": 2,
+              "completion": 3
+            },
+            "107": {
+              "travel": 18,
+              "queue": 4,
+              "service_ready_wait": 1,
+              "release_blocked": 3,
+              "completion": 3
+            },
+            "109": {
+              "travel": 74,
+              "queue": 7,
+              "service_ready_wait": 1,
+              "release_blocked": 2,
+              "completion": 3
+            },
+            "112": {
+              "travel": 64,
+              "queue": 6,
+              "service_ready_wait": 1,
+              "release_blocked": 2,
+              "completion": 3
+            },
+            "116": {
+              "travel": 9,
+              "queue": 4,
+              "service_ready_wait": 1,
+              "release_blocked": 3,
+              "completion": 3
+            },
+            "118": {
+              "travel": 68,
+              "queue": 4,
+              "service_ready_wait": 1,
+              "release_blocked": 3,
+              "completion": 3
+            },
+            "122": {
+              "travel": 14,
+              "queue": 4,
+              "service_ready_wait": 1,
+              "release_blocked": 4,
+              "completion": 3
+            },
+            "124": {
+              "travel": 70,
+              "queue": 7,
+              "service_ready_wait": 1,
+              "release_blocked": 3,
+              "completion": 4
+            },
+            "126": {
+              "travel": 61,
+              "queue": 4,
+              "service_ready_wait": 1,
+              "release_blocked": 2,
+              "completion": 3
+            },
+            "129": {
+              "travel": 14,
+              "queue": 4,
+              "service_ready_wait": 1,
+              "release_blocked": 2,
+              "completion": 3
+            },
+            "131": {
+              "travel": 20,
+              "queue": 5,
+              "service_ready_wait": 1,
+              "release_blocked": 2,
+              "completion": 3
+            },
+            "133": {
+              "travel": 13,
+              "queue": 4,
+              "service_ready_wait": 1,
+              "release_blocked": 3,
+              "completion": 3
+            },
+            "135": {
+              "travel": 29,
+              "queue": 5,
+              "service_ready_wait": 1,
+              "release_blocked": 2,
+              "completion": 3
+            },
+            "136": {
+              "travel": 22,
+              "queue": 3,
+              "service_ready_wait": 1,
+              "release_blocked": 2,
+              "completion": 3
+            },
+            "137": {
+              "travel": 25,
+              "queue": 7,
+              "service_ready_wait": 1,
+              "release_blocked": 4,
+              "completion": 3
+            },
+            "139": {
+              "travel": 57,
+              "queue": 3,
+              "service_ready_wait": 1,
+              "release_blocked": 1,
+              "completion": 4
+            },
+            "140": {
+              "travel": 17,
+              "queue": 3,
+              "service_ready_wait": 1,
+              "release_blocked": 2,
+              "completion": 3
+            },
+            "142": {
+              "travel": 54,
+              "queue": 7,
+              "service_ready_wait": 1,
+              "release_blocked": 4,
+              "completion": 3
+            },
+            "16": {
+              "travel": 9,
+              "queue": 8,
+              "service_ready_wait": 1,
+              "release_blocked": 2,
+              "completion": 3
+            },
+            "17": {
+              "travel": 10,
+              "queue": 8,
+              "service_ready_wait": 1,
+              "release_blocked": 3,
+              "completion": 3
+            },
+            "18": {
+              "travel": 8,
+              "queue": 11,
+              "service_ready_wait": 1,
+              "release_blocked": 2,
+              "completion": 3
+            },
+            "19": {
+              "travel": 12,
+              "queue": 4,
+              "service_ready_wait": 1,
+              "release_blocked": 4,
+              "completion": 3
+            },
+            "20": {
+              "travel": 11,
+              "queue": 6,
+              "service_ready_wait": 1,
+              "release_blocked": 4,
+              "completion": 3
+            },
+            "21": {
+              "travel": 8,
+              "queue": 3,
+              "service_ready_wait": 1,
+              "release_blocked": 2,
+              "completion": 3
+            },
+            "22": {
+              "travel": 11,
+              "queue": 3,
+              "service_ready_wait": 1,
+              "release_blocked": 2,
+              "completion": 3
+            },
+            "23": {
+              "travel": 10,
+              "queue": 5,
+              "service_ready_wait": 1,
+              "release_blocked": 4,
+              "completion": 3
+            },
+            "24": {
+              "travel": 14,
+              "queue": 3,
+              "service_ready_wait": 1,
+              "release_blocked": 4,
+              "completion": 3
+            },
+            "25": {
+              "travel": 16,
+              "queue": 4,
+              "service_ready_wait": 1,
+              "release_blocked": 3,
+              "completion": 3
+            },
+            "26": {
+              "travel": 18,
+              "queue": 4,
+              "service_ready_wait": 1,
+              "release_blocked": 2,
+              "completion": 3
+            },
+            "27": {
+              "travel": 10,
+              "queue": 4,
+              "service_ready_wait": 1,
+              "release_blocked": 2,
+              "completion": 3
+            },
+            "28": {
+              "travel": 15,
+              "queue": 3,
+              "service_ready_wait": 1,
+              "release_blocked": 2,
+              "completion": 3
+            },
+            "29": {
+              "travel": 21,
+              "queue": 0,
+              "service_ready_wait": 2,
+              "release_blocked": 4,
+              "completion": 3
+            },
+            "30": {
+              "travel": 22,
+              "queue": 5,
+              "service_ready_wait": 1,
+              "release_blocked": 2,
+              "completion": 3
+            },
+            "31": {
+              "travel": 13,
+              "queue": 5,
+              "service_ready_wait": 1,
+              "release_blocked": 2,
+              "completion": 3
+            },
+            "32": {
+              "travel": 20,
+              "queue": 7,
+              "service_ready_wait": 1,
+              "release_blocked": 3,
+              "completion": 3
+            },
+            "33": {
+              "travel": 15,
+              "queue": 3,
+              "service_ready_wait": 1,
+              "release_blocked": 3,
+              "completion": 3
+            },
+            "34": {
+              "travel": 15,
+              "queue": 6,
+              "service_ready_wait": 1,
+              "release_blocked": 2,
+              "completion": 3
+            },
+            "35": {
+              "travel": 22,
+              "queue": 3,
+              "service_ready_wait": 1,
+              "release_blocked": 4,
+              "completion": 3
+            },
+            "36": {
+              "travel": 16,
+              "queue": 4,
+              "service_ready_wait": 1,
+              "release_blocked": 3,
+              "completion": 3
+            },
+            "37": {
+              "travel": 28,
+              "queue": 6,
+              "service_ready_wait": 1,
+              "release_blocked": 4,
+              "completion": 3
+            },
+            "38": {
+              "travel": 13,
+              "queue": 3,
+              "service_ready_wait": 1,
+              "release_blocked": 2,
+              "completion": 3
+            },
+            "39": {
+              "travel": 41,
+              "queue": 5,
+              "service_ready_wait": 1,
+              "release_blocked": 5,
+              "completion": 3
+            },
+            "40": {
+              "travel": 38,
+              "queue": 4,
+              "service_ready_wait": 1,
+              "release_blocked": 3,
+              "completion": 3
+            },
+            "41": {
+              "travel": 12,
+              "queue": 4,
+              "service_ready_wait": 1,
+              "release_blocked": 3,
+              "completion": 3
+            },
+            "42": {
+              "travel": 35,
+              "queue": 3,
+              "service_ready_wait": 1,
+              "release_blocked": 2,
+              "completion": 3
+            },
+            "43": {
+              "travel": 37,
+              "queue": 5,
+              "service_ready_wait": 1,
+              "release_blocked": 2,
+              "completion": 3
+            },
+            "44": {
+              "travel": 15,
+              "queue": 5,
+              "service_ready_wait": 1,
+              "release_blocked": 2,
+              "completion": 3
+            },
+            "45": {
+              "travel": 10,
+              "queue": 3,
+              "service_ready_wait": 1,
+              "release_blocked": 4,
+              "completion": 3
+            },
+            "46": {
+              "travel": 40,
+              "queue": 8,
+              "service_ready_wait": 1,
+              "release_blocked": 9,
+              "completion": 3
+            },
+            "47": {
+              "travel": 13,
+              "queue": 5,
+              "service_ready_wait": 1,
+              "release_blocked": 3,
+              "completion": 3
+            },
+            "48": {
+              "travel": 17,
+              "queue": 4,
+              "service_ready_wait": 1,
+              "release_blocked": 2,
+              "completion": 3
+            },
+            "49": {
+              "travel": 35,
+              "queue": 5,
+              "service_ready_wait": 1,
+              "release_blocked": 2,
+              "completion": 3
+            },
+            "50": {
+              "travel": 14,
+              "queue": 7,
+              "service_ready_wait": 1,
+              "release_blocked": 3,
+              "completion": 3
+            },
+            "51": {
+              "travel": 42,
+              "queue": 3,
+              "service_ready_wait": 1,
+              "release_blocked": 2,
+              "completion": 3
+            },
+            "52": {
+              "travel": 12,
+              "queue": 3,
+              "service_ready_wait": 1,
+              "release_blocked": 2,
+              "completion": 3
+            },
+            "53": {
+              "travel": 10,
+              "queue": 8,
+              "service_ready_wait": 1,
+              "release_blocked": 3,
+              "completion": 4
+            },
+            "54": {
+              "travel": 11,
+              "queue": 5,
+              "service_ready_wait": 1,
+              "release_blocked": 6,
+              "completion": 3
+            },
+            "55": {
+              "travel": 8,
+              "queue": 5,
+              "service_ready_wait": 1,
+              "release_blocked": 3,
+              "completion": 3
+            },
+            "56": {
+              "travel": 62,
+              "queue": 4,
+              "service_ready_wait": 1,
+              "release_blocked": 2,
+              "completion": 3
+            },
+            "57": {
+              "travel": 72,
+              "queue": 4,
+              "service_ready_wait": 1,
+              "release_blocked": 3,
+              "completion": 3
+            },
+            "58": {
+              "travel": 74,
+              "queue": 5,
+              "service_ready_wait": 1,
+              "release_blocked": 2,
+              "completion": 3
+            },
+            "59": {
+              "travel": 21,
+              "queue": 7,
+              "service_ready_wait": 1,
+              "release_blocked": 3,
+              "completion": 3
+            },
+            "60": {
+              "travel": 75,
+              "queue": 6,
+              "service_ready_wait": 1,
+              "release_blocked": 2,
+              "completion": 3
+            },
+            "61": {
+              "travel": 73,
+              "queue": 5,
+              "service_ready_wait": 1,
+              "release_blocked": 3,
+              "completion": 3
+            },
+            "62": {
+              "travel": 12,
+              "queue": 6,
+              "service_ready_wait": 1,
+              "release_blocked": 3,
+              "completion": 3
+            },
+            "63": {
+              "travel": 80,
+              "queue": 3,
+              "service_ready_wait": 1,
+              "release_blocked": 1,
+              "completion": 4
+            },
+            "64": {
+              "travel": 16,
+              "queue": 0,
+              "service_ready_wait": 2,
+              "release_blocked": 3,
+              "completion": 4
+            },
+            "65": {
+              "travel": 94,
+              "queue": 5,
+              "service_ready_wait": 1,
+              "release_blocked": 3,
+              "completion": 3
+            },
+            "66": {
+              "travel": 10,
+              "queue": 0,
+              "service_ready_wait": 2,
+              "release_blocked": 5,
+              "completion": 3
+            },
+            "67": {
+              "travel": 7,
+              "queue": 6,
+              "service_ready_wait": 1,
+              "release_blocked": 1,
+              "completion": 4
+            },
+            "68": {
+              "travel": 39,
+              "queue": 5,
+              "service_ready_wait": 1,
+              "release_blocked": 2,
+              "completion": 3
+            },
+            "72": {
+              "travel": 93,
+              "queue": 3,
+              "service_ready_wait": 1,
+              "release_blocked": 1,
+              "completion": 4
+            },
+            "74": {
+              "travel": 76,
+              "queue": 3,
+              "service_ready_wait": 1,
+              "release_blocked": 1,
+              "completion": 4
+            },
+            "78": {
+              "travel": 73,
+              "queue": 3,
+              "service_ready_wait": 1,
+              "release_blocked": 2,
+              "completion": 3
+            },
+            "80": {
+              "travel": 74,
+              "queue": 4,
+              "service_ready_wait": 1,
+              "release_blocked": 3,
+              "completion": 3
+            },
+            "83": {
+              "travel": 12,
+              "queue": 5,
+              "service_ready_wait": 1,
+              "release_blocked": 3,
+              "completion": 3
+            },
+            "85": {
+              "travel": 18,
+              "queue": 4,
+              "service_ready_wait": 1,
+              "release_blocked": 3,
+              "completion": 3
+            },
+            "88": {
+              "travel": 12,
+              "queue": 6,
+              "service_ready_wait": 1,
+              "release_blocked": 2,
+              "completion": 3
+            },
+            "91": {
+              "travel": 72,
+              "queue": 2,
+              "service_ready_wait": 1,
+              "release_blocked": 4,
+              "completion": 3
+            },
+            "93": {
+              "travel": 36,
+              "queue": 4,
+              "service_ready_wait": 1,
+              "release_blocked": 4,
+              "completion": 3
+            },
+            "97": {
+              "travel": 13,
+              "queue": 5,
+              "service_ready_wait": 1,
+              "release_blocked": 2,
+              "completion": 3
+            },
+            "99": {
+              "travel": 12,
+              "queue": 7,
+              "service_ready_wait": 1,
+              "release_blocked": 3,
+              "completion": 3
+            }
+          },
+          "travel_breakdown_total_steps": {
+            "moving": 1203,
+            "stationary": 3,
+            "upstream_wait": 1357,
+            "upstream_service": 0,
+            "unclassified": 0
+          },
+          "travel_breakdown_mean_steps": {
+            "moving": 14.493975903614459,
+            "stationary": 0.03614457831325301,
+            "upstream_wait": 16.349397590361445,
+            "upstream_service": 0.0,
+            "unclassified": 0.0
+          },
+          "travel_breakdown_median_steps": {
+            "moving": 13.0,
+            "stationary": 0.0,
+            "upstream_wait": 0.0,
+            "upstream_service": 0.0,
+            "unclassified": 0.0
+          },
+          "owner_travel_breakdown_steps": {
+            "102": {
+              "moving": 15,
+              "stationary": 0,
+              "upstream_wait": 0,
+              "upstream_service": 0,
+              "unclassified": 0
+            },
+            "105": {
+              "moving": 18,
+              "stationary": 0,
+              "upstream_wait": 48,
+              "upstream_service": 0,
+              "unclassified": 0
+            },
+            "107": {
+              "moving": 18,
+              "stationary": 0,
+              "upstream_wait": 0,
+              "upstream_service": 0,
+              "unclassified": 0
+            },
+            "109": {
+              "moving": 24,
+              "stationary": 0,
+              "upstream_wait": 50,
+              "upstream_service": 0,
+              "unclassified": 0
+            },
+            "112": {
+              "moving": 12,
+              "stationary": 0,
+              "upstream_wait": 52,
+              "upstream_service": 0,
+              "unclassified": 0
+            },
+            "116": {
+              "moving": 9,
+              "stationary": 0,
+              "upstream_wait": 0,
+              "upstream_service": 0,
+              "unclassified": 0
+            },
+            "118": {
+              "moving": 11,
+              "stationary": 0,
+              "upstream_wait": 57,
+              "upstream_service": 0,
+              "unclassified": 0
+            },
+            "122": {
+              "moving": 14,
+              "stationary": 0,
+              "upstream_wait": 0,
+              "upstream_service": 0,
+              "unclassified": 0
+            },
+            "124": {
+              "moving": 17,
+              "stationary": 0,
+              "upstream_wait": 53,
+              "upstream_service": 0,
+              "unclassified": 0
+            },
+            "126": {
+              "moving": 12,
+              "stationary": 0,
+              "upstream_wait": 49,
+              "upstream_service": 0,
+              "unclassified": 0
+            },
+            "129": {
+              "moving": 14,
+              "stationary": 0,
+              "upstream_wait": 0,
+              "upstream_service": 0,
+              "unclassified": 0
+            },
+            "131": {
+              "moving": 20,
+              "stationary": 0,
+              "upstream_wait": 0,
+              "upstream_service": 0,
+              "unclassified": 0
+            },
+            "133": {
+              "moving": 13,
+              "stationary": 0,
+              "upstream_wait": 0,
+              "upstream_service": 0,
+              "unclassified": 0
+            },
+            "135": {
+              "moving": 29,
+              "stationary": 0,
+              "upstream_wait": 0,
+              "upstream_service": 0,
+              "unclassified": 0
+            },
+            "136": {
+              "moving": 21,
+              "stationary": 1,
+              "upstream_wait": 0,
+              "upstream_service": 0,
+              "unclassified": 0
+            },
+            "137": {
+              "moving": 25,
+              "stationary": 0,
+              "upstream_wait": 0,
+              "upstream_service": 0,
+              "unclassified": 0
+            },
+            "139": {
+              "moving": 12,
+              "stationary": 0,
+              "upstream_wait": 45,
+              "upstream_service": 0,
+              "unclassified": 0
+            },
+            "140": {
+              "moving": 17,
+              "stationary": 0,
+              "upstream_wait": 0,
+              "upstream_service": 0,
+              "unclassified": 0
+            },
+            "142": {
+              "moving": 13,
+              "stationary": 0,
+              "upstream_wait": 41,
+              "upstream_service": 0,
+              "unclassified": 0
+            },
+            "16": {
+              "moving": 8,
+              "stationary": 1,
+              "upstream_wait": 0,
+              "upstream_service": 0,
+              "unclassified": 0
+            },
+            "17": {
+              "moving": 10,
+              "stationary": 0,
+              "upstream_wait": 0,
+              "upstream_service": 0,
+              "unclassified": 0
+            },
+            "18": {
+              "moving": 8,
+              "stationary": 0,
+              "upstream_wait": 0,
+              "upstream_service": 0,
+              "unclassified": 0
+            },
+            "19": {
+              "moving": 12,
+              "stationary": 0,
+              "upstream_wait": 0,
+              "upstream_service": 0,
+              "unclassified": 0
+            },
+            "20": {
+              "moving": 11,
+              "stationary": 0,
+              "upstream_wait": 0,
+              "upstream_service": 0,
+              "unclassified": 0
+            },
+            "21": {
+              "moving": 8,
+              "stationary": 0,
+              "upstream_wait": 0,
+              "upstream_service": 0,
+              "unclassified": 0
+            },
+            "22": {
+              "moving": 11,
+              "stationary": 0,
+              "upstream_wait": 0,
+              "upstream_service": 0,
+              "unclassified": 0
+            },
+            "23": {
+              "moving": 10,
+              "stationary": 0,
+              "upstream_wait": 0,
+              "upstream_service": 0,
+              "unclassified": 0
+            },
+            "24": {
+              "moving": 14,
+              "stationary": 0,
+              "upstream_wait": 0,
+              "upstream_service": 0,
+              "unclassified": 0
+            },
+            "25": {
+              "moving": 12,
+              "stationary": 0,
+              "upstream_wait": 4,
+              "upstream_service": 0,
+              "unclassified": 0
+            },
+            "26": {
+              "moving": 12,
+              "stationary": 0,
+              "upstream_wait": 6,
+              "upstream_service": 0,
+              "unclassified": 0
+            },
+            "27": {
+              "moving": 8,
+              "stationary": 0,
+              "upstream_wait": 2,
+              "upstream_service": 0,
+              "unclassified": 0
+            },
+            "28": {
+              "moving": 15,
+              "stationary": 0,
+              "upstream_wait": 0,
+              "upstream_service": 0,
+              "unclassified": 0
+            },
+            "29": {
+              "moving": 15,
+              "stationary": 0,
+              "upstream_wait": 6,
+              "upstream_service": 0,
+              "unclassified": 0
+            },
+            "30": {
+              "moving": 18,
+              "stationary": 0,
+              "upstream_wait": 4,
+              "upstream_service": 0,
+              "unclassified": 0
+            },
+            "31": {
+              "moving": 13,
+              "stationary": 0,
+              "upstream_wait": 0,
+              "upstream_service": 0,
+              "unclassified": 0
+            },
+            "32": {
+              "moving": 9,
+              "stationary": 0,
+              "upstream_wait": 11,
+              "upstream_service": 0,
+              "unclassified": 0
+            },
+            "33": {
+              "moving": 15,
+              "stationary": 0,
+              "upstream_wait": 0,
+              "upstream_service": 0,
+              "unclassified": 0
+            },
+            "34": {
+              "moving": 9,
+              "stationary": 0,
+              "upstream_wait": 6,
+              "upstream_service": 0,
+              "unclassified": 0
+            },
+            "35": {
+              "moving": 13,
+              "stationary": 0,
+              "upstream_wait": 9,
+              "upstream_service": 0,
+              "unclassified": 0
+            },
+            "36": {
+              "moving": 16,
+              "stationary": 0,
+              "upstream_wait": 0,
+              "upstream_service": 0,
+              "unclassified": 0
+            },
+            "37": {
+              "moving": 12,
+              "stationary": 0,
+              "upstream_wait": 16,
+              "upstream_service": 0,
+              "unclassified": 0
+            },
+            "38": {
+              "moving": 13,
+              "stationary": 0,
+              "upstream_wait": 0,
+              "upstream_service": 0,
+              "unclassified": 0
+            },
+            "39": {
+              "moving": 13,
+              "stationary": 0,
+              "upstream_wait": 28,
+              "upstream_service": 0,
+              "unclassified": 0
+            },
+            "40": {
+              "moving": 11,
+              "stationary": 0,
+              "upstream_wait": 27,
+              "upstream_service": 0,
+              "unclassified": 0
+            },
+            "41": {
+              "moving": 12,
+              "stationary": 0,
+              "upstream_wait": 0,
+              "upstream_service": 0,
+              "unclassified": 0
+            },
+            "42": {
+              "moving": 11,
+              "stationary": 0,
+              "upstream_wait": 24,
+              "upstream_service": 0,
+              "unclassified": 0
+            },
+            "43": {
+              "moving": 10,
+              "stationary": 0,
+              "upstream_wait": 27,
+              "upstream_service": 0,
+              "unclassified": 0
+            },
+            "44": {
+              "moving": 15,
+              "stationary": 0,
+              "upstream_wait": 0,
+              "upstream_service": 0,
+              "unclassified": 0
+            },
+            "45": {
+              "moving": 10,
+              "stationary": 0,
+              "upstream_wait": 0,
+              "upstream_service": 0,
+              "unclassified": 0
+            },
+            "46": {
+              "moving": 14,
+              "stationary": 0,
+              "upstream_wait": 26,
+              "upstream_service": 0,
+              "unclassified": 0
+            },
+            "47": {
+              "moving": 13,
+              "stationary": 0,
+              "upstream_wait": 0,
+              "upstream_service": 0,
+              "unclassified": 0
+            },
+            "48": {
+              "moving": 17,
+              "stationary": 0,
+              "upstream_wait": 0,
+              "upstream_service": 0,
+              "unclassified": 0
+            },
+            "49": {
+              "moving": 12,
+              "stationary": 0,
+              "upstream_wait": 23,
+              "upstream_service": 0,
+              "unclassified": 0
+            },
+            "50": {
+              "moving": 14,
+              "stationary": 0,
+              "upstream_wait": 0,
+              "upstream_service": 0,
+              "unclassified": 0
+            },
+            "51": {
+              "moving": 12,
+              "stationary": 0,
+              "upstream_wait": 30,
+              "upstream_service": 0,
+              "unclassified": 0
+            },
+            "52": {
+              "moving": 12,
+              "stationary": 0,
+              "upstream_wait": 0,
+              "upstream_service": 0,
+              "unclassified": 0
+            },
+            "53": {
+              "moving": 10,
+              "stationary": 0,
+              "upstream_wait": 0,
+              "upstream_service": 0,
+              "unclassified": 0
+            },
+            "54": {
+              "moving": 11,
+              "stationary": 0,
+              "upstream_wait": 0,
+              "upstream_service": 0,
+              "unclassified": 0
+            },
+            "55": {
+              "moving": 8,
+              "stationary": 0,
+              "upstream_wait": 0,
+              "upstream_service": 0,
+              "unclassified": 0
+            },
+            "56": {
+              "moving": 15,
+              "stationary": 0,
+              "upstream_wait": 47,
+              "upstream_service": 0,
+              "unclassified": 0
+            },
+            "57": {
+              "moving": 8,
+              "stationary": 0,
+              "upstream_wait": 64,
+              "upstream_service": 0,
+              "unclassified": 0
+            },
+            "58": {
+              "moving": 10,
+              "stationary": 0,
+              "upstream_wait": 64,
+              "upstream_service": 0,
+              "unclassified": 0
+            },
+            "59": {
+              "moving": 21,
+              "stationary": 0,
+              "upstream_wait": 0,
+              "upstream_service": 0,
+              "unclassified": 0
+            },
+            "60": {
+              "moving": 14,
+              "stationary": 0,
+              "upstream_wait": 61,
+              "upstream_service": 0,
+              "unclassified": 0
+            },
+            "61": {
+              "moving": 10,
+              "stationary": 0,
+              "upstream_wait": 63,
+              "upstream_service": 0,
+              "unclassified": 0
+            },
+            "62": {
+              "moving": 12,
+              "stationary": 0,
+              "upstream_wait": 0,
+              "upstream_service": 0,
+              "unclassified": 0
+            },
+            "63": {
+              "moving": 14,
+              "stationary": 0,
+              "upstream_wait": 66,
+              "upstream_service": 0,
+              "unclassified": 0
+            },
+            "64": {
+              "moving": 16,
+              "stationary": 0,
+              "upstream_wait": 0,
+              "upstream_service": 0,
+              "unclassified": 0
+            },
+            "65": {
+              "moving": 30,
+              "stationary": 0,
+              "upstream_wait": 64,
+              "upstream_service": 0,
+              "unclassified": 0
+            },
+            "66": {
+              "moving": 10,
+              "stationary": 0,
+              "upstream_wait": 0,
+              "upstream_service": 0,
+              "unclassified": 0
+            },
+            "67": {
+              "moving": 7,
+              "stationary": 0,
+              "upstream_wait": 0,
+              "upstream_service": 0,
+              "unclassified": 0
+            },
+            "68": {
+              "moving": 39,
+              "stationary": 0,
+              "upstream_wait": 0,
+              "upstream_service": 0,
+              "unclassified": 0
+            },
+            "72": {
+              "moving": 32,
+              "stationary": 0,
+              "upstream_wait": 61,
+              "upstream_service": 0,
+              "unclassified": 0
+            },
+            "74": {
+              "moving": 17,
+              "stationary": 0,
+              "upstream_wait": 59,
+              "upstream_service": 0,
+              "unclassified": 0
+            },
+            "78": {
+              "moving": 18,
+              "stationary": 0,
+              "upstream_wait": 55,
+              "upstream_service": 0,
+              "unclassified": 0
+            },
+            "80": {
+              "moving": 21,
+              "stationary": 0,
+              "upstream_wait": 53,
+              "upstream_service": 0,
+              "unclassified": 0
+            },
+            "83": {
+              "moving": 12,
+              "stationary": 0,
+              "upstream_wait": 0,
+              "upstream_service": 0,
+              "unclassified": 0
+            },
+            "85": {
+              "moving": 18,
+              "stationary": 0,
+              "upstream_wait": 0,
+              "upstream_service": 0,
+              "unclassified": 0
+            },
+            "88": {
+              "moving": 11,
+              "stationary": 1,
+              "upstream_wait": 0,
+              "upstream_service": 0,
+              "unclassified": 0
+            },
+            "91": {
+              "moving": 16,
+              "stationary": 0,
+              "upstream_wait": 56,
+              "upstream_service": 0,
+              "unclassified": 0
+            },
+            "93": {
+              "moving": 36,
+              "stationary": 0,
+              "upstream_wait": 0,
+              "upstream_service": 0,
+              "unclassified": 0
+            },
+            "97": {
+              "moving": 13,
+              "stationary": 0,
+              "upstream_wait": 0,
+              "upstream_service": 0,
+              "unclassified": 0
+            },
+            "99": {
+              "moving": 12,
+              "stationary": 0,
+              "upstream_wait": 0,
+              "upstream_service": 0,
+              "unclassified": 0
+            }
+          },
+          "state_total_steps": {
+            "entering_station": 1206,
+            "passing_gate": 407,
+            "queueing_gate": 467,
+            "waiting_capacity": 1357,
+            "waiting_platform": 57,
+            "walking_to_platform": 26
+          },
+          "owner_state_steps": {
+            "102": {
+              "entering_station": 15,
+              "passing_gate": 7,
+              "queueing_gate": 5,
+              "walking_to_platform": 1
+            },
+            "105": {
+              "entering_station": 18,
+              "passing_gate": 4,
+              "queueing_gate": 5,
+              "waiting_capacity": 48,
+              "waiting_platform": 1
+            },
+            "107": {
+              "entering_station": 18,
+              "passing_gate": 5,
+              "queueing_gate": 5,
+              "walking_to_platform": 1
+            },
+            "109": {
+              "entering_station": 24,
+              "passing_gate": 4,
+              "queueing_gate": 8,
+              "waiting_capacity": 50,
+              "waiting_platform": 1
+            },
+            "112": {
+              "entering_station": 12,
+              "passing_gate": 4,
+              "queueing_gate": 7,
+              "waiting_capacity": 52,
+              "waiting_platform": 1
+            },
+            "116": {
+              "entering_station": 9,
+              "passing_gate": 5,
+              "queueing_gate": 5,
+              "walking_to_platform": 1
+            },
+            "118": {
+              "entering_station": 11,
+              "passing_gate": 5,
+              "queueing_gate": 5,
+              "waiting_capacity": 57,
+              "waiting_platform": 1
+            },
+            "122": {
+              "entering_station": 14,
+              "passing_gate": 6,
+              "queueing_gate": 5,
+              "walking_to_platform": 1
+            },
+            "124": {
+              "entering_station": 17,
+              "passing_gate": 6,
+              "queueing_gate": 8,
+              "waiting_capacity": 53,
+              "waiting_platform": 1
+            },
+            "126": {
+              "entering_station": 12,
+              "passing_gate": 4,
+              "queueing_gate": 5,
+              "waiting_capacity": 49,
+              "waiting_platform": 1
+            },
+            "129": {
+              "entering_station": 14,
+              "passing_gate": 4,
+              "queueing_gate": 5,
+              "waiting_platform": 1
+            },
+            "131": {
+              "entering_station": 20,
+              "passing_gate": 4,
+              "queueing_gate": 6,
+              "waiting_platform": 1
+            },
+            "133": {
+              "entering_station": 13,
+              "passing_gate": 5,
+              "queueing_gate": 5,
+              "walking_to_platform": 1
+            },
+            "135": {
+              "entering_station": 29,
+              "passing_gate": 4,
+              "queueing_gate": 6,
+              "waiting_platform": 1
+            },
+            "136": {
+              "entering_station": 22,
+              "passing_gate": 4,
+              "queueing_gate": 4,
+              "waiting_platform": 1
+            },
+            "137": {
+              "entering_station": 25,
+              "passing_gate": 6,
+              "queueing_gate": 8,
+              "waiting_platform": 1
+            },
+            "139": {
+              "entering_station": 12,
+              "passing_gate": 4,
+              "queueing_gate": 4,
+              "waiting_capacity": 45,
+              "waiting_platform": 1
+            },
+            "140": {
+              "entering_station": 17,
+              "passing_gate": 4,
+              "queueing_gate": 4,
+              "waiting_platform": 1
+            },
+            "142": {
+              "entering_station": 13,
+              "passing_gate": 6,
+              "queueing_gate": 8,
+              "waiting_capacity": 41,
+              "waiting_platform": 1
+            },
+            "16": {
+              "entering_station": 9,
+              "passing_gate": 4,
+              "queueing_gate": 9,
+              "waiting_platform": 1
+            },
+            "17": {
+              "entering_station": 10,
+              "passing_gate": 5,
+              "queueing_gate": 9,
+              "waiting_platform": 1
+            },
+            "18": {
+              "entering_station": 8,
+              "passing_gate": 4,
+              "queueing_gate": 12,
+              "waiting_platform": 1
+            },
+            "19": {
+              "entering_station": 12,
+              "passing_gate": 6,
+              "queueing_gate": 5,
+              "waiting_platform": 1
+            },
+            "20": {
+              "entering_station": 11,
+              "passing_gate": 6,
+              "queueing_gate": 7,
+              "waiting_platform": 1
+            },
+            "21": {
+              "entering_station": 8,
+              "passing_gate": 4,
+              "queueing_gate": 4,
+              "waiting_platform": 1
+            },
+            "22": {
+              "entering_station": 11,
+              "passing_gate": 4,
+              "queueing_gate": 4,
+              "waiting_platform": 1
+            },
+            "23": {
+              "entering_station": 10,
+              "passing_gate": 6,
+              "queueing_gate": 6,
+              "waiting_platform": 1
+            },
+            "24": {
+              "entering_station": 14,
+              "passing_gate": 6,
+              "queueing_gate": 4,
+              "waiting_platform": 1
+            },
+            "25": {
+              "entering_station": 12,
+              "passing_gate": 5,
+              "queueing_gate": 5,
+              "waiting_capacity": 4,
+              "waiting_platform": 1
+            },
+            "26": {
+              "entering_station": 12,
+              "passing_gate": 4,
+              "queueing_gate": 5,
+              "waiting_capacity": 6,
+              "waiting_platform": 1
+            },
+            "27": {
+              "entering_station": 8,
+              "passing_gate": 4,
+              "queueing_gate": 5,
+              "waiting_capacity": 2,
+              "waiting_platform": 1
+            },
+            "28": {
+              "entering_station": 15,
+              "passing_gate": 4,
+              "queueing_gate": 4,
+              "waiting_platform": 1
+            },
+            "29": {
+              "entering_station": 15,
+              "passing_gate": 6,
+              "queueing_gate": 2,
+              "waiting_capacity": 6,
+              "waiting_platform": 1
+            },
+            "30": {
+              "entering_station": 18,
+              "passing_gate": 4,
+              "queueing_gate": 6,
+              "waiting_capacity": 4,
+              "waiting_platform": 1
+            },
+            "31": {
+              "entering_station": 13,
+              "passing_gate": 4,
+              "queueing_gate": 6,
+              "waiting_platform": 1
+            },
+            "32": {
+              "entering_station": 9,
+              "passing_gate": 5,
+              "queueing_gate": 8,
+              "waiting_capacity": 11,
+              "waiting_platform": 1
+            },
+            "33": {
+              "entering_station": 15,
+              "passing_gate": 5,
+              "queueing_gate": 4,
+              "waiting_platform": 1
+            },
+            "34": {
+              "entering_station": 9,
+              "passing_gate": 4,
+              "queueing_gate": 7,
+              "waiting_capacity": 6,
+              "waiting_platform": 1
+            },
+            "35": {
+              "entering_station": 13,
+              "passing_gate": 6,
+              "queueing_gate": 4,
+              "waiting_capacity": 9,
+              "waiting_platform": 1
+            },
+            "36": {
+              "entering_station": 16,
+              "passing_gate": 5,
+              "queueing_gate": 5,
+              "waiting_platform": 1
+            },
+            "37": {
+              "entering_station": 12,
+              "passing_gate": 6,
+              "queueing_gate": 7,
+              "waiting_capacity": 16,
+              "waiting_platform": 1
+            },
+            "38": {
+              "entering_station": 13,
+              "passing_gate": 4,
+              "queueing_gate": 4,
+              "waiting_platform": 1
+            },
+            "39": {
+              "entering_station": 13,
+              "passing_gate": 7,
+              "queueing_gate": 6,
+              "waiting_capacity": 28,
+              "walking_to_platform": 1
+            },
+            "40": {
+              "entering_station": 11,
+              "passing_gate": 5,
+              "queueing_gate": 5,
+              "waiting_capacity": 27,
+              "walking_to_platform": 1
+            },
+            "41": {
+              "entering_station": 12,
+              "passing_gate": 5,
+              "queueing_gate": 5,
+              "waiting_platform": 1
+            },
+            "42": {
+              "entering_station": 11,
+              "passing_gate": 4,
+              "queueing_gate": 4,
+              "waiting_capacity": 24,
+              "walking_to_platform": 1
+            },
+            "43": {
+              "entering_station": 10,
+              "passing_gate": 4,
+              "queueing_gate": 6,
+              "waiting_capacity": 27,
+              "walking_to_platform": 1
+            },
+            "44": {
+              "entering_station": 15,
+              "passing_gate": 4,
+              "queueing_gate": 6,
+              "waiting_platform": 1
+            },
+            "45": {
+              "entering_station": 10,
+              "passing_gate": 6,
+              "queueing_gate": 4,
+              "waiting_platform": 1
+            },
+            "46": {
+              "entering_station": 14,
+              "passing_gate": 11,
+              "queueing_gate": 9,
+              "waiting_capacity": 26,
+              "walking_to_platform": 1
+            },
+            "47": {
+              "entering_station": 13,
+              "passing_gate": 5,
+              "queueing_gate": 6,
+              "waiting_platform": 1
+            },
+            "48": {
+              "entering_station": 17,
+              "passing_gate": 4,
+              "queueing_gate": 5,
+              "waiting_platform": 1
+            },
+            "49": {
+              "entering_station": 12,
+              "passing_gate": 4,
+              "queueing_gate": 6,
+              "waiting_capacity": 23,
+              "walking_to_platform": 1
+            },
+            "50": {
+              "entering_station": 14,
+              "passing_gate": 5,
+              "queueing_gate": 8,
+              "walking_to_platform": 1
+            },
+            "51": {
+              "entering_station": 12,
+              "passing_gate": 4,
+              "queueing_gate": 4,
+              "waiting_capacity": 30,
+              "walking_to_platform": 1
+            },
+            "52": {
+              "entering_station": 12,
+              "passing_gate": 4,
+              "queueing_gate": 4,
+              "waiting_platform": 1
+            },
+            "53": {
+              "entering_station": 10,
+              "passing_gate": 6,
+              "queueing_gate": 9,
+              "walking_to_platform": 1
+            },
+            "54": {
+              "entering_station": 11,
+              "passing_gate": 8,
+              "queueing_gate": 6,
+              "walking_to_platform": 1
+            },
+            "55": {
+              "entering_station": 8,
+              "passing_gate": 5,
+              "queueing_gate": 6,
+              "walking_to_platform": 1
+            },
+            "56": {
+              "entering_station": 15,
+              "passing_gate": 4,
+              "queueing_gate": 5,
+              "waiting_capacity": 47,
+              "walking_to_platform": 1
+            },
+            "57": {
+              "entering_station": 8,
+              "passing_gate": 5,
+              "queueing_gate": 5,
+              "waiting_capacity": 64,
+              "waiting_platform": 1
+            },
+            "58": {
+              "entering_station": 10,
+              "passing_gate": 4,
+              "queueing_gate": 6,
+              "waiting_capacity": 64,
+              "waiting_platform": 1
+            },
+            "59": {
+              "entering_station": 21,
+              "passing_gate": 5,
+              "queueing_gate": 8,
+              "walking_to_platform": 1
+            },
+            "60": {
+              "entering_station": 14,
+              "passing_gate": 4,
+              "queueing_gate": 7,
+              "waiting_capacity": 61,
+              "waiting_platform": 1
+            },
+            "61": {
+              "entering_station": 10,
+              "passing_gate": 5,
+              "queueing_gate": 6,
+              "waiting_capacity": 63,
+              "waiting_platform": 1
+            },
+            "62": {
+              "entering_station": 12,
+              "passing_gate": 5,
+              "queueing_gate": 7,
+              "walking_to_platform": 1
+            },
+            "63": {
+              "entering_station": 14,
+              "passing_gate": 4,
+              "queueing_gate": 4,
+              "waiting_capacity": 66,
+              "waiting_platform": 1
+            },
+            "64": {
+              "entering_station": 16,
+              "passing_gate": 6,
+              "queueing_gate": 2,
+              "walking_to_platform": 1
+            },
+            "65": {
+              "entering_station": 30,
+              "passing_gate": 5,
+              "queueing_gate": 6,
+              "waiting_capacity": 64,
+              "waiting_platform": 1
+            },
+            "66": {
+              "entering_station": 10,
+              "passing_gate": 7,
+              "queueing_gate": 2,
+              "walking_to_platform": 1
+            },
+            "67": {
+              "entering_station": 7,
+              "passing_gate": 4,
+              "queueing_gate": 7,
+              "walking_to_platform": 1
+            },
+            "68": {
+              "entering_station": 39,
+              "passing_gate": 4,
+              "queueing_gate": 6,
+              "waiting_platform": 1
+            },
+            "72": {
+              "entering_station": 32,
+              "passing_gate": 4,
+              "queueing_gate": 4,
+              "waiting_capacity": 61,
+              "waiting_platform": 1
+            },
+            "74": {
+              "entering_station": 17,
+              "passing_gate": 4,
+              "queueing_gate": 4,
+              "waiting_capacity": 59,
+              "waiting_platform": 1
+            },
+            "78": {
+              "entering_station": 18,
+              "passing_gate": 4,
+              "queueing_gate": 4,
+              "waiting_capacity": 55,
+              "waiting_platform": 1
+            },
+            "80": {
+              "entering_station": 21,
+              "passing_gate": 5,
+              "queueing_gate": 5,
+              "waiting_capacity": 53,
+              "waiting_platform": 1
+            },
+            "83": {
+              "entering_station": 12,
+              "passing_gate": 5,
+              "queueing_gate": 6,
+              "walking_to_platform": 1
+            },
+            "85": {
+              "entering_station": 18,
+              "passing_gate": 5,
+              "queueing_gate": 5,
+              "walking_to_platform": 1
+            },
+            "88": {
+              "entering_station": 12,
+              "passing_gate": 4,
+              "queueing_gate": 7,
+              "waiting_platform": 1
+            },
+            "91": {
+              "entering_station": 16,
+              "passing_gate": 6,
+              "queueing_gate": 3,
+              "waiting_capacity": 56,
+              "waiting_platform": 1
+            },
+            "93": {
+              "entering_station": 36,
+              "passing_gate": 6,
+              "queueing_gate": 5,
+              "waiting_platform": 1
+            },
+            "97": {
+              "entering_station": 13,
+              "passing_gate": 4,
+              "queueing_gate": 6,
+              "walking_to_platform": 1
+            },
+            "99": {
+              "entering_station": 12,
+              "passing_gate": 5,
+              "queueing_gate": 8,
+              "walking_to_platform": 1
+            }
+          }
+        },
+        "exit": {
+          "owners": 50,
+          "phase_total_steps": {
+            "travel": 4099,
+            "queue": 198,
+            "service_ready_wait": 39,
+            "release_blocked": 72,
+            "completion": 116
+          },
+          "phase_mean_steps": {
+            "travel": 81.98,
+            "queue": 3.96,
+            "service_ready_wait": 0.78,
+            "release_blocked": 1.44,
+            "completion": 2.32
+          },
+          "phase_median_steps": {
+            "travel": 83.0,
+            "queue": 5.0,
+            "service_ready_wait": 1.0,
+            "release_blocked": 1.5,
+            "completion": 3.0
+          },
+          "owner_phase_steps": {
+            "100": {
+              "travel": 120,
+              "queue": 0,
+              "service_ready_wait": 2,
+              "release_blocked": 1,
+              "completion": 4
+            },
+            "101": {
+              "travel": 148,
+              "queue": 0,
+              "service_ready_wait": 0,
+              "release_blocked": 0,
+              "completion": 0
+            },
+            "103": {
+              "travel": 76,
+              "queue": 3,
+              "service_ready_wait": 1,
+              "release_blocked": 1,
+              "completion": 4
+            },
+            "104": {
+              "travel": 81,
+              "queue": 8,
+              "service_ready_wait": 1,
+              "release_blocked": 2,
+              "completion": 3
+            },
+            "106": {
+              "travel": 87,
+              "queue": 4,
+              "service_ready_wait": 1,
+              "release_blocked": 3,
+              "completion": 3
+            },
+            "108": {
+              "travel": 63,
+              "queue": 7,
+              "service_ready_wait": 1,
+              "release_blocked": 2,
+              "completion": 3
+            },
+            "110": {
+              "travel": 76,
+              "queue": 8,
+              "service_ready_wait": 1,
+              "release_blocked": 2,
+              "completion": 3
+            },
+            "111": {
+              "travel": 143,
+              "queue": 0,
+              "service_ready_wait": 0,
+              "release_blocked": 0,
+              "completion": 0
+            },
+            "113": {
+              "travel": 57,
+              "queue": 6,
+              "service_ready_wait": 1,
+              "release_blocked": 3,
+              "completion": 3
+            },
+            "114": {
+              "travel": 63,
+              "queue": 6,
+              "service_ready_wait": 1,
+              "release_blocked": 3,
+              "completion": 3
+            },
+            "115": {
+              "travel": 53,
+              "queue": 6,
+              "service_ready_wait": 1,
+              "release_blocked": 2,
+              "completion": 3
+            },
+            "117": {
+              "travel": 140,
+              "queue": 0,
+              "service_ready_wait": 0,
+              "release_blocked": 0,
+              "completion": 0
+            },
+            "119": {
+              "travel": 115,
+              "queue": 3,
+              "service_ready_wait": 1,
+              "release_blocked": 1,
+              "completion": 4
+            },
+            "120": {
+              "travel": 138,
+              "queue": 0,
+              "service_ready_wait": 0,
+              "release_blocked": 0,
+              "completion": 0
+            },
+            "121": {
+              "travel": 91,
+              "queue": 0,
+              "service_ready_wait": 2,
+              "release_blocked": 1,
+              "completion": 4
+            },
+            "123": {
+              "travel": 115,
+              "queue": 5,
+              "service_ready_wait": 1,
+              "release_blocked": 1,
+              "completion": 4
+            },
+            "125": {
+              "travel": 93,
+              "queue": 5,
+              "service_ready_wait": 1,
+              "release_blocked": 1,
+              "completion": 4
+            },
+            "127": {
+              "travel": 135,
+              "queue": 0,
+              "service_ready_wait": 0,
+              "release_blocked": 0,
+              "completion": 0
+            },
+            "128": {
+              "travel": 85,
+              "queue": 5,
+              "service_ready_wait": 1,
+              "release_blocked": 1,
+              "completion": 4
+            },
+            "130": {
+              "travel": 132,
+              "queue": 1,
+              "service_ready_wait": 0,
+              "release_blocked": 0,
+              "completion": 0
+            },
+            "132": {
+              "travel": 99,
+              "queue": 5,
+              "service_ready_wait": 1,
+              "release_blocked": 1,
+              "completion": 4
+            },
+            "134": {
+              "travel": 130,
+              "queue": 0,
+              "service_ready_wait": 0,
+              "release_blocked": 0,
+              "completion": 0
+            },
+            "138": {
+              "travel": 125,
+              "queue": 0,
+              "service_ready_wait": 0,
+              "release_blocked": 0,
+              "completion": 0
+            },
+            "141": {
+              "travel": 123,
+              "queue": 0,
+              "service_ready_wait": 0,
+              "release_blocked": 0,
+              "completion": 0
+            },
+            "143": {
+              "travel": 106,
+              "queue": 5,
+              "service_ready_wait": 1,
+              "release_blocked": 1,
+              "completion": 4
+            },
+            "144": {
+              "travel": 109,
+              "queue": 5,
+              "service_ready_wait": 1,
+              "release_blocked": 0,
+              "completion": 1
+            },
+            "145": {
+              "travel": 114,
+              "queue": 0,
+              "service_ready_wait": 0,
+              "release_blocked": 0,
+              "completion": 0
+            },
+            "146": {
+              "travel": 113,
+              "queue": 0,
+              "service_ready_wait": 0,
+              "release_blocked": 0,
+              "completion": 0
+            },
+            "147": {
+              "travel": 110,
+              "queue": 0,
+              "service_ready_wait": 0,
+              "release_blocked": 0,
+              "completion": 0
+            },
+            "148": {
+              "travel": 107,
+              "queue": 0,
+              "service_ready_wait": 0,
+              "release_blocked": 0,
+              "completion": 0
+            },
+            "69": {
+              "travel": 49,
+              "queue": 5,
+              "service_ready_wait": 1,
+              "release_blocked": 3,
+              "completion": 3
+            },
+            "70": {
+              "travel": 55,
+              "queue": 6,
+              "service_ready_wait": 1,
+              "release_blocked": 3,
+              "completion": 3
+            },
+            "71": {
+              "travel": 49,
+              "queue": 9,
+              "service_ready_wait": 1,
+              "release_blocked": 2,
+              "completion": 3
+            },
+            "73": {
+              "travel": 22,
+              "queue": 5,
+              "service_ready_wait": 1,
+              "release_blocked": 2,
+              "completion": 3
+            },
+            "75": {
+              "travel": 18,
+              "queue": 6,
+              "service_ready_wait": 1,
+              "release_blocked": 2,
+              "completion": 3
+            },
+            "76": {
+              "travel": 35,
+              "queue": 7,
+              "service_ready_wait": 1,
+              "release_blocked": 2,
+              "completion": 3
+            },
+            "77": {
+              "travel": 34,
+              "queue": 6,
+              "service_ready_wait": 1,
+              "release_blocked": 3,
+              "completion": 3
+            },
+            "79": {
+              "travel": 39,
+              "queue": 5,
+              "service_ready_wait": 1,
+              "release_blocked": 2,
+              "completion": 3
+            },
+            "81": {
+              "travel": 36,
+              "queue": 10,
+              "service_ready_wait": 1,
+              "release_blocked": 2,
+              "completion": 3
+            },
+            "82": {
+              "travel": 55,
+              "queue": 5,
+              "service_ready_wait": 1,
+              "release_blocked": 3,
+              "completion": 3
+            },
+            "84": {
+              "travel": 58,
+              "queue": 6,
+              "service_ready_wait": 1,
+              "release_blocked": 4,
+              "completion": 3
+            },
+            "86": {
+              "travel": 20,
+              "queue": 5,
+              "service_ready_wait": 1,
+              "release_blocked": 2,
+              "completion": 3
+            },
+            "87": {
+              "travel": 21,
+              "queue": 6,
+              "service_ready_wait": 1,
+              "release_blocked": 2,
+              "completion": 3
+            },
+            "89": {
+              "travel": 28,
+              "queue": 5,
+              "service_ready_wait": 1,
+              "release_blocked": 2,
+              "completion": 3
+            },
+            "90": {
+              "travel": 23,
+              "queue": 8,
+              "service_ready_wait": 1,
+              "release_blocked": 2,
+              "completion": 3
+            },
+            "92": {
+              "travel": 42,
+              "queue": 7,
+              "service_ready_wait": 1,
+              "release_blocked": 2,
+              "completion": 3
+            },
+            "94": {
+              "travel": 41,
+              "queue": 9,
+              "service_ready_wait": 1,
+              "release_blocked": 3,
+              "completion": 3
+            },
+            "95": {
+              "travel": 50,
+              "queue": 6,
+              "service_ready_wait": 1,
+              "release_blocked": 4,
+              "completion": 3
+            },
+            "96": {
+              "travel": 151,
+              "queue": 0,
+              "service_ready_wait": 0,
+              "release_blocked": 0,
+              "completion": 0
+            },
+            "98": {
+              "travel": 126,
+              "queue": 0,
+              "service_ready_wait": 2,
+              "release_blocked": 1,
+              "completion": 4
+            }
+          },
+          "travel_breakdown_total_steps": {
+            "moving": 2747,
+            "stationary": 1,
+            "upstream_wait": 1351,
+            "upstream_service": 0,
+            "unclassified": 0
+          },
+          "travel_breakdown_mean_steps": {
+            "moving": 54.94,
+            "stationary": 0.02,
+            "upstream_wait": 27.02,
+            "upstream_service": 0.0,
+            "unclassified": 0.0
+          },
+          "travel_breakdown_median_steps": {
+            "moving": 49.0,
+            "stationary": 0.0,
+            "upstream_wait": 24.0,
+            "upstream_service": 0.0,
+            "unclassified": 0.0
+          },
+          "owner_travel_breakdown_steps": {
+            "100": {
+              "moving": 104,
+              "stationary": 0,
+              "upstream_wait": 16,
+              "upstream_service": 0,
+              "unclassified": 0
+            },
+            "101": {
+              "moving": 125,
+              "stationary": 0,
+              "upstream_wait": 23,
+              "upstream_service": 0,
+              "unclassified": 0
+            },
+            "103": {
+              "moving": 51,
+              "stationary": 0,
+              "upstream_wait": 25,
+              "upstream_service": 0,
+              "unclassified": 0
+            },
+            "104": {
+              "moving": 56,
+              "stationary": 0,
+              "upstream_wait": 25,
+              "upstream_service": 0,
+              "unclassified": 0
+            },
+            "106": {
+              "moving": 65,
+              "stationary": 0,
+              "upstream_wait": 22,
+              "upstream_service": 0,
+              "unclassified": 0
+            },
+            "108": {
+              "moving": 31,
+              "stationary": 0,
+              "upstream_wait": 32,
+              "upstream_service": 0,
+              "unclassified": 0
+            },
+            "110": {
+              "moving": 46,
+              "stationary": 0,
+              "upstream_wait": 30,
+              "upstream_service": 0,
+              "unclassified": 0
+            },
+            "111": {
+              "moving": 109,
+              "stationary": 0,
+              "upstream_wait": 34,
+              "upstream_service": 0,
+              "unclassified": 0
+            },
+            "113": {
+              "moving": 28,
+              "stationary": 0,
+              "upstream_wait": 29,
+              "upstream_service": 0,
+              "unclassified": 0
+            },
+            "114": {
+              "moving": 33,
+              "stationary": 0,
+              "upstream_wait": 30,
+              "upstream_service": 0,
+              "unclassified": 0
+            },
+            "115": {
+              "moving": 24,
+              "stationary": 0,
+              "upstream_wait": 29,
+              "upstream_service": 0,
+              "unclassified": 0
+            },
+            "117": {
+              "moving": 100,
+              "stationary": 0,
+              "upstream_wait": 40,
+              "upstream_service": 0,
+              "unclassified": 0
+            },
+            "119": {
+              "moving": 71,
+              "stationary": 0,
+              "upstream_wait": 44,
+              "upstream_service": 0,
+              "unclassified": 0
+            },
+            "120": {
+              "moving": 102,
+              "stationary": 0,
+              "upstream_wait": 36,
+              "upstream_service": 0,
+              "unclassified": 0
+            },
+            "121": {
+              "moving": 91,
+              "stationary": 0,
+              "upstream_wait": 0,
+              "upstream_service": 0,
+              "unclassified": 0
+            },
+            "123": {
+              "moving": 57,
+              "stationary": 0,
+              "upstream_wait": 58,
+              "upstream_service": 0,
+              "unclassified": 0
+            },
+            "125": {
+              "moving": 55,
+              "stationary": 0,
+              "upstream_wait": 38,
+              "upstream_service": 0,
+              "unclassified": 0
+            },
+            "127": {
+              "moving": 81,
+              "stationary": 0,
+              "upstream_wait": 54,
+              "upstream_service": 0,
+              "unclassified": 0
+            },
+            "128": {
+              "moving": 29,
+              "stationary": 0,
+              "upstream_wait": 56,
+              "upstream_service": 0,
+              "unclassified": 0
+            },
+            "130": {
+              "moving": 69,
+              "stationary": 0,
+              "upstream_wait": 63,
+              "upstream_service": 0,
+              "unclassified": 0
+            },
+            "132": {
+              "moving": 34,
+              "stationary": 0,
+              "upstream_wait": 65,
+              "upstream_service": 0,
+              "unclassified": 0
+            },
+            "134": {
+              "moving": 58,
+              "stationary": 0,
+              "upstream_wait": 72,
+              "upstream_service": 0,
+              "unclassified": 0
+            },
+            "138": {
+              "moving": 60,
+              "stationary": 0,
+              "upstream_wait": 65,
+              "upstream_service": 0,
+              "unclassified": 0
+            },
+            "141": {
+              "moving": 54,
+              "stationary": 0,
+              "upstream_wait": 69,
+              "upstream_service": 0,
+              "unclassified": 0
+            },
+            "143": {
+              "moving": 31,
+              "stationary": 0,
+              "upstream_wait": 75,
+              "upstream_service": 0,
+              "unclassified": 0
+            },
+            "144": {
+              "moving": 39,
+              "stationary": 0,
+              "upstream_wait": 70,
+              "upstream_service": 0,
+              "unclassified": 0
+            },
+            "145": {
+              "moving": 40,
+              "stationary": 0,
+              "upstream_wait": 74,
+              "upstream_service": 0,
+              "unclassified": 0
+            },
+            "146": {
+              "moving": 30,
+              "stationary": 0,
+              "upstream_wait": 83,
+              "upstream_service": 0,
+              "unclassified": 0
+            },
+            "147": {
+              "moving": 28,
+              "stationary": 0,
+              "upstream_wait": 82,
+              "upstream_service": 0,
+              "unclassified": 0
+            },
+            "148": {
+              "moving": 107,
+              "stationary": 0,
+              "upstream_wait": 0,
+              "upstream_service": 0,
+              "unclassified": 0
+            },
+            "69": {
+              "moving": 49,
+              "stationary": 0,
+              "upstream_wait": 0,
+              "upstream_service": 0,
+              "unclassified": 0
+            },
+            "70": {
+              "moving": 55,
+              "stationary": 0,
+              "upstream_wait": 0,
+              "upstream_service": 0,
+              "unclassified": 0
+            },
+            "71": {
+              "moving": 49,
+              "stationary": 0,
+              "upstream_wait": 0,
+              "upstream_service": 0,
+              "unclassified": 0
+            },
+            "73": {
+              "moving": 22,
+              "stationary": 0,
+              "upstream_wait": 0,
+              "upstream_service": 0,
+              "unclassified": 0
+            },
+            "75": {
+              "moving": 18,
+              "stationary": 0,
+              "upstream_wait": 0,
+              "upstream_service": 0,
+              "unclassified": 0
+            },
+            "76": {
+              "moving": 35,
+              "stationary": 0,
+              "upstream_wait": 0,
+              "upstream_service": 0,
+              "unclassified": 0
+            },
+            "77": {
+              "moving": 34,
+              "stationary": 0,
+              "upstream_wait": 0,
+              "upstream_service": 0,
+              "unclassified": 0
+            },
+            "79": {
+              "moving": 39,
+              "stationary": 0,
+              "upstream_wait": 0,
+              "upstream_service": 0,
+              "unclassified": 0
+            },
+            "81": {
+              "moving": 36,
+              "stationary": 0,
+              "upstream_wait": 0,
+              "upstream_service": 0,
+              "unclassified": 0
+            },
+            "82": {
+              "moving": 54,
+              "stationary": 1,
+              "upstream_wait": 0,
+              "upstream_service": 0,
+              "unclassified": 0
+            },
+            "84": {
+              "moving": 58,
+              "stationary": 0,
+              "upstream_wait": 0,
+              "upstream_service": 0,
+              "unclassified": 0
+            },
+            "86": {
+              "moving": 20,
+              "stationary": 0,
+              "upstream_wait": 0,
+              "upstream_service": 0,
+              "unclassified": 0
+            },
+            "87": {
+              "moving": 21,
+              "stationary": 0,
+              "upstream_wait": 0,
+              "upstream_service": 0,
+              "unclassified": 0
+            },
+            "89": {
+              "moving": 28,
+              "stationary": 0,
+              "upstream_wait": 0,
+              "upstream_service": 0,
+              "unclassified": 0
+            },
+            "90": {
+              "moving": 23,
+              "stationary": 0,
+              "upstream_wait": 0,
+              "upstream_service": 0,
+              "unclassified": 0
+            },
+            "92": {
+              "moving": 42,
+              "stationary": 0,
+              "upstream_wait": 0,
+              "upstream_service": 0,
+              "unclassified": 0
+            },
+            "94": {
+              "moving": 41,
+              "stationary": 0,
+              "upstream_wait": 0,
+              "upstream_service": 0,
+              "unclassified": 0
+            },
+            "95": {
+              "moving": 50,
+              "stationary": 0,
+              "upstream_wait": 0,
+              "upstream_service": 0,
+              "unclassified": 0
+            },
+            "96": {
+              "moving": 142,
+              "stationary": 0,
+              "upstream_wait": 9,
+              "upstream_service": 0,
+              "unclassified": 0
+            },
+            "98": {
+              "moving": 123,
+              "stationary": 0,
+              "upstream_wait": 3,
+              "upstream_service": 0,
+              "unclassified": 0
+            }
+          },
+          "state_total_steps": {
+            "passing_exit_gate": 153,
+            "queueing_exit_gate": 237,
+            "waiting_platform": 1351,
+            "walking_to_exit_gate": 2783
+          },
+          "owner_state_steps": {
+            "100": {
+              "passing_exit_gate": 4,
+              "queueing_exit_gate": 2,
+              "waiting_platform": 16,
+              "walking_to_exit_gate": 105
+            },
+            "101": {
+              "waiting_platform": 23,
+              "walking_to_exit_gate": 125
+            },
+            "103": {
+              "passing_exit_gate": 4,
+              "queueing_exit_gate": 4,
+              "waiting_platform": 25,
+              "walking_to_exit_gate": 52
+            },
+            "104": {
+              "passing_exit_gate": 4,
+              "queueing_exit_gate": 9,
+              "waiting_platform": 25,
+              "walking_to_exit_gate": 57
+            },
+            "106": {
+              "passing_exit_gate": 5,
+              "queueing_exit_gate": 5,
+              "waiting_platform": 22,
+              "walking_to_exit_gate": 66
+            },
+            "108": {
+              "passing_exit_gate": 4,
+              "queueing_exit_gate": 8,
+              "waiting_platform": 32,
+              "walking_to_exit_gate": 32
+            },
+            "110": {
+              "passing_exit_gate": 4,
+              "queueing_exit_gate": 9,
+              "waiting_platform": 30,
+              "walking_to_exit_gate": 47
+            },
+            "111": {
+              "waiting_platform": 34,
+              "walking_to_exit_gate": 109
+            },
+            "113": {
+              "passing_exit_gate": 5,
+              "queueing_exit_gate": 7,
+              "waiting_platform": 29,
+              "walking_to_exit_gate": 29
+            },
+            "114": {
+              "passing_exit_gate": 5,
+              "queueing_exit_gate": 7,
+              "waiting_platform": 30,
+              "walking_to_exit_gate": 34
+            },
+            "115": {
+              "passing_exit_gate": 4,
+              "queueing_exit_gate": 7,
+              "waiting_platform": 29,
+              "walking_to_exit_gate": 25
+            },
+            "117": {
+              "waiting_platform": 40,
+              "walking_to_exit_gate": 100
+            },
+            "119": {
+              "passing_exit_gate": 4,
+              "queueing_exit_gate": 4,
+              "waiting_platform": 44,
+              "walking_to_exit_gate": 72
+            },
+            "120": {
+              "waiting_platform": 36,
+              "walking_to_exit_gate": 102
+            },
+            "121": {
+              "passing_exit_gate": 4,
+              "queueing_exit_gate": 2,
+              "walking_to_exit_gate": 92
+            },
+            "123": {
+              "passing_exit_gate": 4,
+              "queueing_exit_gate": 6,
+              "waiting_platform": 58,
+              "walking_to_exit_gate": 58
+            },
+            "125": {
+              "passing_exit_gate": 4,
+              "queueing_exit_gate": 6,
+              "waiting_platform": 38,
+              "walking_to_exit_gate": 56
+            },
+            "127": {
+              "waiting_platform": 54,
+              "walking_to_exit_gate": 81
+            },
+            "128": {
+              "passing_exit_gate": 4,
+              "queueing_exit_gate": 6,
+              "waiting_platform": 56,
+              "walking_to_exit_gate": 30
+            },
+            "130": {
+              "queueing_exit_gate": 1,
+              "waiting_platform": 63,
+              "walking_to_exit_gate": 69
+            },
+            "132": {
+              "passing_exit_gate": 4,
+              "queueing_exit_gate": 6,
+              "waiting_platform": 65,
+              "walking_to_exit_gate": 35
+            },
+            "134": {
+              "waiting_platform": 72,
+              "walking_to_exit_gate": 58
+            },
+            "138": {
+              "waiting_platform": 65,
+              "walking_to_exit_gate": 60
+            },
+            "141": {
+              "waiting_platform": 69,
+              "walking_to_exit_gate": 54
+            },
+            "143": {
+              "passing_exit_gate": 4,
+              "queueing_exit_gate": 6,
+              "waiting_platform": 75,
+              "walking_to_exit_gate": 32
+            },
+            "144": {
+              "passing_exit_gate": 1,
+              "queueing_exit_gate": 6,
+              "waiting_platform": 70,
+              "walking_to_exit_gate": 39
+            },
+            "145": {
+              "waiting_platform": 74,
+              "walking_to_exit_gate": 40
+            },
+            "146": {
+              "waiting_platform": 83,
+              "walking_to_exit_gate": 30
+            },
+            "147": {
+              "waiting_platform": 82,
+              "walking_to_exit_gate": 28
+            },
+            "148": {
+              "walking_to_exit_gate": 107
+            },
+            "69": {
+              "passing_exit_gate": 5,
+              "queueing_exit_gate": 6,
+              "walking_to_exit_gate": 50
+            },
+            "70": {
+              "passing_exit_gate": 5,
+              "queueing_exit_gate": 7,
+              "walking_to_exit_gate": 56
+            },
+            "71": {
+              "passing_exit_gate": 4,
+              "queueing_exit_gate": 10,
+              "walking_to_exit_gate": 50
+            },
+            "73": {
+              "passing_exit_gate": 4,
+              "queueing_exit_gate": 6,
+              "walking_to_exit_gate": 23
+            },
+            "75": {
+              "passing_exit_gate": 4,
+              "queueing_exit_gate": 7,
+              "walking_to_exit_gate": 19
+            },
+            "76": {
+              "passing_exit_gate": 4,
+              "queueing_exit_gate": 8,
+              "walking_to_exit_gate": 36
+            },
+            "77": {
+              "passing_exit_gate": 5,
+              "queueing_exit_gate": 7,
+              "walking_to_exit_gate": 35
+            },
+            "79": {
+              "passing_exit_gate": 4,
+              "queueing_exit_gate": 6,
+              "walking_to_exit_gate": 40
+            },
+            "81": {
+              "passing_exit_gate": 4,
+              "queueing_exit_gate": 11,
+              "walking_to_exit_gate": 37
+            },
+            "82": {
+              "passing_exit_gate": 5,
+              "queueing_exit_gate": 6,
+              "walking_to_exit_gate": 56
+            },
+            "84": {
+              "passing_exit_gate": 6,
+              "queueing_exit_gate": 7,
+              "walking_to_exit_gate": 59
+            },
+            "86": {
+              "passing_exit_gate": 4,
+              "queueing_exit_gate": 6,
+              "walking_to_exit_gate": 21
+            },
+            "87": {
+              "passing_exit_gate": 4,
+              "queueing_exit_gate": 7,
+              "walking_to_exit_gate": 22
+            },
+            "89": {
+              "passing_exit_gate": 4,
+              "queueing_exit_gate": 6,
+              "walking_to_exit_gate": 29
+            },
+            "90": {
+              "passing_exit_gate": 4,
+              "queueing_exit_gate": 9,
+              "walking_to_exit_gate": 24
+            },
+            "92": {
+              "passing_exit_gate": 4,
+              "queueing_exit_gate": 8,
+              "walking_to_exit_gate": 43
+            },
+            "94": {
+              "passing_exit_gate": 5,
+              "queueing_exit_gate": 10,
+              "walking_to_exit_gate": 42
+            },
+            "95": {
+              "passing_exit_gate": 6,
+              "queueing_exit_gate": 7,
+              "walking_to_exit_gate": 51
+            },
+            "96": {
+              "waiting_platform": 9,
+              "walking_to_exit_gate": 142
+            },
+            "98": {
+              "passing_exit_gate": 4,
+              "queueing_exit_gate": 2,
+              "waiting_platform": 3,
+              "walking_to_exit_gate": 124
+            }
+          }
+        }
+      }
+    },
+    "stalled_replan_attribution": {
+      "total": 0,
+      "unique_passengers": 0,
+      "by_passenger": {},
+      "by_region": {},
+      "events": []
+    },
+    "terminal_admission_owners": {
+      "entry": [],
+      "exit": [
+        {
+          "owner_id": 101,
+          "passenger_present": true,
+          "intent": "exit_station",
+          "state": "walking_to_exit_gate",
+          "position": [
+            20.760539229804717,
+            25.797870535204197
+          ],
+          "target": [
+            19.65,
+            25.2
+          ],
+          "route": [],
+          "velocity_mps": [
+            0.0008325943295410809,
+            0.0033955603214828045
+          ],
+          "progress_age_seconds": 9.0,
+          "last_replan_reason": "movement_stalled",
+          "goal": {
+            "kind": "queue_approach",
+            "label": "Exit gate bank lane 2 queue tail approach",
+            "stage": "exit_gate"
+          },
+          "goal_runtime": {
+            "node_id": "use_exit_gate",
+            "stage": "exit_gate",
+            "interaction_state": "approach_queue",
+            "retry_count": 1,
+            "commitment_facility_id": "exit_gate:exit_gate_bank_a:lane_2"
+          },
+          "decision_holding_targets": {},
+          "approach_facilities": {
+            "exit_gate": "exit_gate:exit_gate_bank_a:lane_2"
+          }
+        },
+        {
+          "owner_id": 111,
+          "passenger_present": true,
+          "intent": "exit_station",
+          "state": "walking_to_exit_gate",
+          "position": [
+            17.812537699871385,
+            20.56440874091438
+          ],
+          "target": [
+            17.75,
+            20.4
+          ],
+          "route": [],
+          "velocity_mps": [
+            -0.3423500633271459,
+            -0.9000233472105954
+          ],
+          "progress_age_seconds": 0.0,
+          "last_replan_reason": "movement_stalled",
+          "goal": {
+            "kind": "queue_approach",
+            "label": "gate tail stall recovery",
+            "stage": "exit_gate"
+          },
+          "goal_runtime": {
+            "node_id": "use_exit_gate",
+            "stage": "exit_gate",
+            "interaction_state": "approach_queue",
+            "retry_count": 0,
+            "commitment_facility_id": "exit_gate:exit_gate_bank_a:lane_1"
+          },
+          "decision_holding_targets": {},
+          "approach_facilities": {
+            "exit_gate": "exit_gate:exit_gate_bank_a:lane_1"
+          }
+        },
+        {
+          "owner_id": 117,
+          "passenger_present": true,
+          "intent": "exit_station",
+          "state": "walking_to_exit_gate",
+          "position": [
+            19.069914383848904,
+            25.78481958806847
+          ],
+          "target": [
+            17.75,
+            25.2
+          ],
+          "route": [],
+          "velocity_mps": [
+            -4.535343617106946e-06,
+            0.003500016042227827
+          ],
+          "progress_age_seconds": 11.0,
+          "last_replan_reason": null,
+          "goal": {
+            "kind": "queue_approach",
+            "label": "Exit gate bank lane 1 queue tail approach",
+            "stage": "exit_gate"
+          },
+          "goal_runtime": {
+            "node_id": "use_exit_gate",
+            "stage": "exit_gate",
+            "interaction_state": "approach_queue",
+            "retry_count": 0,
+            "commitment_facility_id": "exit_gate:exit_gate_bank_a:lane_1"
+          },
+          "decision_holding_targets": {},
+          "approach_facilities": {
+            "exit_gate": "exit_gate:exit_gate_bank_a:lane_1"
+          }
+        },
+        {
+          "owner_id": 120,
+          "passenger_present": true,
+          "intent": "exit_station",
+          "state": "walking_to_exit_gate",
+          "position": [
+            20.178190879174338,
+            25.789936908051555
+          ],
+          "target": [
+            17.75,
+            25.2
+          ],
+          "route": [],
+          "velocity_mps": [
+            -0.0023502033575795167,
+            0.0025912177873017583
+          ],
+          "progress_age_seconds": 14.0,
+          "last_replan_reason": null,
+          "goal": {
+            "kind": "queue_approach",
+            "label": "Exit gate bank lane 1 queue tail approach",
+            "stage": "exit_gate"
+          },
+          "goal_runtime": {
+            "node_id": "use_exit_gate",
+            "stage": "exit_gate",
+            "interaction_state": "approach_queue",
+            "retry_count": 0,
+            "commitment_facility_id": "exit_gate:exit_gate_bank_a:lane_1"
+          },
+          "decision_holding_targets": {},
+          "approach_facilities": {
+            "exit_gate": "exit_gate:exit_gate_bank_a:lane_1"
+          }
+        },
+        {
+          "owner_id": 127,
+          "passenger_present": true,
+          "intent": "exit_station",
+          "state": "walking_to_exit_gate",
+          "position": [
+            26.05369878481756,
+            25.102976575931216
+          ],
+          "target": [
+            21.55,
+            25.2
+          ],
+          "route": [],
+          "velocity_mps": [
+            -0.0008055294160200788,
+            -6.717520915699993e-05
+          ],
+          "progress_age_seconds": 4.0,
+          "last_replan_reason": "movement_stalled",
+          "goal": {
+            "kind": "queue_approach",
+            "label": "Exit gate bank lane 3 queue tail approach",
+            "stage": "exit_gate"
+          },
+          "goal_runtime": {
+            "node_id": "use_exit_gate",
+            "stage": "exit_gate",
+            "interaction_state": "approach_queue",
+            "retry_count": 0,
+            "commitment_facility_id": "exit_gate:exit_gate_bank_a:lane_3"
+          },
+          "decision_holding_targets": {},
+          "approach_facilities": {
+            "exit_gate": "exit_gate:exit_gate_bank_a:lane_3"
+          }
+        },
+        {
+          "owner_id": 130,
+          "passenger_present": true,
+          "intent": "exit_station",
+          "state": "queueing_exit_gate",
+          "position": [
+            17.7771125303283,
+            22.836247917569356
+          ],
+          "target": [
+            17.75,
+            22.8
+          ],
+          "route": [],
+          "velocity_mps": [
+            0.0,
+            0.0
+          ],
+          "progress_age_seconds": 0.0,
+          "last_replan_reason": null,
+          "goal": {
+            "kind": "queued",
+            "label": "Exit gate bank lane 1 queue",
+            "stage": "exit_gate"
+          },
+          "goal_runtime": {
+            "node_id": "use_exit_gate",
+            "stage": "exit_gate",
+            "interaction_state": "queueing",
+            "retry_count": 0,
+            "commitment_facility_id": "exit_gate:exit_gate_bank_a:lane_1"
+          },
+          "decision_holding_targets": {},
+          "approach_facilities": {
+            "exit_gate": "exit_gate:exit_gate_bank_a:lane_1"
+          }
+        },
+        {
+          "owner_id": 134,
+          "passenger_present": true,
+          "intent": "exit_station",
+          "state": "walking_to_exit_gate",
+          "position": [
+            27.724522370800386,
+            25.24696414665934
+          ],
+          "target": [
+            21.55,
+            25.8
+          ],
+          "route": [
+            [
+              19.65,
+              25.2
+            ]
+          ],
+          "velocity_mps": [
+            0.0008907487369356204,
+            0.01626317817578027
+          ],
+          "progress_age_seconds": 2.0,
+          "last_replan_reason": "movement_stalled",
+          "goal": {
+            "kind": "queue_approach",
+            "label": "Exit gate bank lane 2 queue tail approach",
+            "stage": "exit_gate"
+          },
+          "goal_runtime": {
+            "node_id": "use_exit_gate",
+            "stage": "exit_gate",
+            "interaction_state": "approach_queue",
+            "retry_count": 0,
+            "commitment_facility_id": "exit_gate:exit_gate_bank_a:lane_2"
+          },
+          "decision_holding_targets": {},
+          "approach_facilities": {
+            "exit_gate": "exit_gate:exit_gate_bank_a:lane_2"
+          }
+        },
+        {
+          "owner_id": 138,
+          "passenger_present": true,
+          "intent": "exit_station",
+          "state": "walking_to_exit_gate",
+          "position": [
+            21.55110795103313,
+            25.798112474950713
+          ],
+          "target": [
+            19.65,
+            25.2
+          ],
+          "route": [],
+          "velocity_mps": [
+            -0.0033788104136007746,
+            0.0008667701510134407
+          ],
+          "progress_age_seconds": 18.0,
+          "last_replan_reason": null,
+          "goal": {
+            "kind": "queue_approach",
+            "label": "Exit gate bank lane 2 queue tail approach",
+            "stage": "exit_gate"
+          },
+          "goal_runtime": {
+            "node_id": "use_exit_gate",
+            "stage": "exit_gate",
+            "interaction_state": "approach_queue",
+            "retry_count": 0,
+            "commitment_facility_id": "exit_gate:exit_gate_bank_a:lane_2"
+          },
+          "decision_holding_targets": {},
+          "approach_facilities": {
+            "exit_gate": "exit_gate:exit_gate_bank_a:lane_2"
+          }
+        },
+        {
+          "owner_id": 141,
+          "passenger_present": true,
+          "intent": "exit_station",
+          "state": "walking_to_exit_gate",
+          "position": [
+            21.175557253989822,
+            26.272357235415427
+          ],
+          "target": [
+            21.520449785357638,
+            25.8
+          ],
+          "route": [
+            [
+              19.65,
+              25.2
+            ]
+          ],
+          "velocity_mps": [
+            -0.3448925313678153,
+            -0.10095621273034894
+          ],
+          "progress_age_seconds": 0.0,
+          "last_replan_reason": null,
+          "goal": {
+            "kind": "queue_approach",
+            "label": "Exit gate bank lane 2 queue tail approach",
+            "stage": "exit_gate"
+          },
+          "goal_runtime": {
+            "node_id": "use_exit_gate",
+            "stage": "exit_gate",
+            "interaction_state": "approach_queue",
+            "retry_count": 0,
+            "commitment_facility_id": "exit_gate:exit_gate_bank_a:lane_2"
+          },
+          "decision_holding_targets": {},
+          "approach_facilities": {
+            "exit_gate": "exit_gate:exit_gate_bank_a:lane_2"
+          }
+        },
+        {
+          "owner_id": 143,
+          "passenger_present": true,
+          "intent": "exit_station",
+          "state": "walking_to_exit_gate",
+          "position": [
+            21.35551284396811,
+            17.421305697981502
+          ],
+          "target": [
+            19.65,
+            12.0
+          ],
+          "route": [],
+          "velocity_mps": [
+            -0.19506151691363627,
+            -0.6200411313931937
+          ],
+          "progress_age_seconds": 0.0,
+          "last_replan_reason": null,
+          "goal": {
+            "kind": "goal_region",
+            "label": "station_exit",
+            "stage": null
+          },
+          "goal_runtime": {
+            "node_id": "reach_station_exit",
+            "stage": null,
+            "interaction_state": null,
+            "retry_count": 0,
+            "commitment_facility_id": null
+          },
+          "decision_holding_targets": {},
+          "approach_facilities": {}
+        },
+        {
+          "owner_id": 144,
+          "passenger_present": true,
+          "intent": "exit_station",
+          "state": "passing_exit_gate",
+          "position": [
+            21.57275192706434,
+            20.63344759349276
+          ],
+          "target": [
+            21.55,
+            17.12
+          ],
+          "route": [],
+          "velocity_mps": [
+            0.0,
+            0.0
+          ],
+          "progress_age_seconds": 0.0,
+          "last_replan_reason": null,
+          "goal": {
+            "kind": "being_served",
+            "label": "Exit gate bank lane 3",
+            "stage": "exit_gate"
+          },
+          "goal_runtime": {
+            "node_id": "use_exit_gate",
+            "stage": "exit_gate",
+            "interaction_state": "in_service",
+            "retry_count": 0,
+            "commitment_facility_id": "exit_gate:exit_gate_bank_a:lane_3"
+          },
+          "decision_holding_targets": {},
+          "approach_facilities": {}
+        },
+        {
+          "owner_id": 145,
+          "passenger_present": true,
+          "intent": "exit_station",
+          "state": "walking_to_exit_gate",
+          "position": [
+            22.174991902782082,
+            25.004140742131064
+          ],
+          "target": [
+            21.55,
+            25.2
+          ],
+          "route": [],
+          "velocity_mps": [
+            -0.9107123263081434,
+            0.2834719530674228
+          ],
+          "progress_age_seconds": 0.0,
+          "last_replan_reason": null,
+          "goal": {
+            "kind": "queue_approach",
+            "label": "Exit gate bank lane 3 queue tail approach",
+            "stage": "exit_gate"
+          },
+          "goal_runtime": {
+            "node_id": "use_exit_gate",
+            "stage": "exit_gate",
+            "interaction_state": "approach_queue",
+            "retry_count": 0,
+            "commitment_facility_id": "exit_gate:exit_gate_bank_a:lane_3"
+          },
+          "decision_holding_targets": {},
+          "approach_facilities": {
+            "exit_gate": "exit_gate:exit_gate_bank_a:lane_3"
+          }
+        },
+        {
+          "owner_id": 146,
+          "passenger_present": true,
+          "intent": "exit_station",
+          "state": "walking_to_exit_gate",
+          "position": [
+            21.73463592547971,
+            26.48488926267003
+          ],
+          "target": [
+            21.55,
+            26.4
+          ],
+          "route": [
+            [
+              17.75,
+              25.2
+            ]
+          ],
+          "velocity_mps": [
+            -0.6194956696748477,
+            0.5762742187834853
+          ],
+          "progress_age_seconds": 0.0,
+          "last_replan_reason": null,
+          "goal": {
+            "kind": "queue_approach",
+            "label": "Exit gate bank lane 1 queue tail approach",
+            "stage": "exit_gate"
+          },
+          "goal_runtime": {
+            "node_id": "use_exit_gate",
+            "stage": "exit_gate",
+            "interaction_state": "approach_queue",
+            "retry_count": 0,
+            "commitment_facility_id": "exit_gate:exit_gate_bank_a:lane_1"
+          },
+          "decision_holding_targets": {},
+          "approach_facilities": {
+            "exit_gate": "exit_gate:exit_gate_bank_a:lane_1"
+          }
+        },
+        {
+          "owner_id": 147,
+          "passenger_present": true,
+          "intent": "exit_station",
+          "state": "walking_to_exit_gate",
+          "position": [
+            29.795541751941883,
+            22.21987303217506
+          ],
+          "target": [
+            21.55,
+            25.8
+          ],
+          "route": [
+            [
+              19.65,
+              25.2
+            ]
+          ],
+          "velocity_mps": [
+            -1.1185242496153407,
+            0.4856513920253285
+          ],
+          "progress_age_seconds": 0.0,
+          "last_replan_reason": null,
+          "goal": {
+            "kind": "queue_approach",
+            "label": "Exit gate bank lane 2 queue tail approach",
+            "stage": "exit_gate"
+          },
+          "goal_runtime": {
+            "node_id": "use_exit_gate",
+            "stage": "exit_gate",
+            "interaction_state": "approach_queue",
+            "retry_count": 0,
+            "commitment_facility_id": "exit_gate:exit_gate_bank_a:lane_2"
+          },
+          "decision_holding_targets": {},
+          "approach_facilities": {
+            "exit_gate": "exit_gate:exit_gate_bank_a:lane_2"
+          }
+        },
+        {
+          "owner_id": 148,
+          "passenger_present": true,
+          "intent": "exit_station",
+          "state": "walking_to_exit_gate",
+          "position": [
+            21.15729208722886,
+            25.331024573667975
+          ],
+          "target": [
+            21.160434067011376,
+            25.8
+          ],
+          "route": [
+            [
+              19.65,
+              25.2
+            ]
+          ],
+          "velocity_mps": [
+            -0.003141979782515847,
+            0.0014847839224820802
+          ],
+          "progress_age_seconds": 0.0,
+          "last_replan_reason": "movement_stalled",
+          "goal": {
+            "kind": "queue_approach",
+            "label": "Exit gate bank lane 2 queue tail approach",
+            "stage": "exit_gate"
+          },
+          "goal_runtime": {
+            "node_id": "use_exit_gate",
+            "stage": "exit_gate",
+            "interaction_state": "approach_queue",
+            "retry_count": 0,
+            "commitment_facility_id": "exit_gate:exit_gate_bank_a:lane_2"
+          },
+          "decision_holding_targets": {},
+          "approach_facilities": {
+            "exit_gate": "exit_gate:exit_gate_bank_a:lane_2"
+          }
+        },
+        {
+          "owner_id": 96,
+          "passenger_present": true,
+          "intent": "exit_station",
+          "state": "walking_to_exit_gate",
+          "position": [
+            31.64921079924202,
+            25.198305659074247
+          ],
+          "target": [
+            21.55,
+            25.2
+          ],
+          "route": [],
+          "velocity_mps": [
+            -0.0015704672432192979,
+            -4.619021041207816e-07
+          ],
+          "progress_age_seconds": 4.0,
+          "last_replan_reason": "movement_stalled",
+          "goal": {
+            "kind": "queue_approach",
+            "label": "Exit gate bank lane 3 queue tail approach",
+            "stage": "exit_gate"
+          },
+          "goal_runtime": {
+            "node_id": "use_exit_gate",
+            "stage": "exit_gate",
+            "interaction_state": "approach_queue",
+            "retry_count": 0,
+            "commitment_facility_id": "exit_gate:exit_gate_bank_a:lane_3"
+          },
+          "decision_holding_targets": {},
+          "approach_facilities": {
+            "exit_gate": "exit_gate:exit_gate_bank_a:lane_3"
+          }
+        }
+      ]
+    },
+    "terminal_gate_diagnostics": [
+      {
+        "facility_id": "entry_gate:entry_gate_bank_a:lane_1",
+        "stage": "entry_gate",
+        "direction": "in",
+        "queue_passenger_ids": [],
+        "queue_positions": [],
+        "active_passenger_ids": [],
+        "approach_slots": [],
+        "approach_priorities": [],
+        "service_blocked_reason": null,
+        "service_blocked_passenger_id": null,
+        "service_blocked_consecutive_steps": 0
+      },
+      {
+        "facility_id": "entry_gate:entry_gate_bank_a:lane_2",
+        "stage": "entry_gate",
+        "direction": "in",
+        "queue_passenger_ids": [],
+        "queue_positions": [],
+        "active_passenger_ids": [],
+        "approach_slots": [],
+        "approach_priorities": [],
+        "service_blocked_reason": null,
+        "service_blocked_passenger_id": null,
+        "service_blocked_consecutive_steps": 0
+      },
+      {
+        "facility_id": "entry_gate:entry_gate_bank_a:lane_3",
+        "stage": "entry_gate",
+        "direction": "in",
+        "queue_passenger_ids": [],
+        "queue_positions": [],
+        "active_passenger_ids": [],
+        "approach_slots": [],
+        "approach_priorities": [],
+        "service_blocked_reason": null,
+        "service_blocked_passenger_id": null,
+        "service_blocked_consecutive_steps": 0
+      },
+      {
+        "facility_id": "exit_gate:exit_gate_bank_a:lane_1",
+        "stage": "exit_gate",
+        "direction": "out",
+        "queue_passenger_ids": [
+          130
+        ],
+        "queue_positions": [
+          [
+            17.7771125303283,
+            22.836247917569356
+          ]
+        ],
+        "active_passenger_ids": [],
+        "approach_slots": [
+          [
+            111,
+            0
+          ],
+          [
+            117,
+            1
+          ],
+          [
+            120,
+            2
+          ],
+          [
+            130,
+            3
+          ],
+          [
+            146,
+            4
+          ]
+        ],
+        "approach_priorities": [
+          [
+            111,
+            14
+          ],
+          [
+            117,
+            15
+          ],
+          [
+            120,
+            17
+          ],
+          [
+            130,
+            18
+          ],
+          [
+            146,
+            20
+          ]
+        ],
+        "service_blocked_reason": null,
+        "service_blocked_passenger_id": null,
+        "service_blocked_consecutive_steps": 0
+      },
+      {
+        "facility_id": "exit_gate:exit_gate_bank_a:lane_2",
+        "stage": "exit_gate",
+        "direction": "out",
+        "queue_passenger_ids": [],
+        "queue_positions": [],
+        "active_passenger_ids": [],
+        "approach_slots": [
+          [
+            101,
+            1
+          ],
+          [
+            134,
+            2
+          ],
+          [
+            138,
+            3
+          ],
+          [
+            141,
+            4
+          ],
+          [
+            147,
+            5
+          ],
+          [
+            148,
+            0
+          ]
+        ],
+        "approach_priorities": [
+          [
+            101,
+            21
+          ],
+          [
+            134,
+            25
+          ],
+          [
+            138,
+            26
+          ],
+          [
+            141,
+            28
+          ],
+          [
+            147,
+            30
+          ],
+          [
+            148,
+            17
+          ]
+        ],
+        "service_blocked_reason": null,
+        "service_blocked_passenger_id": null,
+        "service_blocked_consecutive_steps": 0
+      },
+      {
+        "facility_id": "exit_gate:exit_gate_bank_a:lane_3",
+        "stage": "exit_gate",
+        "direction": "out",
+        "queue_passenger_ids": [],
+        "queue_positions": [],
+        "active_passenger_ids": [
+          144
+        ],
+        "approach_slots": [
+          [
+            96,
+            0
+          ],
+          [
+            127,
+            1
+          ],
+          [
+            145,
+            2
+          ]
+        ],
+        "approach_priorities": [
+          [
+            96,
+            7
+          ],
+          [
+            127,
+            30
+          ],
+          [
+            145,
+            39
+          ]
+        ],
+        "service_blocked_reason": null,
+        "service_blocked_passenger_id": null,
+        "service_blocked_consecutive_steps": 0
+      }
+    ],
+    "source_integrity_gate": {
+      "schema_version": "alignment_step5_source_integrity_gate.v1",
+      "status": "fail",
+      "thresholds": {
+        "max_pending_residence_steps_exclusive": 10,
+        "max_admission_exhausted_ratio": 0.05
+      },
+      "checks": [
+        {
+          "id": "entry_spawned_equals_scheduled",
+          "field": "spawned_entry_persons",
+          "operator": "==",
+          "expected": 83,
+          "actual": 83,
+          "status": "pass"
+        },
+        {
+          "id": "entry_pending_zero",
+          "field": "alignment_pending_entry_persons",
+          "operator": "==",
+          "expected": 0,
+          "actual": 0,
+          "status": "pass"
+        },
+        {
+          "id": "entry_pending_groups_zero",
+          "field": "alignment_pending_entry_groups",
+          "operator": "==",
+          "expected": 0,
+          "actual": 0,
+          "status": "pass"
+        },
+        {
+          "id": "entry_pending_residence_bounded",
+          "field": "alignment_entry_max_pending_residence_steps",
+          "operator": "<",
+          "expected": 10,
+          "actual": 0,
+          "status": "pass"
+        },
+        {
+          "id": "entry_exhaustion_transient",
+          "field": "alignment_entry_admission_exhausted_ratio",
+          "operator": "<=",
+          "expected": 0.05,
+          "actual": 0.0,
+          "status": "pass"
+        },
+        {
+          "id": "entry_dropped_zero",
+          "field": "alignment_entry_dropped_persons",
+          "operator": "==",
+          "expected": 0,
+          "actual": 0,
+          "status": "pass"
+        },
+        {
+          "id": "entry_conserved",
+          "field": "alignment_entry_demand_conserved",
+          "operator": "==",
+          "expected": true,
+          "actual": true,
+          "status": "pass"
+        },
+        {
+          "id": "exit_spawned_equals_scheduled",
+          "field": "spawned_exit_persons",
+          "operator": "==",
+          "expected": 73,
+          "actual": 50,
+          "status": "fail"
+        },
+        {
+          "id": "exit_pending_zero",
+          "field": "alignment_pending_exit_persons",
+          "operator": "==",
+          "expected": 0,
+          "actual": 23,
+          "status": "fail"
+        },
+        {
+          "id": "exit_pending_groups_zero",
+          "field": "alignment_pending_exit_groups",
+          "operator": "==",
+          "expected": 0,
+          "actual": 23,
+          "status": "fail"
+        },
+        {
+          "id": "exit_pending_residence_bounded",
+          "field": "alignment_exit_max_pending_residence_steps",
+          "operator": "<",
+          "expected": 10,
+          "actual": 124,
+          "status": "fail"
+        },
+        {
+          "id": "exit_exhaustion_transient",
+          "field": "alignment_exit_admission_exhausted_ratio",
+          "operator": "<=",
+          "expected": 0.05,
+          "actual": 0.358974358974359,
+          "status": "fail"
+        },
+        {
+          "id": "exit_dropped_zero",
+          "field": "alignment_exit_dropped_persons",
+          "operator": "==",
+          "expected": 0,
+          "actual": 0,
+          "status": "pass"
+        },
+        {
+          "id": "exit_conserved",
+          "field": "alignment_exit_demand_conserved",
+          "operator": "==",
+          "expected": true,
+          "actual": true,
+          "status": "pass"
+        },
+        {
+          "id": "source_pending_zero",
+          "field": "alignment_pending_source_persons",
+          "operator": "==",
+          "expected": 0,
+          "actual": 23,
+          "status": "fail"
+        },
+        {
+          "id": "source_pending_groups_zero",
+          "field": "alignment_pending_source_groups",
+          "operator": "==",
+          "expected": 0,
+          "actual": 23,
+          "status": "fail"
+        },
+        {
+          "id": "source_dropped_zero",
+          "field": "alignment_source_dropped_persons",
+          "operator": "==",
+          "expected": 0,
+          "actual": 0,
+          "status": "pass"
+        },
+        {
+          "id": "source_conserved",
+          "field": "alignment_source_demand_conserved",
+          "operator": "==",
+          "expected": true,
+          "actual": true,
+          "status": "pass"
+        },
+        {
+          "id": "passenger_liveness_zero",
+          "field": "audit_counts.passenger_liveness_violation",
+          "operator": "==",
+          "expected": 0,
+          "actual": 0,
+          "status": "pass"
+        }
+      ]
+    },
+    "dynamic_blocked_attribution": {
+      "total": 0,
+      "by_code": {},
+      "by_region": {},
+      "top3_regions": []
+    },
+    "residence": {
+      "entry": {
+        "n": 83,
+        "p50_steps": 28,
+        "p90_steps": 85,
+        "p99_steps": 106,
+        "lower_bound_p99_steps": 106,
+        "samples_steps": [
+          23,
+          17,
+          25,
+          25,
+          24,
+          20,
+          25,
+          23,
+          25,
+          20,
+          27,
+          24,
+          28,
+          24,
+          30,
+          25,
+          33,
+          27,
+          22,
+          27,
+          34,
+          23,
+          33,
+          21,
+          26,
+          25,
+          42,
+          27,
+          21,
+          20,
+          28,
+          26,
+          44,
+          26,
+          49,
+          48,
+          55,
+          25,
+          20,
+          19,
+          46,
+          25,
+          35,
+          51,
+          61,
+          24,
+          24,
+          29,
+          24,
+          26,
+          20,
+          28,
+          29,
+          50,
+          26,
+          72,
+          24,
+          24,
+          48,
+          31,
+          83,
+          26,
+          31,
+          85,
+          87,
+          85,
+          40,
+          40,
+          89,
+          82,
+          85,
+          85,
+          82,
+          76,
+          76,
+          71,
+          106,
+          102,
+          79,
+          66,
+          87,
+          69,
+          85
+        ],
+        "completed_samples_steps": [
+          23,
+          17,
+          25,
+          25,
+          24,
+          20,
+          25,
+          23,
+          25,
+          20,
+          27,
+          24,
+          28,
+          24,
+          30,
+          25,
+          33,
+          27,
+          22,
+          27,
+          34,
+          23,
+          33,
+          21,
+          26,
+          25,
+          42,
+          27,
+          21,
+          20,
+          28,
+          26,
+          44,
+          26,
+          49,
+          48,
+          55,
+          25,
+          20,
+          19,
+          46,
+          25,
+          35,
+          51,
+          61,
+          24,
+          24,
+          29,
+          24,
+          26,
+          20,
+          28,
+          29,
+          50,
+          26,
+          72,
+          24,
+          24,
+          48,
+          31,
+          83,
+          26,
+          31,
+          85,
+          87,
+          85,
+          40,
+          40,
+          89,
+          82,
+          85,
+          85,
+          82,
+          76,
+          76,
+          71,
+          106,
+          102,
+          79,
+          66,
+          87,
+          69,
+          85
+        ],
+        "censored_samples_steps": [],
+        "completed_n": 83,
+        "censored_n": 0,
+        "abnormal_residences": []
+      },
+      "exit": {
+        "n": 50,
+        "p50_steps": 95,
+        "p90_steps": null,
+        "p99_steps": null,
+        "lower_bound_p99_steps": 151,
+        "samples_steps": [
+          30,
+          33,
+          31,
+          33,
+          37,
+          39,
+          47,
+          48,
+          50,
+          52,
+          61,
+          64,
+          55,
+          68,
+          57,
+          67,
+          64,
+          72,
+          65,
+          70,
+          76,
+          76,
+          85,
+          90,
+          95,
+          98,
+          98,
+          96,
+          104,
+          127,
+          110,
+          133,
+          124,
+          126,
+          151,
+          148,
+          143,
+          140,
+          138,
+          135,
+          133,
+          130,
+          125,
+          123,
+          117,
+          116,
+          114,
+          113,
+          110,
+          107
+        ],
+        "completed_samples_steps": [
+          30,
+          33,
+          31,
+          33,
+          37,
+          39,
+          47,
+          48,
+          50,
+          52,
+          61,
+          64,
+          55,
+          68,
+          57,
+          67,
+          64,
+          72,
+          65,
+          70,
+          76,
+          76,
+          85,
+          90,
+          95,
+          98,
+          98,
+          96,
+          104,
+          127,
+          110,
+          133,
+          124,
+          126
+        ],
+        "censored_samples_steps": [
+          151,
+          148,
+          143,
+          140,
+          138,
+          135,
+          133,
+          130,
+          125,
+          123,
+          117,
+          116,
+          114,
+          113,
+          110,
+          107
+        ],
+        "completed_n": 34,
+        "censored_n": 16,
+        "abnormal_residences": []
+      }
+    }
+  },
+  "artifact_sha256": "5d6d18645c2b83886b5e6b4ff7e12f374fa8719baf536e8a94e805ab1c1848c3"
+}

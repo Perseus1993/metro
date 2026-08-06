@@ -1,0 +1,101 @@
+{
+  "schema_version": "alignment_round25_evidence_manifest.v1",
+  "round": 25,
+  "status": "pass",
+  "trust_model": "Aliases and canonical artifact hashes are anchored by immutable, content-addressed copies. Verification against an explicit Git revision provides the external trust root for the coordinated-rewrite threat.",
+  "required_artifacts": [
+    "T0_two_arm_baseline.json",
+    "T1_measurement_900.json",
+    "T1_residence_time.json",
+    "T2_diff_summary.json",
+    "T3_preflight_sizing.json",
+    "T4_gate_definition.json",
+    "T5_tripwire_120.json",
+    "T6_dynamic_blocked_hist.json",
+    "T8_ladder_240.json",
+    "T9_debt_triage.json"
+  ],
+  "entries": [
+    {
+      "alias": "T0_two_arm_baseline.json",
+      "immutable_path": "immutable/T0_two_arm_baseline.00a4c73caba89a69c63d8b3b8908a6eb2188db32c7b61be4fa4c864d1cc81249.json",
+      "schema_version": "alignment_round25_two_arm.v1",
+      "status": "pass",
+      "artifact_sha256": "00a4c73caba89a69c63d8b3b8908a6eb2188db32c7b61be4fa4c864d1cc81249",
+      "file_sha256": "202dfe269f24a2c6d08c701eaf5bb22699e3cab6111e3b98bb5a105fde1fce2a"
+    },
+    {
+      "alias": "T1_measurement_900.json",
+      "immutable_path": "immutable/T1_measurement_900.97ca0e402602e5514ed198b9d51fd1713064190ea36d3c3f7bbd7a4e3166c692.json",
+      "schema_version": "alignment_round25_residence_probe.v1",
+      "status": "pass",
+      "artifact_sha256": "97ca0e402602e5514ed198b9d51fd1713064190ea36d3c3f7bbd7a4e3166c692",
+      "file_sha256": "458f57cd1c4e9874b4af637f3544d4dc688b44dd9dcd4932c150c1065484be6a"
+    },
+    {
+      "alias": "T1_residence_time.json",
+      "immutable_path": "immutable/T1_residence_time.4e3652c1b4faad6df9bd3e9ebdfbbed19a76aa43f91a105f2d2530153d85416e.json",
+      "schema_version": "alignment_round25_residence_time.v1",
+      "status": "measured",
+      "artifact_sha256": "4e3652c1b4faad6df9bd3e9ebdfbbed19a76aa43f91a105f2d2530153d85416e",
+      "file_sha256": "4373a4c5e7967467a717b3cda7e84558f43691cb85177fe5254514492e3cf7aa"
+    },
+    {
+      "alias": "T2_diff_summary.json",
+      "immutable_path": "immutable/T2_diff_summary.50e77267d7eb632ba095c6fa0f087aa474f3b5a44e60bf025e5132ad09230505.json",
+      "schema_version": "alignment_round25_t2_diff_summary.v1",
+      "status": "implemented",
+      "artifact_sha256": "50e77267d7eb632ba095c6fa0f087aa474f3b5a44e60bf025e5132ad09230505",
+      "file_sha256": "bb7ea9bc6d1bdf9f0ad1b42ac2a7bfe867098e4966db2354d122359609fa7e48"
+    },
+    {
+      "alias": "T3_preflight_sizing.json",
+      "immutable_path": "immutable/T3_preflight_sizing.0e5170c1320ee7d1ec6a87da2796d36470287605ebfd1beb79cc77aaf79fd5a0.json",
+      "schema_version": "alignment_round25_t3_preflight_sizing.v1",
+      "status": "pass",
+      "artifact_sha256": "0e5170c1320ee7d1ec6a87da2796d36470287605ebfd1beb79cc77aaf79fd5a0",
+      "file_sha256": "4906f387ae42a89ce5f90e645b92a035de38aa3464849846d84b02f2ea861783"
+    },
+    {
+      "alias": "T4_gate_definition.json",
+      "immutable_path": "immutable/T4_gate_definition.f22fc7b29d786b6574456cf13d9a8adf9a8948aa44dc8886a88444773461dae6.json",
+      "schema_version": "alignment_round25_t4_gate_definition.v1",
+      "status": "active",
+      "artifact_sha256": "f22fc7b29d786b6574456cf13d9a8adf9a8948aa44dc8886a88444773461dae6",
+      "file_sha256": "ec4e83881f7e0af2cced8b1b07540380aa566485683d721debb936d3ea315f57"
+    },
+    {
+      "alias": "T5_tripwire_120.json",
+      "immutable_path": "immutable/T5_tripwire_120.07b6611cdc4d016e5945a8148a12ca5325dd035ba6cb062d22cac53b282e2447.json",
+      "schema_version": "alignment_round25_two_arm.v1",
+      "status": "pass",
+      "artifact_sha256": "07b6611cdc4d016e5945a8148a12ca5325dd035ba6cb062d22cac53b282e2447",
+      "file_sha256": "4ffd3c1796adbbee431e6990c4f181a602f0a3ec903106b932394877f73f2f70"
+    },
+    {
+      "alias": "T6_dynamic_blocked_hist.json",
+      "immutable_path": "immutable/T6_dynamic_blocked_hist.a41d8759d61c74ea28b351e4f4fe0238ddcc1abbfc7febe0404759c6b30f1481.json",
+      "schema_version": "alignment_round25_dynamic_blocked_attribution.v1",
+      "status": "pass",
+      "artifact_sha256": "a41d8759d61c74ea28b351e4f4fe0238ddcc1abbfc7febe0404759c6b30f1481",
+      "file_sha256": "0724f2c69caa9820c3e37fc66707b9a75e2f5879e596423224c9918b66a11c42"
+    },
+    {
+      "alias": "T8_ladder_240.json",
+      "immutable_path": "immutable/T8_ladder_240.2eb70cb294acbe0d9b640e821b110a431fead5bdc97b946463c63474371ff355.json",
+      "schema_version": "alignment_round25_two_arm.v1",
+      "status": "pass",
+      "artifact_sha256": "2eb70cb294acbe0d9b640e821b110a431fead5bdc97b946463c63474371ff355",
+      "file_sha256": "3fb833435c0b2f2922f82fcb86ac1d6d8f2714a10d9626f5e60b46af4016538c"
+    },
+    {
+      "alias": "T9_debt_triage.json",
+      "immutable_path": "immutable/T9_debt_triage.3c309dab915da48be08f7d3d4711d814f732cfe2e7575ae7900c1f8055949884.json",
+      "schema_version": "alignment_round25_debt_triage.v1",
+      "status": "pass",
+      "artifact_sha256": "3c309dab915da48be08f7d3d4711d814f732cfe2e7575ae7900c1f8055949884",
+      "file_sha256": "4463eee569f42632c56e8b2517d0eb9c493141e6f33617c2376260fee5b3f041"
+    }
+  ],
+  "artifact_sha256": "7b456cf44cd175488e35db860a5595c2654c6826972fdbfd31e817f239c90078"
+}

@@ -1,18 +1,22 @@
 from __future__ import annotations
 
-from dataclasses import dataclass
 import json
+from dataclasses import dataclass
 from math import hypot
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, ClassVar
 
 from ..facilities.process import FacilityKind
 from ..facilities.runtime import FacilityProcessAgent
+from ..planning.goal_state import FacilityInteractionState
 from ..planning.plan import (
     SERVICE_STATES as PLAN_SERVICE_STATES,
+)
+from ..planning.plan import (
     WALKING_STATES as PLAN_WALKING_STATES,
+)
+from ..planning.plan import (
     AgentState,
 )
-from ..planning.goal_state import FacilityInteractionState
 from .physical_waypoint_routing import PhysicalRouteUnreachableError
 
 if TYPE_CHECKING:
@@ -45,12 +49,14 @@ class PassengerLivenessViolation(RuntimeError):
 class ExplicitReplanPolicy:
     """Forward audited progress stalls to the sole Goal Runtime authority."""
 
-    FACILITY_REPLAN_STATES = {
+    FACILITY_REPLAN_STATES: ClassVar[frozenset[str]] = frozenset(
+        {
         AgentState.QUEUEING_GATE.value,
         AgentState.QUEUEING_VERTICAL.value,
         AgentState.QUEUEING_DOOR.value,
         AgentState.QUEUEING_EXIT_GATE.value,
-    }
+        }
+    )
     SERVICE_REPLAN_STATES = PLAN_SERVICE_STATES
 
     def replan(
@@ -160,6 +166,19 @@ class ProgressMonitor:
         ) * float(model.scenario.tick_seconds)
         threshold = float(model.scenario.liveness_fail_fast_seconds)
         if stalled_seconds < threshold:
+            return
+
+        if walking and not structurally_unowned and self.replan_policy.replan(
+            model,
+            passenger,
+            reason="movement_stalled",
+            stalled_seconds=stalled_seconds,
+        ):
+            self.liveness_records[passenger_id] = PassengerLivenessRecord(
+                position=tuple(passenger.pos),
+                started_step=int(model.step_index),
+                strategic_revision=self._strategic_revision(passenger),
+            )
             return
 
         context = self._liveness_context(

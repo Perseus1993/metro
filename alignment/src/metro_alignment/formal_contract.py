@@ -86,7 +86,7 @@ class ControlEvidence(StrictContract):
     control_id: str
     role: Literal["ladder_rung", "qualification_control"]
     order_index: int = Field(ge=0)
-    status: Literal["pass"]
+    status: Literal["pass", "qualification_pass"]
     control_spec_sha256: str
     scene_config_sha256: str
     control_artifact: ArtifactRecord
@@ -98,6 +98,11 @@ class ControlEvidence(StrictContract):
         has_saturated = self.saturated_flow_artifact is not None
         if (self.role == "qualification_control") != has_saturated:
             raise ValueError("only a qualification control carries saturated-flow evidence")
+        expected_status = (
+            "qualification_pass" if self.role == "qualification_control" else "pass"
+        )
+        if self.status != expected_status:
+            raise ValueError(f"{self.role} status must be {expected_status!r}")
         return self
 
 
@@ -110,7 +115,7 @@ class ControlRunArtifact(StrictContract):
     control_spec_sha256: str
     role: Literal["ladder_rung", "qualification_control"]
     order_index: int = Field(ge=0)
-    status: Literal["pass"]
+    status: Literal["pass", "qualification_pass"]
     runtime_cohort: RuntimeCohort
     scene_config_sha256: str
     simulation_manifest: ArtifactRecord
@@ -122,6 +127,11 @@ class ControlRunArtifact(StrictContract):
         has_saturated = self.saturated_flow_artifact is not None
         if (self.role == "qualification_control") != has_saturated:
             raise ValueError("only a qualification control carries saturated-flow evidence")
+        expected_status = (
+            "qualification_pass" if self.role == "qualification_control" else "pass"
+        )
+        if self.status != expected_status:
+            raise ValueError(f"{self.role} status must be {expected_status!r}")
         return self
 
 

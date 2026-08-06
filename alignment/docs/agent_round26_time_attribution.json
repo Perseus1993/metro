@@ -1,0 +1,48 @@
+{
+  "schema_version": "alignment_agent_review.v2",
+  "round": 26,
+  "agent": "time_attribution",
+  "task_ref": "T2/H",
+  "status": "fail",
+  "checks": [
+    {"id": "H1", "question": "五个 canonical phases 是否互斥且穷尽驻留时间", "verdict": "pass", "evidence": ["alignment/src/metro_alignment/service_time_attribution.py:10", "alignment/src/metro_alignment/service_time_attribution.py:52", "alignment/tests/test_service_time_attribution.py:36", "cmd: independent owner-level recomputation over 10 current aliases"], "note": "每个 owner 每步只进入一个 canonical phase；phase 和 travel leaf 均逐 owner 对齐 residence。"},
+    {"id": "H2", "question": "entry/exit 残差是否低于 5%", "verdict": "pass", "evidence": ["alignment/output/round26/T5_T6_final_480_seed42.json", "cmd: independently sum phase totals and residence samples for all current aliases"], "note": "entry 与 exit 最大残差均为 0，unclassified 均为 0。"},
+    {"id": "H3", "question": "当前 exit p50 是否得到具体解释", "verdict": "pass", "evidence": ["alignment/output/round26/T5_T6_final_480_seed42.json", "alignment/output/round26/T5_T6_final_480_seed43.json", "alignment/output/round26/T5_T6_final_480_seed44.json"], "note": "完整观测 p50 为 124/133/126；主要由 moving 与 upstream_wait 构成，而不是未分类或 gate headway。"},
+    {"id": "H4", "question": "历史 1400/74=18.9189 是否在同一 cohort 被严格重建", "verdict": "fail", "evidence": ["alignment/scripts/write_round25_gate_artifacts.py:269", "alignment/docs/debt_register.md#debt-4", "cmd: search current aliases for lane opportunity/effective-window reconstruction"], "note": "当前工件没有同 cohort 的每车道 open、idle-underfed、blocked、service opportunity、completion 与 effective window，不能以 travel 占主导代替 T7 解释。"},
+    {"id": "H5", "question": "entry 与 exit 是否共用阶段定义", "verdict": "pass", "evidence": ["alignment/src/metro_alignment/service_time_attribution.py:61", "alignment/src/metro_alignment/service_time_attribution.py:140"], "note": "两条 flow 共用同一 observer、classifier、phase constants 和汇总路径。"},
+    {"id": "H6", "question": "右删失是否保留并 censor-aware", "verdict": "pass", "evidence": ["alignment/src/metro_alignment/metro_executor.py:1283", "alignment/output/round26/T5_T6_final_240_seed42.json", "alignment/output/round26/T5_T6_final_240_seed43.json"], "note": "240-step 保留 33/37/33 个右删失；不可识别分位数保持 null。480/600/900 完整 cohort 为 73 completed、0 censored。"},
+    {"id": "H7", "question": "instrumentation 是否改变模拟行为", "verdict": "pass", "evidence": ["alignment/src/metro_alignment/metro_executor.py:577", "alignment/src/metro_alignment/service_time_attribution.py:52", "cmd: directed attribution and token-close tests, 4 passed"], "note": "observer 在 simulation step 后只读状态并更新独立计数。"}
+  ],
+  "issues": [
+    {"severity": "P1", "title": "T7/DEBT-4 的 18.9x 缺口仍未在单一 cohort 严格解释", "evidence": ["alignment/scripts/write_round25_gate_artifacts.py:272", "alignment/output/round26/T5_T6_final_480_seed42.json"], "repro": "复算 1400/74 后在当前工件寻找同 cohort 的 lane opportunity/effective-window 守恒字段，字段不存在。", "suggested_fix": "在预注册 cohort 中记录每车道 open、service-ready、idle-underfed、blocked、opportunity、completion 与 effective window，或用 held-out 证据重标定。"},
+    {"severity": "P2", "title": "证据 runtime 与当前 lock 的 pandas 版本不一致", "evidence": ["alignment/uv.lock", "alignment/output/round26/T5_T6_final_480_seed42.json#runtime_cohort"], "repro": "工件记录 pandas 3.0.3，当前 lock 为 3.0.5。", "suggested_fix": "注册正式证据前统一 lock/runtime 后重跑。"},
+    {"severity": "P2", "title": "final glob 混入 superseded v2 工件", "evidence": ["alignment/output/round26/T5_T6_final_v2_240_seed42.json"], "repro": "T5_T6_final_*.json 同时选中旧 v2 与当前 canonical aliases。", "suggested_fix": "最终清单使用精确文件名，旧诊断工件不得进入 manifest。"}
+  ],
+  "falsification_attempts": [
+    "逐 owner 复算 canonical phases、travel leaves 与 residence。",
+    "按总样本量复算 240-step censor-aware nearest-rank 可识别性。",
+    "展开完整 cohort 的中位 owner，确认 movement/upstream waiting 主导。",
+    "搜索同 cohort 的 1400/74 和 lane opportunity 守恒字段，无法重建 T7。",
+    "校验 10 个 canonical alias 自哈希，并比较 source/runtime fingerprints。"
+  ],
+  "metrics": {
+    "reviewed_head": "01f64607b7e488339d2d7faf5fd3165d4fcdf4dc",
+    "t2_status": "pass",
+    "t7_status": "fail",
+    "checks_passed": 6,
+    "checks_failed": 1,
+    "max_residual_by_flow": {"entry": 0.0, "exit": 0.0},
+    "unclassified_steps_by_flow": {"entry": 0, "exit": 0},
+    "current_exit_full_observation": {"seed42": {"p50": 124, "p90": 220, "p99": 294}, "seed43": {"p50": 133, "p90": 210, "p99": 303}, "seed44": {"p50": 126, "p90": 212, "p99": 278}},
+    "historical_nominal_to_observed_ratio": 18.91891891891892,
+    "historical_ratio_reconstructed_from_current_single_cohort": false,
+    "artifact_self_hash_passed": 10,
+    "artifact_self_hash_total": 10,
+    "artifact_pandas_version": "3.0.3",
+    "locked_pandas_version": "3.0.5",
+    "p0": 0,
+    "p1": 1,
+    "p2": 2
+  },
+  "unverified_reason": "T2 passes independently, but the overall H audit fails because T7/DEBT-4 remains unresolved."
+}

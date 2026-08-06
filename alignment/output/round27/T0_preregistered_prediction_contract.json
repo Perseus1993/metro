@@ -1,0 +1,55 @@
+{
+  "schema_version": "alignment_round27_preregistered_prediction.v1",
+  "status": "prediction_unavailable",
+  "frozen_at_parent_revision": "27e57b4cdf4745d0523e2415b13dc2caf4462d6e",
+  "arrival_contract": {
+    "demand_seconds": 600,
+    "prediction_cutoff_step": 615,
+    "entry": {
+      "scheduled_persons": 417,
+      "first_step": 0,
+      "last_step": 598,
+      "peak_same_tick_persons": 2
+    },
+    "exit": {
+      "scheduled_persons": 367,
+      "first_step": 75,
+      "last_step": 614,
+      "peak_same_tick_persons": 3,
+      "train_batches_persons": [123, 122, 122]
+    }
+  },
+  "prediction": {
+    "formula": "serial_sum_b(L_b + ceil(N_b / mu_min_b)) + downstream_tail",
+    "predicted_clearance_upper_step": null,
+    "reason": "No bottleneck currently has both a positive qualified minimum service rate and a finite downstream-tail bound."
+  },
+  "known_finite_wip_not_service_rates": {
+    "entry_gate_decision_cells": 46,
+    "exit_gate_decision_cells": 7,
+    "boarding_decision_cells": 129
+  },
+  "diagnostics_only": {
+    "gate_lanes_per_flow": 3,
+    "nominal_gate_rate_per_lane_persons_per_minute": 55,
+    "nominal_gate_rate_aggregate_persons_per_second": 2.75,
+    "eligible_for_acceptance": false
+  },
+  "qualification_contract": {
+    "window_basis": "train_headway",
+    "window_steps": 240,
+    "windows": [[75, 315], [315, 555]],
+    "qualification_seeds": [41, 42, 43, 44, 45],
+    "held_out_seeds": [46, 47, 48, 49, 50],
+    "offered_workload_required": true,
+    "blocked_intervals_excluded": false,
+    "mu_min_rule": "minimum completed persons per 240-step window divided by 240",
+    "zero_completion_rule": "floor and prediction remain unavailable"
+  },
+  "forbidden_substitutes": [
+    "trial-selected clearance horizon",
+    "uncalibrated nominal service rate",
+    "short-demand token-residence percentile",
+    "holding-cell count treated as throughput"
+  ]
+}

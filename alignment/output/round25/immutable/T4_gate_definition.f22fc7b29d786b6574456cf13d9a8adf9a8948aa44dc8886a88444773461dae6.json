@@ -1,0 +1,49 @@
+{
+  "schema_version": "alignment_round25_t4_gate_definition.v1",
+  "status": "active",
+  "design_sha256": "e029a05941243fa9e3fd0d180af6157a26c0e69fd9e1fa9e4a0f24bcfcb13663",
+  "scene_config_sha256": "ee79aede12fa6e534469360b4ff20bead3bd31fe1e915d721fdfad92a876a020",
+  "metro_runtime_fingerprint": {
+    "schema_version": "metro_source_fingerprint.v2",
+    "package_version": "0.1.0",
+    "python": "CPython 3.12.13",
+    "dependency_versions": {
+      "jupedsim": "1.4.2",
+      "mesa": "3.5.1",
+      "numpy": "2.5.1",
+      "pandas": "3.0.5",
+      "pedpy": "1.5.1",
+      "shapely": "2.1.2"
+    },
+    "python_file_count": 271,
+    "source_tree_sha256": "6a6b0b1a24e3e3ef221d43fb7fb7d35754c2d557493ac23ccbbb4c099dc0bfe3"
+  },
+  "analysis_runtime_fingerprint": {
+    "schema_version": "alignment_analysis_runtime.v2",
+    "python": "CPython 3.12.13",
+    "pedpy_version": "1.5.1",
+    "file_count": 42,
+    "content_sha256": "70cf6b08d76dba7987e169c2cd8912ea324b6d2515f9190204b1ab1e8d3d379a"
+  },
+  "thresholds": {
+    "max_pending_residence_steps_exclusive": 10,
+    "max_admission_exhausted_ratio": 0.05
+  },
+  "flows": [
+    "entry",
+    "exit"
+  ],
+  "criteria": [
+    "spawned == scheduled at horizon",
+    "pending persons == 0",
+    "pending groups == 0",
+    "maximum pending residence < 10 steps",
+    "admission_exhausted / admission_attempts <= 0.05",
+    "dropped == 0",
+    "conserved == true",
+    "passenger_liveness_violation == 0"
+  ],
+  "implementation": "alignment/src/metro_alignment/source_integrity_gate.py",
+  "tests": "alignment/tests/test_source_integrity_gate.py",
+  "artifact_sha256": "f22fc7b29d786b6574456cf13d9a8adf9a8948aa44dc8886a88444773461dae6"
+}
