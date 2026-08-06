@@ -126,11 +126,12 @@ liveness violation 通过，但 DEBT-2 仍超过 1% 重规划门槛，作为已�
 
 - Import Linter：776 文件、3540 依赖、12 条契约、**0 破坏**
 - 全量测试：1526 passed / 4 failed
-- 3 个稳定基线失败：same-tick gate、JuPedSim recovery、`runtime_base.py` 体积棘轮（981 > 970）
+- 2 个稳定行为基线失败：same-tick gate、JuPedSim recovery
+- `runtime_base.py` 已将队列捕获与 release 几何机械拆出为独立 mixin，当前 503 行，低于 970 行棘轮
 
 **注意**：`same-tick gate` 已在 `55543e2b` 上单独复现，确认是基线失败，不是 Round 27
-回归。该问题与 JuPedSim recovery 一样不在本轮收口范围内；`runtime_base.py` 体积棘轮则
-是独立的机械性清理候选。
+回归。该问题与 JuPedSim recovery 一样不在本轮收口范围内。`runtime_base.py` 的机械性
+体积清理已完成。
 
 ---
 
