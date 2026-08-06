@@ -10,9 +10,11 @@ from typing import Any
 
 from metro_station.application.simulation import SimulationRequest, run_simulation
 
+from metro_alignment.analysis_runtime import analysis_runtime_fingerprint
 from metro_alignment.artifact_io import write_json_atomic
 from metro_alignment.formal_contract import canonical_sha256
 from metro_alignment.metro_executor import AlignmentMesaSimulationExecutor
+from metro_alignment.metro_runtime import metro_source_fingerprint
 from metro_alignment.metro_scene import build_metro_request
 from metro_alignment.round27_acceptance import (
     ThroughputFloor,
@@ -114,6 +116,9 @@ def _stress_metrics(
 
 def main() -> int:
     args = _parse_args()
+    revision = _git_revision()
+    metro_fingerprint = metro_source_fingerprint()
+    analysis_fingerprint = analysis_runtime_fingerprint()
     config = replace(
         build_scene_config("platform_boarding"),
         seed=int(args.seed),
@@ -130,6 +135,12 @@ def main() -> int:
         AlignmentMesaSimulationExecutor(formal_horizon_steps=int(args.horizon)),
     )
     runtime = execution.runtime
+    if _git_revision() != revision:
+        raise RuntimeError("Git revision changed during the source probe")
+    if metro_source_fingerprint() != metro_fingerprint:
+        raise RuntimeError("Metro runtime changed during the source probe")
+    if analysis_runtime_fingerprint() != analysis_fingerprint:
+        raise RuntimeError("Alignment runtime changed during the source probe")
     snapshot = runtime.snapshot()
     flows = _flow_rows(snapshot)
     admission = runtime.alignment_source_admission_metrics()
@@ -165,7 +176,11 @@ def main() -> int:
     )
     payload = {
         "schema_version": "alignment_round27_source_probe.v1",
-        "revision": _git_revision(),
+        "revision": revision,
+        "runtime_cohort": {
+            "metro_runtime_fingerprint": metro_fingerprint,
+            "analysis_runtime_fingerprint": analysis_fingerprint,
+        },
         "seed": int(args.seed),
         "control": {
             "scene_id": config.scene_id,
