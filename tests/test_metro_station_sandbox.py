@@ -3169,7 +3169,7 @@ class PassengerFlowTests(unittest.TestCase):
             facility_id=gate.facility_id,
             stage=gate.spec.stage,
         )
-        passenger.pos = (mouth[0] + model.scenario.personal_space_units * 1.5, mouth[1])
+        passenger.pos = (mouth[0] + model.scenario.personal_space_units * 1.9, mouth[1])
 
         advanced = advance_stalled_gate_ingress_turn(
             model,

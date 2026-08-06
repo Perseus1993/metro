@@ -74,7 +74,7 @@ def advance_stalled_gate_ingress_turn(model, passenger, *, reason: str) -> bool:
         )
         recovery_radius = max(
             float(model.scenario.jupedsim_target_radius_units),
-            float(model.scenario.personal_space_units) * 1.5,
+            float(model.scenario.personal_space_units) * 2.0,
         )
         if nearest_bank_tail_distance > recovery_radius:
             return False
