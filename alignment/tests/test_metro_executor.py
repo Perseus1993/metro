@@ -176,13 +176,10 @@ def _backpressure_model() -> tuple[AlignmentMetroStationModel, SimpleNamespace, 
     )
     model.clamp_position = lambda position: position
     certified_slots = tuple(
-        ((candidate % 4 - 1.5) * 0.4, -(0.35 + candidate // 4 * 0.4))
-        for candidate in range(67)
+        ((candidate % 4 - 1.5) * 0.4, -(0.35 + candidate // 4 * 0.4)) for candidate in range(67)
     )
     model.layout_graph = SimpleNamespace(
-        spatial_capacity_certificate=lambda *args, **kwargs: SimpleNamespace(
-            slots=certified_slots
-        )
+        spatial_capacity_certificate=lambda *args, **kwargs: SimpleNamespace(slots=certified_slots)
     )
     door = SimpleNamespace(
         facility_id="door-a",
@@ -209,13 +206,9 @@ def _backpressure_model() -> tuple[AlignmentMetroStationModel, SimpleNamespace, 
     model._alighting_source_admission_reservation = lambda doors: {
         "available": True,
     }
-    model._release_alighting_source_admission_reservation = (
-        lambda reservation, *, reason: None
-    )
-    model._commit_alighting_source_admission_reservation = (
-        lambda reservation, passenger: (
-            model.alignment_pending_alighting_scheduled_steps.popleft()
-        )
+    model._release_alighting_source_admission_reservation = lambda reservation, *, reason: None
+    model._commit_alighting_source_admission_reservation = lambda reservation, passenger: (
+        model.alignment_pending_alighting_scheduled_steps.popleft()
     )
     due = iter((1, 0))
     model.demand_scheduler = SimpleNamespace(due_alightings=lambda step: next(due))
@@ -413,15 +406,9 @@ def test_formal_gate_bank_uses_three_fixed_lanes_per_direction() -> None:
     assert len(model.exit_gates) == 3
     assert {gate.portal_direction for gate in model.gates} == {"in"}
     assert {gate.portal_direction for gate in model.exit_gates} == {"out"}
-    assert {
-        gate.spec.source_element_id for gate in model.gates
-    } == {"entry_gate_bank_a"}
-    assert {
-        gate.spec.source_element_id for gate in model.exit_gates
-    } == {"exit_gate_bank_a"}
-    assert not {
-        gate._physical_lane_key() for gate in model.gates
-    } & {
+    assert {gate.spec.source_element_id for gate in model.gates} == {"entry_gate_bank_a"}
+    assert {gate.spec.source_element_id for gate in model.exit_gates} == {"exit_gate_bank_a"}
+    assert not {gate._physical_lane_key() for gate in model.gates} & {
         gate._physical_lane_key() for gate in model.exit_gates
     }
 
@@ -430,9 +417,7 @@ def test_formal_entry_and_exit_access_are_physically_separated() -> None:
     request, _ = build_metro_request(_registered_admission_probe_config())
     model = AlignmentMetroStationModel(request.scenario, seed=request.seed)
     graph = model.layout_graph.station_graph
-    entrances = {
-        node.element_id: node for node in graph.nodes_matching(kind="entrance")
-    }
+    entrances = {node.element_id: node for node in graph.nodes_matching(kind="entrance")}
 
     assert request.scenario.entry_entrance_weights == (
         ("entrance_a", 1.0),
@@ -494,12 +479,10 @@ def test_formal_boarding_edge_uses_seven_parallel_train_doors() -> None:
 
     assert len(model.boarding_doors) == 7
     assert len(model.platforms) == 1
-    assert {
-        door.spec.source_element_id for door in model.boarding_doors
-    } == {f"platform_edge_{suffix}" for suffix in "abcdefg"}
-    assert {
-        door.spec.platform_id for door in model.boarding_doors
-    } == {"platform:default:down"}
+    assert {door.spec.source_element_id for door in model.boarding_doors} == {
+        f"platform_edge_{suffix}" for suffix in "abcdefg"
+    }
+    assert {door.spec.platform_id for door in model.boarding_doors} == {"platform:default:down"}
     assert request.scenario.station_design.metadata["boarding_door_count"] == 7
 
 
@@ -629,14 +612,12 @@ def test_formal_entry_holding_preserves_entrance_to_gate_ingress() -> None:
     holding = next(
         region
         for region in model.layout_graph.decision_holding_regions
-        if region.region_id == "entry_gate_decision"
-        and region.level_id == entrance.level_id
+        if region.region_id == "entry_gate_decision" and region.level_id == entrance.level_id
     )
 
     assert holding.slots
     assert all(
-        ShapelyPoint(slot).distance(access_line)
-        >= model.scenario.personal_space_units - 1e-6
+        ShapelyPoint(slot).distance(access_line) >= model.scenario.personal_space_units - 1e-6
         for slot in holding.slots
     )
 
@@ -718,12 +699,8 @@ def test_formal_exit_decision_routes_around_boarding_fifo() -> None:
     ):
         route = router.route(model, passenger, "exit_gate_decision")
 
-    cross = graph.nodes[
-        graph.primary_node_by_element_id["platform_exit_cross_aisle"]
-    ].position
-    down = graph.nodes[
-        graph.primary_node_by_element_id["platform_exit_down_aisle"]
-    ].position
+    cross = graph.nodes[graph.primary_node_by_element_id["platform_exit_cross_aisle"]].position
+    down = graph.nodes[graph.primary_node_by_element_id["platform_exit_down_aisle"]].position
     hall = graph.nodes[graph.primary_node_by_element_id["main_hall"]].position
 
     assert cross in route
@@ -753,8 +730,7 @@ def test_formal_platform_waiting_preserves_exit_gate_tail_ingress() -> None:
 
     assert waiting_slots
     assert all(
-        ShapelyPoint(slot).distance(ingress_line)
-        >= model.scenario.personal_space_units - 1e-6
+        ShapelyPoint(slot).distance(ingress_line) >= model.scenario.personal_space_units - 1e-6
         for slot in waiting_slots
     )
 
@@ -779,9 +755,7 @@ def test_source_geometry_preflight_accepts_decoupled_queue_lattice() -> None:
     assert queue["holding_clearance_overlap_candidate_count"] == 0
     assert queue["boarding_door_axis_overlap_candidate_count"] == 0
     assert queue["capacity_certificate"] is True
-    assert queue["capacity_certificate_id"] == (
-        "alighting_source:queue_platform_edge_a_down"
-    )
+    assert queue["capacity_certificate_id"] == ("alighting_source:queue_platform_edge_a_down")
     assert queue["compiler_error_codes"] == []
     assert queue["compiler_rejection_reproduced"] is False
     assert queue["blockers"] == []
@@ -802,17 +776,12 @@ def test_metro_compiler_accepts_the_decoupled_source_lattice() -> None:
     )
     assert len(sources) == 7
     assert {source.certificate_id for source in sources} == {
-        f"alighting_source:queue_platform_edge_{suffix}_down"
-        for suffix in "abcdefg"
+        f"alighting_source:queue_platform_edge_{suffix}_down" for suffix in "abcdefg"
     }
     assert all(len(source.slots) >= 3 for source in sources)
     assert all(source.required_body_capacity == 3 for source in sources)
     assert all(source.certified_body_capacity == 3 for source in sources)
-    errors = tuple(
-        item
-        for item in compiled.issues
-        if item.severity == "error"
-    )
+    errors = tuple(item for item in compiled.issues if item.severity == "error")
     assert errors == ()
 
 
@@ -893,6 +862,9 @@ def _source_policy_model() -> AlignmentMetroStationModel:
         alighting_schedule={},
     )
     model.audit = SimpleNamespace(record=lambda *args, **kwargs: None)
+    model.spatial_capacity_event_counts = Counter()
+    model.service_chain_event_counts = Counter()
+    model.alignment_time_attribution = SimpleNamespace(metrics=dict)
     model.passengers = []
     model.pending_alighting_groups = 0
     model.passenger_goal_runtimes = {}
@@ -1100,6 +1072,10 @@ def test_source_pending_record_is_stable_and_metrics_expose_conservation() -> No
     assert metrics["alignment_pending_entry_persons"] == model.scenario.group_size
     assert metrics["alignment_entry_demand_conserved"] is True
     assert metrics["alignment_source_demand_conserved"] is True
+    assert metrics["alignment_placement_retry_ratio"] == 0.0
+    assert metrics["alignment_waiting_capacity_retry_ratio"] == 0.0
+    assert metrics["alignment_stalled_platform_parking_ratio"] == 0.0
+    assert metrics["alignment_service_time_attribution"] == {}
 
     model.alignment_pending_source_demands.clear()
     lost_metrics = model.alignment_source_admission_metrics()
@@ -1109,9 +1085,7 @@ def test_source_pending_record_is_stable_and_metrics_expose_conservation() -> No
 
 def test_source_conservation_fails_on_first_unowned_demand() -> None:
     model = _source_policy_model()
-    model.alignment_requested_source_persons_by_intent[
-        AgentIntent.ENTER_AND_BOARD.value
-    ] = 1
+    model.alignment_requested_source_persons_by_intent[AgentIntent.ENTER_AND_BOARD.value] = 1
 
     with pytest.raises(
         RuntimeError,
@@ -1147,9 +1121,7 @@ def test_entry_admission_preflight_rejects_undersized_explicit_pool() -> None:
     with pytest.raises(AlignmentAdmissionCapacityConflict) as exc_info:
         executor.execute(request)
 
-    entry = next(
-        item for item in exc_info.value.report["flows"] if item["flow_id"] == "entry"
-    )
+    entry = next(item for item in exc_info.value.report["flows"] if item["flow_id"] == "entry")
     assert entry["required_capacity"] == 26
     assert entry["configured_capacity"] == 25
 

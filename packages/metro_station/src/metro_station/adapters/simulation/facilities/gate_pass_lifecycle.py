@@ -21,6 +21,7 @@ class ActiveGatePass:
     duration_seconds: float = 0.0
     elapsed_seconds: float = 0.0
     remaining_seconds: float = 0.0
+    blocked_seconds: float = 0.0
     last_motion_request_time: float | None = None
     release_slot_index: int | None = None
 
@@ -45,6 +46,7 @@ def delay_gate_event(
 ) -> None:
     if delay_seconds <= 0.0:
         return
+    active.blocked_seconds += delay_seconds
     active.end_time += delay_seconds
     for index, event in enumerate(events):
         if event.event_id != active.event_id:
@@ -52,9 +54,7 @@ def delay_gate_event(
         events[index] = replace(
             event,
             end_time=event.end_time + delay_seconds,
-            arrive_time=(
-                None if event.arrive_time is None else event.arrive_time + delay_seconds
-            ),
+            arrive_time=(None if event.arrive_time is None else event.arrive_time + delay_seconds),
         )
         return
 

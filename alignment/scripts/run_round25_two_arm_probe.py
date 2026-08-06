@@ -265,6 +265,25 @@ def _arm(
             "exit_admission_exhausted_ratio": metrics.get(
                 "alignment_exit_admission_exhausted_ratio"
             ),
+            "placement_retry_attempts": metrics.get(
+                "alignment_placement_retry_attempts"
+            ),
+            "placement_retry_ratio": metrics.get("alignment_placement_retry_ratio"),
+            "waiting_capacity_retry_attempts": metrics.get(
+                "alignment_waiting_capacity_retry_attempts"
+            ),
+            "waiting_capacity_retry_ratio": metrics.get(
+                "alignment_waiting_capacity_retry_ratio"
+            ),
+            "stalled_platform_parking_attempts": metrics.get(
+                "alignment_stalled_platform_parking_attempts"
+            ),
+            "stalled_platform_parking_ratio": metrics.get(
+                "alignment_stalled_platform_parking_ratio"
+            ),
+            "service_time_attribution": metrics.get(
+                "alignment_service_time_attribution"
+            ),
         },
         "source_integrity_gate": evaluate_source_integrity_gate(metrics),
         "dynamic_blocked_attribution": {
@@ -335,6 +354,9 @@ def _residence_artifact(control_arm: dict[str, Any]) -> dict[str, Any]:
         ),
         "entry": control_arm["residence"]["entry"],
         "exit": control_arm["residence"]["exit"],
+        "service_time_attribution": control_arm["metrics"].get(
+            "service_time_attribution"
+        ),
         "design_sha256": control_arm["design_sha256"],
         "scene_config_sha256": control_arm["scene_config_sha256"],
         "metro_runtime_fingerprint": control_arm["metro_runtime_fingerprint"],

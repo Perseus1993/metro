@@ -15,6 +15,10 @@ from .passenger_goal_observation import (
     ProductionGoalObservationContext,
 )
 from .passenger_goal_region_router import PassengerGoalRegionRouter
+from .service_chain_counters import (
+    WAITING_CAPACITY_RETRY,
+    increment_service_chain_counter,
+)
 
 if TYPE_CHECKING:
     from ..agents.passenger import PassengerAgent
@@ -77,9 +81,8 @@ class ProductionGoalCommandExecutor:
                 # the platform.  The passenger keeps its FIFO place in the
                 # boarding-door queue until a later train becomes available.
                 return ()
-            if (
-                command.event_kind == GoalEventKind.TRAIN_AVAILABLE.value
-                and model.join_platform(passenger)
+            if command.event_kind == GoalEventKind.TRAIN_AVAILABLE.value and model.join_platform(
+                passenger
             ):
                 # Platform waiting is a physical resource with dispersed,
                 # speed-limited slots. Registering here prevents successive
@@ -95,9 +98,7 @@ class ProductionGoalCommandExecutor:
                 # the passenger compete for a smaller decision-holding pool
                 # and breaks upstream backpressure.
                 passenger.assigned_facility_id = None
-                reservation = model._platform_waiting_reservations.get(
-                    int(passenger.unique_id)
-                )
+                reservation = model._platform_waiting_reservations.get(int(passenger.unique_id))
                 if reservation is not None:
                     platform = model.platform_for_passenger(passenger)
                     if platform is not None and passenger not in platform.waiting:
@@ -269,9 +270,7 @@ class ProductionGoalCommandExecutor:
             passenger.facility_approach_facility_ids_by_stage.get(command.stage)
             == facility.facility_id
         ):
-            preferred_slot_index = passenger.facility_approach_slots_by_stage.get(
-                command.stage
-            )
+            preferred_slot_index = passenger.facility_approach_slots_by_stage.get(command.stage)
         capture_at_decision_boundary = self._captures_queue_at_decision_boundary(
             model,
             passenger,
@@ -282,10 +281,13 @@ class ProductionGoalCommandExecutor:
                 facility,
                 preferred_slot_index,
             )
-            if hypot(
-                passenger.pos[0] - preferred_target[0],
-                passenger.pos[1] - preferred_target[1],
-            ) > model._facility_queue_capture_radius():
+            if (
+                hypot(
+                    passenger.pos[0] - preferred_target[0],
+                    passenger.pos[1] - preferred_target[1],
+                )
+                > model._facility_queue_capture_radius()
+            ):
                 if self._keeps_active_queue_approach(model, passenger, facility):
                     return ()
                 route = model.route_to_facility_queue_slot(
@@ -293,9 +295,7 @@ class ProductionGoalCommandExecutor:
                     facility,
                     preferred_slot_index,
                 )
-                passenger.state = self.region_router.walking_state(
-                    stage=facility.spec.stage
-                )
+                passenger.state = self.region_router.walking_state(stage=facility.spec.stage)
                 passenger.route_waypoint_radius_override = None
                 passenger.set_route(
                     route or (preferred_target,),
@@ -318,8 +318,7 @@ class ProductionGoalCommandExecutor:
             # physical FIFO inversion.  Train-door passive capture retains
             # its existing backend-owned handoff behavior.
             settle_after_walking=(
-                not capture_at_decision_boundary
-                or facility.spec.kind == FacilityKind.GATE.value
+                not capture_at_decision_boundary or facility.spec.kind == FacilityKind.GATE.value
             ),
             preferred_slot_index=preferred_slot_index,
         ):
@@ -355,13 +354,10 @@ class ProductionGoalCommandExecutor:
 
     @staticmethod
     def _restore_boarding_wait_after_join_block(model, passenger, facility) -> None:
-        reservation = model._platform_waiting_reservations.get(
-            int(passenger.unique_id)
-        )
+        reservation = model._platform_waiting_reservations.get(int(passenger.unique_id))
         stage = FacilityStage.BOARDING_DOOR.value
         owns_approach = (
-            passenger.facility_approach_facility_ids_by_stage.get(stage)
-            == facility.facility_id
+            passenger.facility_approach_facility_ids_by_stage.get(stage) == facility.facility_id
             and stage in passenger.facility_approach_slots_by_stage
         )
         if reservation is None and not owns_approach:
@@ -371,6 +367,7 @@ class ProductionGoalCommandExecutor:
             try:
                 target = model._reserve_platform_waiting_slot(passenger, platform)
             except PlatformWaitingCapacityError:
+                increment_service_chain_counter(model, WAITING_CAPACITY_RETRY)
                 # The passenger still owns a certified door-approach cell.
                 # A failed queue join must not exchange that ownership for a
                 # platform cell that does not exist. Retain the concrete
@@ -410,8 +407,7 @@ class ProductionGoalCommandExecutor:
         if (
             goal.kind != "queue_approach"
             or goal.facility_id != facility.facility_id
-            or passenger.facility_approach_facility_ids_by_stage.get(stage)
-            != facility.facility_id
+            or passenger.facility_approach_facility_ids_by_stage.get(stage) != facility.facility_id
         ):
             return False
         slot_index = passenger.facility_approach_slots_by_stage.get(stage)
@@ -421,24 +417,20 @@ class ProductionGoalCommandExecutor:
             facility,
             slot_index,
         )
-        route_terminal = (
-            tuple(passenger.route[-1])
-            if passenger.route
-            else tuple(passenger.target)
+        route_terminal = tuple(passenger.route[-1]) if passenger.route else tuple(passenger.target)
+        return (
+            hypot(
+                route_terminal[0] - reserved_target[0],
+                route_terminal[1] - reserved_target[1],
+            )
+            <= 1e-6
         )
-        return hypot(
-            route_terminal[0] - reserved_target[0],
-            route_terminal[1] - reserved_target[1],
-        ) <= 1e-6
 
     @staticmethod
     def _captures_queue_at_decision_boundary(model, passenger, facility) -> bool:
         if facility.spec.kind == FacilityKind.GATE.value:
             stage = facility.spec.stage
-            if (
-                passenger.facility_approach_facility_ids_by_stage.get(stage)
-                != facility.facility_id
-            ):
+            if passenger.facility_approach_facility_ids_by_stage.get(stage) != facility.facility_id:
                 return False
             slot_index = passenger.facility_approach_slots_by_stage.get(stage)
             if slot_index is None:
@@ -471,15 +463,16 @@ class ProductionGoalCommandExecutor:
                 "owns_passive_layout_motion",
                 None,
             )
-            if not (
-                callable(owns_passive_motion) and owns_passive_motion()
-            ):
+            if not (callable(owns_passive_motion) and owns_passive_motion()):
                 return False
             portal = model.facility_portal_binding(facility.facility_id).entry_point
-            return hypot(
-                passenger.pos[0] - portal[0],
-                passenger.pos[1] - portal[1],
-            ) <= model._facility_queue_capture_radius()
+            return (
+                hypot(
+                    passenger.pos[0] - portal[0],
+                    passenger.pos[1] - portal[1],
+                )
+                <= model._facility_queue_capture_radius()
+            )
         return False
 
     def _replan(self, model, passenger, command: GoalCommand) -> tuple[GoalEvent, ...]:
@@ -488,11 +481,7 @@ class ProductionGoalCommandExecutor:
             facility.queue.discard(passenger)
         passenger.last_replan_reason = command.reason
         should_avoid = not str(command.reason or "").startswith("facility_disabled:")
-        if (
-            should_avoid
-            and command.goal_node_id is not None
-            and command.facility_id is not None
-        ):
+        if should_avoid and command.goal_node_id is not None and command.facility_id is not None:
             passenger.avoided_facility_ids_by_goal.setdefault(
                 command.goal_node_id,
                 set(),
@@ -569,8 +558,7 @@ def _point_segment_distance(
     if length_squared <= 1e-12:
         return hypot(point[0] - start[0], point[1] - start[1])
     projection = (
-        (point[0] - start[0]) * segment[0]
-        + (point[1] - start[1]) * segment[1]
+        (point[0] - start[0]) * segment[0] + (point[1] - start[1]) * segment[1]
     ) / length_squared
     projection = min(1.0, max(0.0, projection))
     closest = (

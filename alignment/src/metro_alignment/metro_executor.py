@@ -56,6 +56,7 @@ from shapely.geometry import Point as ShapelyPoint
 from .admission_tokens import AdmissionTokenPolicy, admission_preflight_report
 from .analysis_runtime import analysis_runtime_fingerprint
 from .metro_runtime import metro_source_fingerprint
+from .service_time_attribution import AdmissionTimeAttribution
 
 _SOURCE_ADMISSION_FLOWS = {
     AgentIntent.ENTER_AND_BOARD.value: ("entry", "entry_gate:"),
@@ -76,9 +77,7 @@ def _right_censored_nearest_rank(
     censored_values: list[int],
     percentile: float,
 ) -> int | None:
-    target_rank = int(
-        (len(completed_values) + len(censored_values)) * percentile + 0.999999
-    )
+    target_rank = int((len(completed_values) + len(censored_values)) * percentile + 0.999999)
     if target_rank <= 0 or len(completed_values) < target_rank:
         return None
     ordered = sorted(int(value) for value in completed_values)
@@ -302,19 +301,15 @@ def _residence_evidence_validation_errors(
         int(step): int(counter.get(AgentIntent.ENTER_AND_BOARD.value, 0))
         for step, counter in scheduler.spawn_schedule.items()
     }
-    exit_schedule = {
-        int(step): int(count) for step, count in scheduler.alighting_schedule.items()
-    }
+    exit_schedule = {int(step): int(count) for step, count in scheduler.alighting_schedule.items()}
     scope = payload.get("evidence_scope", {})
     expected_scope = {
         "seed": scenario.admission_residence_evidence_seed,
         "entry_count_hour": int(scenario.entry_count_hour),
         "exit_count_hour": int(scenario.exit_count_hour),
         "demand_minutes": int(scenario.demand_duration_minutes),
-        "entry_scheduled_persons": sum(entry_schedule.values())
-        * int(scenario.group_size),
-        "exit_scheduled_persons": sum(exit_schedule.values())
-        * int(scenario.group_size),
+        "entry_scheduled_persons": sum(entry_schedule.values()) * int(scenario.group_size),
+        "exit_scheduled_persons": sum(exit_schedule.values()) * int(scenario.group_size),
         "entry_last_scheduled_step": max(entry_schedule, default=-1),
         "exit_last_scheduled_step": max(exit_schedule, default=-1),
         "group_size": int(scenario.group_size),
@@ -325,23 +320,15 @@ def _residence_evidence_validation_errors(
         "jupedsim_dt_seconds": float(scenario.jupedsim_dt_seconds),
         "jupedsim_iterations_per_tick": int(scenario.jupedsim_iterations_per_tick),
         "jupedsim_desired_speed_mps": float(scenario.jupedsim_desired_speed_mps),
-        "jupedsim_free_speed_min_mps": float(
-            scenario.jupedsim_free_speed_min_mps
-        ),
-        "jupedsim_free_speed_max_mps": float(
-            scenario.jupedsim_free_speed_max_mps
-        ),
+        "jupedsim_free_speed_min_mps": float(scenario.jupedsim_free_speed_min_mps),
+        "jupedsim_free_speed_max_mps": float(scenario.jupedsim_free_speed_max_mps),
         "jupedsim_agent_radius_units": float(scenario.jupedsim_agent_radius_units),
-        "jupedsim_clearance_multiplier": float(
-            scenario.jupedsim_clearance_multiplier
-        ),
+        "jupedsim_clearance_multiplier": float(scenario.jupedsim_clearance_multiplier),
         "movement_backend_name": str(scenario.movement_backend_name),
         "jupedsim_operational_model": str(scenario.jupedsim_operational_model),
     }
     comparable_scope = dict(scope) if isinstance(scope, dict) else {}
-    measurement_horizon_steps = comparable_scope.pop(
-        "measurement_horizon_steps", None
-    )
+    measurement_horizon_steps = comparable_scope.pop("measurement_horizon_steps", None)
     if comparable_scope != expected_scope:
         errors.append(
             {
@@ -394,8 +381,7 @@ def alignment_source_geometry_preflight(scenario: StationSandboxScenario) -> dic
         raise RuntimeError("alignment source preflight requires a station design document")
     minimum_distance = max(
         0.05,
-        float(scenario.jupedsim_agent_radius_units)
-        * float(scenario.jupedsim_clearance_multiplier),
+        float(scenario.jupedsim_agent_radius_units) * float(scenario.jupedsim_clearance_multiplier),
     )
     compiled = validate_compiled_station_design(document, scenario)
     source_certificates = {
@@ -406,8 +392,7 @@ def alignment_source_geometry_preflight(scenario: StationSandboxScenario) -> dic
     coactive_issues = tuple(
         item
         for item in compiled.issues
-        if item.severity == "error"
-        and item.code == "capacity.coactive_slot_conflict"
+        if item.severity == "error" and item.code == "capacity.coactive_slot_conflict"
     )
     peak_batch = peak_alighting_batch(scenario)
     elements_by_id = document.element_by_id()
@@ -420,9 +405,7 @@ def alignment_source_geometry_preflight(scenario: StationSandboxScenario) -> dic
         angle = radians(float(queue.direction_deg))
         anchor_x = base_x - cos(angle) * float(queue.spacing_m)
         anchor_y = base_y - sin(angle) * float(queue.spacing_m)
-        runtime_spacing = alighting_source_spacing_m(
-            scenario.jupedsim_agent_radius_units
-        )
+        runtime_spacing = alighting_source_spacing_m(scenario.jupedsim_agent_radius_units)
         candidate_count = ALIGHTING_SOURCE_SEARCH_WINDOW + max(0, peak_batch - 1)
         raw_candidates = [
             alighting_source_raw_candidate(
@@ -473,9 +456,7 @@ def alignment_source_geometry_preflight(scenario: StationSandboxScenario) -> dic
             for index, candidate in enumerate(candidates)
             if door_axis.distance(ShapelyPoint(candidate)) < minimum_distance - 1e-9
         ]
-        unique_candidate_count = len(
-            {(round(x, 12), round(y, 12)) for x, y in candidates}
-        )
+        unique_candidate_count = len({(round(x, 12), round(y, 12)) for x, y in candidates})
         blockers = []
         if holding_clearance_overlap:
             blockers.append("boarding_holding_area_overlaps_alighting_source_lattice")
@@ -485,9 +466,7 @@ def alignment_source_geometry_preflight(scenario: StationSandboxScenario) -> dic
             blockers.append("insufficient_unique_alighting_sources_for_peak_batch")
         certificate_id = f"alighting_source:{queue.id}"
         certificate = source_certificates.get(certificate_id)
-        compiler_issues = tuple(
-            item for item in coactive_issues if queue.id in item.message
-        )
+        compiler_issues = tuple(item for item in coactive_issues if queue.id in item.message)
         reports.append(
             {
                 "queue_id": queue.id,
@@ -507,9 +486,7 @@ def alignment_source_geometry_preflight(scenario: StationSandboxScenario) -> dic
                 "unique_source_candidate_count": unique_candidate_count,
                 "holding_area_overlap_candidate_count": len(holding_overlap),
                 "holding_area_overlap_candidate_indices": holding_overlap,
-                "holding_clearance_overlap_candidate_count": len(
-                    holding_clearance_overlap
-                ),
+                "holding_clearance_overlap_candidate_count": len(holding_clearance_overlap),
                 "holding_clearance_overlap_candidate_indices": holding_clearance_overlap,
                 "boarding_door_axis_overlap_candidate_count": len(door_axis_overlap),
                 "boarding_door_axis_overlap_candidate_indices": door_axis_overlap,
@@ -534,11 +511,7 @@ def alignment_source_geometry_preflight(scenario: StationSandboxScenario) -> dic
         "capacity_certificate": bool(reports)
         and all(report["capacity_certificate"] for report in reports),
         "compiler_error_codes": sorted(
-            {
-                code
-                for report in reports
-                for code in report["compiler_error_codes"]
-            }
+            {code for report in reports for code in report["compiler_error_codes"]}
         ),
         "compiler_rejection_reproduced": bool(blockers)
         and all(
@@ -577,21 +550,15 @@ class AlignmentMetroStationModel(MetroStationModel):
             raise ValueError("formal horizon must be within the scenario horizon")
         self.formal_horizon_steps = formal_horizon_steps
         self.alignment_pending_source_demands: deque[PendingSourceDemand] = deque()
-        self.alignment_unresolved_source_demands: deque[
-            PendingUnresolvedSourceDemand
-        ] = deque()
+        self.alignment_unresolved_source_demands: deque[PendingUnresolvedSourceDemand] = deque()
         self.alignment_next_source_sequence_id = 0
         self.alignment_requested_source_persons_by_intent: Counter[str] = Counter()
         self.alignment_max_pending_source_groups = 0
         self.alignment_source_deferred_attempts = 0
         policies = _alignment_admission_policies(self.scenario)
         if any(policy.effective_capacity is None for policy in policies):
-            raise AlignmentAdmissionCapacityConflict(
-                admission_preflight_report(policies)
-            )
-        self.alignment_admission_policies = {
-            policy.flow_id: policy for policy in policies
-        }
+            raise AlignmentAdmissionCapacityConflict(admission_preflight_report(policies))
+        self.alignment_admission_policies = {policy.flow_id: policy for policy in policies}
         self.alignment_admission_resources = {
             policy.flow_id: AdmissionTokenResource(
                 resource_id=f"alignment:{policy.flow_id}_admission_tokens",
@@ -605,10 +572,20 @@ class AlignmentMetroStationModel(MetroStationModel):
         self._alignment_inflight_admission_owner_by_intent: dict[str, object] = {}
         self.alignment_requested_alighting_persons = 0
         self.alignment_pending_alighting_scheduled_steps: deque[int] = deque()
+        self.alignment_time_attribution = AdmissionTimeAttribution()
+
+    def step(self) -> None:
+        super().step()
+        self.alignment_time_attribution.observe(
+            self,
+            release_prefix_by_flow={
+                flow: release_prefix for flow, release_prefix in _SOURCE_ADMISSION_FLOWS.values()
+            },
+        )
 
     def _record_alighting_demand_due(self, newly_due_groups: int) -> None:
-        self.alignment_requested_alighting_persons += (
-            int(newly_due_groups) * int(self.scenario.group_size)
+        self.alignment_requested_alighting_persons += int(newly_due_groups) * int(
+            self.scenario.group_size
         )
         self.alignment_pending_alighting_scheduled_steps.extend(
             int(self.step_index) for _ in range(int(newly_due_groups))
@@ -616,9 +593,7 @@ class AlignmentMetroStationModel(MetroStationModel):
 
     def _require_alighting_spawn_conservation(self) -> None:
         requested = int(self.alignment_requested_alighting_persons)
-        admitted = int(
-            self.spawned_persons_by_intent[AgentIntent.EXIT_STATION.value]
-        )
+        admitted = int(self.spawned_persons_by_intent[AgentIntent.EXIT_STATION.value])
         pending = int(self.pending_alighting_groups) * int(self.scenario.group_size)
         if len(self.alignment_pending_alighting_scheduled_steps) != int(
             self.pending_alighting_groups
@@ -664,9 +639,9 @@ class AlignmentMetroStationModel(MetroStationModel):
                 "certified_downstream_slots": resource.capacity,
                 "occupied_downstream_slots": resource.occupancy,
             }
-        self._alignment_inflight_admission_owner_by_intent[
-            AgentIntent.EXIT_STATION.value
-        ] = provisional_owner
+        self._alignment_inflight_admission_owner_by_intent[AgentIntent.EXIT_STATION.value] = (
+            provisional_owner
+        )
         return {
             "available": True,
             "admission_resource": resource.resource_id,
@@ -728,9 +703,7 @@ class AlignmentMetroStationModel(MetroStationModel):
         new_unresolved_demands: list[PendingUnresolvedSourceDemand] = []
         requested_increments: Counter[str] = Counter()
         for intent, count in due_by_intent.items():
-            requested_increments[str(intent)] += int(count) * int(
-                self.scenario.group_size
-            )
+            requested_increments[str(intent)] += int(count) * int(self.scenario.group_size)
             new_unresolved_demands.extend(
                 PendingUnresolvedSourceDemand(
                     scheduled_step=int(self.step_index),
@@ -740,9 +713,7 @@ class AlignmentMetroStationModel(MetroStationModel):
                 for _ in range(int(count))
             )
         self.alignment_unresolved_source_demands.extend(new_unresolved_demands)
-        self.alignment_requested_source_persons_by_intent.update(
-            requested_increments
-        )
+        self.alignment_requested_source_persons_by_intent.update(requested_increments)
         try:
             while self.alignment_unresolved_source_demands:
                 unresolved = self.alignment_unresolved_source_demands[0]
@@ -772,9 +743,7 @@ class AlignmentMetroStationModel(MetroStationModel):
                 resource = self.alignment_admission_resources[flow]
                 if not resource.acquire(provisional_owner, self.step_index):
                     self.alignment_pending_source_demands.append(demand)
-                    self.alignment_pending_source_demands.extend(
-                        pending_round[index + 1 :]
-                    )
+                    self.alignment_pending_source_demands.extend(pending_round[index + 1 :])
                     try:
                         self._defer_exhausted_admission_token(flow)
                     finally:
@@ -790,9 +759,7 @@ class AlignmentMetroStationModel(MetroStationModel):
                         reason="source_admission_exception",
                     )
                 self.alignment_pending_source_demands.append(demand)
-                self.alignment_pending_source_demands.extend(
-                    pending_round[index + 1 :]
-                )
+                self.alignment_pending_source_demands.extend(pending_round[index + 1 :])
                 self._finalize_alignment_source_phase()
                 raise
             if admission is None:
@@ -804,9 +771,7 @@ class AlignmentMetroStationModel(MetroStationModel):
                     )
                 self.alignment_source_deferred_attempts += 1
                 self.alignment_pending_source_demands.append(demand)
-                self.alignment_pending_source_demands.extend(
-                    pending_round[index + 1 :]
-                )
+                self.alignment_pending_source_demands.extend(pending_round[index + 1 :])
                 try:
                     self.audit.record(
                         "alignment_source_demand_deferred_without_clear_spawn_cell",
@@ -818,9 +783,7 @@ class AlignmentMetroStationModel(MetroStationModel):
                             "scheduled_step": demand.scheduled_step,
                             "intent": demand.intent,
                             "source_id": demand.source_id,
-                            "pending_groups": len(
-                                self.alignment_pending_source_demands
-                            ),
+                            "pending_groups": len(self.alignment_pending_source_demands),
                         },
                     )
                 finally:
@@ -829,9 +792,9 @@ class AlignmentMetroStationModel(MetroStationModel):
 
             try:
                 if flow is not None and provisional_owner is not None:
-                    self._alignment_inflight_admission_owner_by_intent[
-                        demand.intent
-                    ] = provisional_owner
+                    self._alignment_inflight_admission_owner_by_intent[demand.intent] = (
+                        provisional_owner
+                    )
                 passenger = self._spawn_passenger(
                     demand.intent,
                     initial_position=admission.position,
@@ -846,9 +809,7 @@ class AlignmentMetroStationModel(MetroStationModel):
                     )
                 self.alignment_source_deferred_attempts += 1
                 self.alignment_pending_source_demands.append(demand)
-                self.alignment_pending_source_demands.extend(
-                    pending_round[index + 1 :]
-                )
+                self.alignment_pending_source_demands.extend(pending_round[index + 1 :])
                 self._finalize_alignment_source_phase()
                 return
             except BaseException:
@@ -859,9 +820,7 @@ class AlignmentMetroStationModel(MetroStationModel):
                         reason="spawn_exception",
                     )
                 self.alignment_pending_source_demands.append(demand)
-                self.alignment_pending_source_demands.extend(
-                    pending_round[index + 1 :]
-                )
+                self.alignment_pending_source_demands.extend(pending_round[index + 1 :])
                 self._finalize_alignment_source_phase()
                 raise
             finally:
@@ -883,9 +842,7 @@ class AlignmentMetroStationModel(MetroStationModel):
                             self.step_index,
                             reason="publication_commit_exception",
                         )
-                    self.alignment_pending_source_demands.extend(
-                        pending_round[index + 1 :]
-                    )
+                    self.alignment_pending_source_demands.extend(pending_round[index + 1 :])
                     self._finalize_alignment_source_phase()
                     raise
             try:
@@ -895,9 +852,7 @@ class AlignmentMetroStationModel(MetroStationModel):
                         passenger.group_size
                     )
             except BaseException:
-                self.alignment_pending_source_demands.extend(
-                    pending_round[index + 1 :]
-                )
+                self.alignment_pending_source_demands.extend(pending_round[index + 1 :])
                 self._finalize_alignment_source_phase()
                 raise
         self._finalize_alignment_source_phase()
@@ -957,9 +912,7 @@ class AlignmentMetroStationModel(MetroStationModel):
                 release_levels=release_levels,
             )
         resource = self.alignment_admission_resources[flow]
-        provisional_owner = self._alignment_inflight_admission_owner_by_intent.get(
-            str(intent)
-        )
+        provisional_owner = self._alignment_inflight_admission_owner_by_intent.get(str(intent))
         owns_credit = provisional_owner in resource.owners
         return {
             "available": owns_credit or resource.available > 0,
@@ -977,9 +930,7 @@ class AlignmentMetroStationModel(MetroStationModel):
         return None if registration is None else registration[0]
 
     def _release_completed_source_admission_tokens(self) -> None:
-        passenger_by_id = {
-            int(passenger.unique_id): passenger for passenger in self.passengers
-        }
+        passenger_by_id = {int(passenger.unique_id): passenger for passenger in self.passengers}
         for flow, release_prefix in _SOURCE_ADMISSION_FLOWS.values():
             resource = self.alignment_admission_resources[flow]
             for owner_id in resource.owners:
@@ -1000,9 +951,7 @@ class AlignmentMetroStationModel(MetroStationModel):
                         context={"flow": flow, "passenger_id": owner_id},
                     )
                     continue
-                completed = str(
-                    getattr(passenger, "last_completed_facility_id", None) or ""
-                )
+                completed = str(getattr(passenger, "last_completed_facility_id", None) or "")
                 if completed.startswith(release_prefix):
                     resource.release(
                         owner_id,
@@ -1023,9 +972,7 @@ class AlignmentMetroStationModel(MetroStationModel):
             int(self.spawned_persons_by_intent[intent])
             for intent in self.alignment_requested_source_persons_by_intent
         )
-        pending = sum(
-            demand.group_size for demand in self.alignment_pending_source_demands
-        ) + sum(
+        pending = sum(demand.group_size for demand in self.alignment_pending_source_demands) + sum(
             demand.group_size for demand in self.alignment_unresolved_source_demands
         )
         if requested != admitted + pending:
@@ -1088,9 +1035,7 @@ class AlignmentMetroStationModel(MetroStationModel):
             position=position,
             level_id=demand.level_id,
             source_element_id=(
-                demand.source_id
-                if demand.intent == AgentIntent.ENTER_AND_BOARD.value
-                else None
+                demand.source_id if demand.intent == AgentIntent.ENTER_AND_BOARD.value else None
             ),
         )
 
@@ -1121,12 +1066,20 @@ class AlignmentMetroStationModel(MetroStationModel):
         document = getattr(station_graph, "source_document", None)
         if document is None or node.element_id is None:
             candidate = self.clamp_position(node.position)
-            return candidate if self._alignment_source_cell_is_clear(candidate, node.level_id) else None
+            return (
+                candidate
+                if self._alignment_source_cell_is_clear(candidate, node.level_id)
+                else None
+            )
 
         element = document.element_by_id().get(node.element_id)
         if element is None:
             candidate = self.clamp_position(node.position)
-            return candidate if self._alignment_source_cell_is_clear(candidate, node.level_id) else None
+            return (
+                candidate
+                if self._alignment_source_cell_is_clear(candidate, node.level_id)
+                else None
+            )
 
         walkable = document_walkable_geometry(document)
         if element.kind == "walkable_area" or element.role == "floor":
@@ -1242,14 +1195,20 @@ class AlignmentMetroStationModel(MetroStationModel):
         spawned_entry_persons = int(
             self.spawned_persons_by_intent[AgentIntent.ENTER_AND_BOARD.value]
         )
-        spawned_exit_persons = int(
-            self.spawned_persons_by_intent[AgentIntent.EXIT_STATION.value]
-        )
+        spawned_exit_persons = int(self.spawned_persons_by_intent[AgentIntent.EXIT_STATION.value])
         spawned_source_persons = spawned_entry_persons + spawned_exit_persons
-        pending_entry_persons = pending_entry_groups * group_size
-        pending_exit_groups = pending_direct_exit_groups + int(
-            self.pending_alighting_groups
+        placement_retry_attempts = int(
+            self.spatial_capacity_event_counts["placement.dynamic_blocked"]
+            + self.spatial_capacity_event_counts["spawn.dynamic_blocked"]
         )
+        waiting_capacity_retry_attempts = int(
+            self.service_chain_event_counts["waiting_capacity_retry"]
+        )
+        stalled_platform_parking_attempts = int(
+            self.service_chain_event_counts["stalled_platform_parking"]
+        )
+        pending_entry_persons = pending_entry_groups * group_size
+        pending_exit_groups = pending_direct_exit_groups + int(self.pending_alighting_groups)
         pending_exit_persons = pending_exit_groups * group_size
         pending_source_groups += int(self.pending_alighting_groups)
         pending_source_persons += int(self.pending_alighting_groups) * group_size
@@ -1285,6 +1244,23 @@ class AlignmentMetroStationModel(MetroStationModel):
             "alignment_source_demand_conserved": (
                 scheduled_source_persons == spawned_source_persons + pending_source_persons
             ),
+            "alignment_placement_retry_attempts": placement_retry_attempts,
+            "alignment_placement_retry_ratio": (
+                placement_retry_attempts / spawned_source_persons if spawned_source_persons else 0.0
+            ),
+            "alignment_waiting_capacity_retry_attempts": (waiting_capacity_retry_attempts),
+            "alignment_waiting_capacity_retry_ratio": (
+                waiting_capacity_retry_attempts / spawned_source_persons
+                if spawned_source_persons
+                else 0.0
+            ),
+            "alignment_stalled_platform_parking_attempts": (stalled_platform_parking_attempts),
+            "alignment_stalled_platform_parking_ratio": (
+                stalled_platform_parking_attempts / spawned_source_persons
+                if spawned_source_persons
+                else 0.0
+            ),
+            "alignment_service_time_attribution": (self.alignment_time_attribution.metrics()),
             "alignment_active_boardings": sum(
                 len(door.active_boardings) for door in self.boarding_doors
             ),
@@ -1319,9 +1295,7 @@ class AlignmentMetroStationModel(MetroStationModel):
                 if item.release_reason
                 not in {"downstream_stage_released", "lifecycle_right_censored"}
             ]
-            residence_lower_bound_steps = (
-                completed_residence_steps + censored_residence_steps
-            )
+            residence_lower_bound_steps = completed_residence_steps + censored_residence_steps
             pending_residence = max(
                 (
                     int(self.step_index) - demand.scheduled_step
@@ -1339,9 +1313,7 @@ class AlignmentMetroStationModel(MetroStationModel):
                     max(
                         (
                             int(self.step_index) - scheduled_step
-                            for scheduled_step in (
-                                self.alignment_pending_alighting_scheduled_steps
-                            )
+                            for scheduled_step in (self.alignment_pending_alighting_scheduled_steps)
                         ),
                         default=0,
                     ),
@@ -1359,27 +1331,15 @@ class AlignmentMetroStationModel(MetroStationModel):
                         self.alignment_max_pending_residence_steps_by_flow[flow],
                         pending_residence,
                     ),
-                    f"alignment_{flow}_token_residence_steps": (
-                        residence_lower_bound_steps
-                    ),
+                    f"alignment_{flow}_token_residence_steps": (residence_lower_bound_steps),
                     f"alignment_{flow}_token_completed_residence_steps": (
                         completed_residence_steps
                     ),
-                    f"alignment_{flow}_token_censored_residence_steps": (
-                        censored_residence_steps
-                    ),
-                    f"alignment_{flow}_token_residence_n": len(
-                        residence_lower_bound_steps
-                    ),
-                    f"alignment_{flow}_token_completed_residence_n": len(
-                        completed_residence_steps
-                    ),
-                    f"alignment_{flow}_token_censored_residence_n": len(
-                        censored_residence_steps
-                    ),
-                    f"alignment_{flow}_token_abnormal_residences": (
-                        abnormal_residences
-                    ),
+                    f"alignment_{flow}_token_censored_residence_steps": (censored_residence_steps),
+                    f"alignment_{flow}_token_residence_n": len(residence_lower_bound_steps),
+                    f"alignment_{flow}_token_completed_residence_n": len(completed_residence_steps),
+                    f"alignment_{flow}_token_censored_residence_n": len(censored_residence_steps),
+                    f"alignment_{flow}_token_abnormal_residences": (abnormal_residences),
                     f"alignment_{flow}_token_residence_p50_steps": _nearest_rank(
                         completed_residence_steps, 0.50
                     ),
@@ -1441,9 +1401,7 @@ class AlignmentMetroStationModel(MetroStationModel):
         for position, occupied_level_id in (*reserved_positions, *occupied):
             if occupied_level_id != level_id:
                 continue
-            if hypot(candidate[0] - position[0], candidate[1] - position[1]) < (
-                minimum_distance
-            ):
+            if hypot(candidate[0] - position[0], candidate[1] - position[1]) < (minimum_distance):
                 return False
         return True
 

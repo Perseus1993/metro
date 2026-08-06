@@ -20,6 +20,11 @@ from .passenger_goal_service_observer import (
     ProductionServiceObservationContext,
 )
 from .passenger_goal_train_observer import PassengerGoalTrainObserver
+from .service_chain_counters import (
+    STALLED_PLATFORM_PARKING,
+    WAITING_CAPACITY_RETRY,
+    increment_service_chain_counter,
+)
 
 
 class PassengerGoalCoordinator:
@@ -121,19 +126,14 @@ class PassengerGoalCoordinator:
             passenger.last_completed_facility_event_id = event.event_id
             passenger.last_completed_facility_level_id = passenger.current_level_id
         self.handle(passenger, event)
-        event_was_processed = (
-            event.event_id in passenger.goal_runtime.state.processed_event_ids
-        )
+        event_was_processed = event.event_id in passenger.goal_runtime.state.processed_event_ids
         if (
             kind == GoalEventKind.SERVICE_COMPLETED
             and event_was_processed
             and passenger.assigned_facility_id == facility_id
         ):
             passenger.assigned_facility_id = None
-        if (
-            kind == GoalEventKind.SERVICE_COMPLETED
-            and not event_was_processed
-        ):
+        if kind == GoalEventKind.SERVICE_COMPLETED and not event_was_processed:
             (
                 passenger.last_completed_facility_id,
                 passenger.last_completed_facility_position,
@@ -156,10 +156,7 @@ class PassengerGoalCoordinator:
         )
         self.handle(passenger, event)
         changed = passenger.goal_runtime.state.retry_count > before
-        if (
-            not changed
-            and reason == "movement_stalled"
-        ):
+        if not changed and reason == "movement_stalled":
             changed = self._restore_stalled_committed_work(
                 passenger,
                 reason=reason,
@@ -184,12 +181,8 @@ class PassengerGoalCoordinator:
         if state.commitment is None:
             return False
         command_kind = {
-            FacilityInteractionState.APPROACH_QUEUE.value: (
-                GoalCommandKind.WALK_TO_QUEUE.value
-            ),
-            FacilityInteractionState.CAPTURE_QUEUE.value: (
-                GoalCommandKind.JOIN_QUEUE.value
-            ),
+            FacilityInteractionState.APPROACH_QUEUE.value: (GoalCommandKind.WALK_TO_QUEUE.value),
+            FacilityInteractionState.CAPTURE_QUEUE.value: (GoalCommandKind.JOIN_QUEUE.value),
         }.get(state.interaction_state)
         if command_kind is None:
             return False
@@ -219,9 +212,8 @@ class PassengerGoalCoordinator:
 
         state = passenger.goal_runtime.state
         node = passenger.goal_runtime.graph.node(state.current_node_id)
-        if (
-            state.commitment is not None
-            or self.model.passenger_has_active_facility_service(passenger)
+        if state.commitment is not None or self.model.passenger_has_active_facility_service(
+            passenger
         ):
             return False
         active = self._active_decision_route(passenger, node, state)
@@ -246,16 +238,15 @@ class PassengerGoalCoordinator:
                             platform,
                         )
                     except PlatformWaitingCapacityError:
-                        pass
-                    platform_reservation = (
-                        self.model._platform_waiting_reservations.get(
-                            int(passenger.unique_id)
-                        )
+                        increment_service_chain_counter(self.model, WAITING_CAPACITY_RETRY)
+                    platform_reservation = self.model._platform_waiting_reservations.get(
+                        int(passenger.unique_id)
                     )
                 if platform_reservation is None:
                     platform = None
             if platform is not None:
                 platform.join_waiting(passenger)
+                increment_service_chain_counter(self.model, STALLED_PLATFORM_PARKING)
                 if passenger.state == AgentState.WAITING_PLATFORM.value:
                     passenger.set_target(
                         tuple(passenger.pos),
@@ -282,17 +273,12 @@ class PassengerGoalCoordinator:
         # facility.  Preserve the owned target while recomputing the tactical
         # path; ``route`` can atomically exchange holding for approach as soon
         # as a facility becomes selectable.
-        has_holding_reservation = (
-            base_region in passenger.decision_holding_target_by_region
-        )
+        has_holding_reservation = base_region in passenger.decision_holding_target_by_region
         has_approach_reservation = (
             stage in passenger.facility_approach_slots_by_stage
             and stage in passenger.facility_approach_facility_ids_by_stage
         )
-        if (
-            has_approach_reservation
-            and passenger.last_replan_reason == reason
-        ):
+        if has_approach_reservation and passenger.last_replan_reason == reason:
             self.model._clear_facility_targeting_reservation(passenger, stage)
             router.clear_decision_context(
                 passenger,
@@ -496,8 +482,7 @@ class PassengerGoalCoordinator:
 
     def _active_decision_route(self, passenger, node, state) -> tuple[str, str] | None:
         if (
-            state.interaction_state
-            == FacilityInteractionState.APPROACH_DECISION_REGION.value
+            state.interaction_state == FacilityInteractionState.APPROACH_DECISION_REGION.value
             and node.decision_region_id is not None
             and state.current_stage is not None
         ):

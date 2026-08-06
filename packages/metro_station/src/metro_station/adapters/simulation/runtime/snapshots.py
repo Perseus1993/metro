@@ -56,8 +56,7 @@ class PassengerSnapshot:
             if passenger.goal_runtime is None
             else passenger.goal_runtime.snapshot(),
             physical_layer_id=_optional_str(
-                getattr(passenger, "physical_motion_layer_id", None)
-                or passenger.current_level_id
+                getattr(passenger, "physical_motion_layer_id", None) or passenger.current_level_id
             ),
         )
 
@@ -272,6 +271,7 @@ class MetricSnapshot:
     walking_cost_evaluation_count: int
     walking_cost_source_counts: dict[str, int]
     spatial_capacity_event_counts: dict[str, int]
+    service_chain_event_counts: dict[str, int]
     audit_counts: dict[str, int]
 
     @classmethod
@@ -338,6 +338,7 @@ class MetricSnapshot:
             walking_cost_evaluation_count=int(model.walking_cost_evaluation_count),
             walking_cost_source_counts=dict(model.walking_cost_source_counts),
             spatial_capacity_event_counts=dict(model.spatial_capacity_event_counts),
+            service_chain_event_counts=dict(model.service_chain_event_counts),
             audit_counts=dict(model.audit.summary()),
         )
 
@@ -389,15 +390,15 @@ class MetricSnapshot:
             ),
             walking_cost_source_counts={
                 str(key): int(value)
-                for key, value in dict(
-                    payload.get("walking_cost_source_counts", {})
-                ).items()
+                for key, value in dict(payload.get("walking_cost_source_counts", {})).items()
             },
             spatial_capacity_event_counts={
                 str(key): int(value)
-                for key, value in dict(
-                    payload.get("spatial_capacity_event_counts", {})
-                ).items()
+                for key, value in dict(payload.get("spatial_capacity_event_counts", {})).items()
+            },
+            service_chain_event_counts={
+                str(key): int(value)
+                for key, value in dict(payload.get("service_chain_event_counts", {})).items()
             },
             audit_counts=dict(payload.get("audit_counts", {})),
         )

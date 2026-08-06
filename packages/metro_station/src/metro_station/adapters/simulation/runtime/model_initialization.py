@@ -10,23 +10,22 @@ from ..agents.passenger import PassengerAgent
 from ..agents.staff import AdminAgent
 from ..agents.transit import PlatformAgent, TrainAgent
 from ..facilities.runtime import FacilityAgent, facility_agent_for_spec
+from ..facilities.service_events import FacilityServiceEvent
 from ..facilities.vertical_transport_base import (
     VerticalPhysicalResource,
     VerticalTransportProcessAgent,
 )
-from ..facilities.service_events import FacilityServiceEvent
-from ..planning.plan import AgentIntent, FacilityStage
+from ..movement.backend import MovementBackend
+from ..movement.facility_motion_trace import FacilityMotionTraceRecorder
+from ..movement.jps_adapter import JuPedSimAdapter
 from ..planning.journey_catalog import (
     default_journey_graph_catalog,
     load_journey_graph_catalog,
 )
 from ..planning.journey_catalog_compiler import compile_journey_graph_catalog
-from .progress_monitor import ProgressMonitor
-from ..movement.backend import MovementBackend
-from ..movement.facility_motion_trace import FacilityMotionTraceRecorder
-from ..movement.jps_adapter import JuPedSimAdapter
-from ..station.scenario import StationSandboxScenario
+from ..planning.plan import AgentIntent, FacilityStage
 from ..station.disruptions import validate_facility_availability_events
+from ..station.scenario import StationSandboxScenario
 from .audit import AuditLogger
 from .control_timeline import ControlTimelineController
 from .demand_scheduler import DemandScheduler
@@ -44,6 +43,7 @@ from .metrics import (
 )
 from .passenger_goal_coordinator import PassengerGoalCoordinator
 from .passenger_goal_runtime import PassengerGoalRuntime
+from .progress_monitor import ProgressMonitor
 from .simulation_clock import SimulationClock
 from .snapshots import SnapshotBuilder
 from .step_orchestrator import SimulationStepOrchestrator
@@ -102,6 +102,7 @@ def _initialize_base_state(
     model.spawned_persons_by_entrance: Counter[str] = Counter()
     model.walking_cost_source_counts: Counter[str] = Counter()
     model.spatial_capacity_event_counts: Counter[str] = Counter()
+    model.service_chain_event_counts: Counter[str] = Counter()
     model.walking_cost_evaluation_count = 0
     model.pending_alighting_groups = 0
     model.pending_spawn_groups: Counter[str] = Counter()
