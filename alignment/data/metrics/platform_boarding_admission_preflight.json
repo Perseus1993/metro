@@ -1,0 +1,176 @@
+{
+  "schema_version": "alignment_admission_preflight_artifact.v1",
+  "scene_id": "platform_boarding",
+  "scene_config_schema_version": "alignment_scene_config.v1",
+  "scene_config": {
+    "scene_id": "platform_boarding",
+    "status": "ready",
+    "minutes": 10,
+    "scene_class": "synthetic_declared",
+    "tick_seconds": 1,
+    "entry_count_hour": 2500,
+    "exit_count_hour": 2200,
+    "demand_minutes": 10,
+    "movement_trace_sample_seconds": 0.2,
+    "entry_entrance_weights": [
+      [
+        "entrance_a",
+        1.0
+      ],
+      [
+        "exit_a",
+        0.0
+      ]
+    ],
+    "jupedsim_dt_seconds": 0.01,
+    "jupedsim_iterations_per_tick": 150,
+    "jupedsim_desired_speed_mps": 1.22,
+    "jupedsim_free_speed_min_mps": 0.75,
+    "jupedsim_free_speed_max_mps": 1.65,
+    "stairs_preference_share": 0.18,
+    "stair_fatigue_cost_up": 0.6,
+    "stair_fatigue_cost_down": 0.15,
+    "stair_bidirectional_conflict_factor": 0.3,
+    "gate_service_persons_per_min": 55,
+    "entry_admission_residence_seconds": 36.0,
+    "entry_admission_residence_percentile": "p99",
+    "entry_admission_residence_evidence_ref": "alignment/output/round25/T1_residence_time.json#entry.p99",
+    "exit_admission_residence_seconds": 351.0,
+    "exit_admission_residence_percentile": "p90",
+    "exit_admission_residence_evidence_ref": "alignment/output/round25/T1_residence_time.json#exit.p90",
+    "entry_admission_burst_sigma": 3.0,
+    "entry_admission_token_capacity": null,
+    "exit_admission_token_capacity": null,
+    "train_dwell_seconds": 60.0,
+    "escalator_speed_units_per_tick": 2.3,
+    "stairs_speed_units_per_tick": 1.55,
+    "elevator_speed_units_per_tick": 4.2,
+    "seed": 42,
+    "observed_dataset_id": "eindhoven_platform_v1",
+    "measurement_bounds_m": [
+      4.0,
+      10.0,
+      86.269,
+      27.597
+    ],
+    "measurement_area_id": "eindhoven_platform_bbox_translation_v1",
+    "comparison_frame_id": "eindhoven_platform_shared_v1",
+    "coordinate_transform_id": "metro_station_identity_v1",
+    "coordinate_translation_m": [
+      0.0,
+      0.0
+    ],
+    "pending_reason": "",
+    "geometry_evidence_status": "proxy",
+    "geometry_evidence": "Eindhoven days 01-10 trajectory bounding-box dimensions only; internal obstacles, access points, and train-door positions are not observed-matched",
+    "geometry_evidence_sha256": null,
+    "platform_length_m": 82.269,
+    "platform_width_m": 17.597,
+    "train_door_x_m": 18.0,
+    "alighting_source_lateral_offset_m": 10.0
+  },
+  "scene_config_sha256": "06edaac54cb8b35e29b33c557236e6806d71443381f51ef5d3aacb18d3b0c998",
+  "design_sha256": "e029a05941243fa9e3fd0d180af6157a26c0e69fd9e1fa9e4a0f24bcfcb13663",
+  "metro_runtime_fingerprint": {
+    "schema_version": "metro_source_fingerprint.v2",
+    "package_version": "0.1.0",
+    "python": "CPython 3.12.13",
+    "dependency_versions": {
+      "jupedsim": "1.4.2",
+      "mesa": "3.5.1",
+      "numpy": "2.5.1",
+      "pandas": "3.0.5",
+      "pedpy": "1.5.1",
+      "shapely": "2.1.2"
+    },
+    "python_file_count": 281,
+    "source_tree_sha256": "c7bb06b9c797cdc9dd967b5b3a6cc4ddb985fec72c8667dc833ea7ab609044eb"
+  },
+  "analysis_runtime_fingerprint": {
+    "schema_version": "alignment_analysis_runtime.v2",
+    "python": "CPython 3.12.13",
+    "pedpy_version": "1.5.1",
+    "file_count": 44,
+    "content_sha256": "819e0258bee7172416ff1c382da0c67b4c20965a46ea6f40dd7124381476923d"
+  },
+  "runtime_status": "ready",
+  "blocker": null,
+  "release_eligible": false,
+  "preflight": {
+    "schema_version": "alignment_admission_preflight_bundle.v1",
+    "status": "pass",
+    "flows": [
+      {
+        "schema_version": "alignment_admission_preflight.v2",
+        "flow_id": "entry",
+        "status": "pass",
+        "count_hour": 2500,
+        "arrival_rate_persons_s": 0.6944444444444444,
+        "registered_residence_seconds": 36.0,
+        "residence_percentile": "p99",
+        "residence_evidence_ref": "alignment/output/round25/T1_residence_time.json#entry.p99",
+        "burst_sigma": 3.0,
+        "deterministic_arrival_envelope": 26,
+        "stochastic_reference_capacity": 40,
+        "sizing_formula": "deterministic maximum arrivals in the registered W window",
+        "required_capacity": null,
+        "configured_capacity": 26,
+        "resource_semantics": "diagnostic_counting_credit_not_physical_storage",
+        "evidence_status": "stale_or_unavailable",
+        "diagnostics": [
+          {
+            "code": "admission_residence_evidence_metro_runtime_mismatch",
+            "message": "entry evidence Metro runtime fingerprint does not match"
+          },
+          {
+            "code": "admission_residence_evidence_analysis_runtime_mismatch",
+            "message": "entry evidence analysis runtime fingerprint does not match"
+          },
+          {
+            "code": "admission_residence_evidence_scope_mismatch",
+            "message": "entry evidence demand/movement/seed scope does not match"
+          }
+        ],
+        "blockers": []
+      },
+      {
+        "schema_version": "alignment_admission_preflight.v2",
+        "flow_id": "exit",
+        "status": "pass",
+        "count_hour": 2200,
+        "arrival_rate_persons_s": 0.6111111111111112,
+        "registered_residence_seconds": 351.0,
+        "residence_percentile": "p90",
+        "residence_evidence_ref": "alignment/output/round25/T1_residence_time.json#exit.p90",
+        "burst_sigma": 3.0,
+        "deterministic_arrival_envelope": 267,
+        "stochastic_reference_capacity": 259,
+        "sizing_formula": "deterministic maximum arrivals in the registered W window",
+        "required_capacity": null,
+        "configured_capacity": 267,
+        "resource_semantics": "diagnostic_counting_credit_not_physical_storage",
+        "evidence_status": "stale_or_unavailable",
+        "diagnostics": [
+          {
+            "code": "admission_residence_evidence_metro_runtime_mismatch",
+            "message": "exit evidence Metro runtime fingerprint does not match"
+          },
+          {
+            "code": "admission_residence_evidence_analysis_runtime_mismatch",
+            "message": "exit evidence analysis runtime fingerprint does not match"
+          },
+          {
+            "code": "admission_residence_evidence_scope_mismatch",
+            "message": "exit evidence demand/movement/seed scope does not match"
+          },
+          {
+            "code": "admission_residence_evidence_clearance_tail_insufficient",
+            "message": "exit evidence horizon 900 is below last schedule + W = 950 steps"
+          }
+        ],
+        "blockers": []
+      }
+    ],
+    "blockers": []
+  }
+}

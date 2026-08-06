@@ -12,6 +12,7 @@ PLATFORM_BOARDING_SCENE_ID = "platform_boarding"
 class PlatformBoardingConfig(SceneConfig):
     scene_id: str = PLATFORM_BOARDING_SCENE_ID
     status: str = "ready"
+    scene_class: str = "synthetic_declared"
     observed_dataset_id: str = "eindhoven_platform_v1"
     platform_length_m: float = 82.269
     platform_width_m: float = 17.597

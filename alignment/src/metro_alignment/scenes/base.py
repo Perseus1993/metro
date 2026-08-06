@@ -7,6 +7,7 @@ from typing import Literal
 from metro_alignment.datasets.registry import PORTABLE_DATASET_ID, is_portable_basename
 
 SceneStatus = Literal["ready", "pending"]
+SceneClass = Literal["observation_matched", "synthetic_declared"]
 GeometryEvidenceStatus = Literal["proxy", "observed_matched"]
 
 
@@ -15,6 +16,7 @@ class SceneConfig:
     scene_id: str
     status: SceneStatus
     minutes: int
+    scene_class: SceneClass = "observation_matched"
     tick_seconds: int = 1
     entry_count_hour: int = 1000
     exit_count_hour: int = 0
@@ -65,6 +67,10 @@ class SceneConfig:
             raise ValueError("scene_id must be a lowercase portable slug")
         if self.status not in {"ready", "pending"}:
             raise ValueError("scene status must be ready or pending")
+        if self.scene_class not in {"observation_matched", "synthetic_declared"}:
+            raise ValueError(
+                "scene_class must be observation_matched or synthetic_declared"
+            )
         for name in ("minutes", "tick_seconds", "demand_minutes", "jupedsim_iterations_per_tick"):
             value = getattr(self, name)
             if not isinstance(value, int) or isinstance(value, bool) or value <= 0:

@@ -61,6 +61,18 @@ def _audit_counts(runtime: Any) -> Counter[str]:
     return counts
 
 
+def _replan_contexts(runtime: Any) -> list[dict[str, Any]]:
+    return [
+        {
+            "step": int(event.step),
+            "count": int(event.count),
+            "context": dict(event.context),
+        }
+        for event in runtime.audit.events
+        if event.code == "passenger_replanned_stalled_region_approach"
+    ]
+
+
 def _flow_rows(snapshot: dict[str, Any]) -> dict[str, dict[str, Any]]:
     rows = snapshot["source_boundaries"]["flows"]
     return {flow: dict(rows[flow]) for flow in ("entry", "exit")}
@@ -132,6 +144,7 @@ def main() -> int:
     flows = _flow_rows(snapshot)
     admission = runtime.alignment_source_admission_metrics()
     audit_counts = _audit_counts(runtime)
+    replan_contexts = _replan_contexts(runtime)
     if int(args.horizon) == 240:
         floors = _floors(args.floor_artifact)
         dynamic_gate = evaluate_dynamic_gate(
@@ -208,6 +221,11 @@ def main() -> int:
                 / max(1, sum(int(row["admitted_persons"]) for row in flows.values()))
             ),
             "liveness_violations": audit_counts["passenger_liveness_violation"],
+        },
+        "round28_replan_diagnostics": {
+            "schema_version": "alignment_round28_replan_diagnostics.v1",
+            "event_count": len(replan_contexts),
+            "events": replan_contexts,
         },
         "train_manifests": runtime.train_exchange_result_rows(),
         "dynamic_gate": dynamic_gate,

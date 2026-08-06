@@ -47,7 +47,25 @@ all three 480-step seeds have zero placement retries. `DEBT-1`, `DEBT-3`, and `D
 `registered_debt_delta = 4 - 5 = -1`; the round neither hides the reopened service instability nor
 adds a net debt without retiring another.
 
-## Open debt
+## Round 28 current disposition
+
+The following status supersedes the historical Round-27 snapshot below. Round 28 closes the
+engineering search after exactly three targeted attempts on the frozen five-run cohort; it does
+not relax the one-percent threshold, denominator, or published floors.
+
+| id | current status | disposition and evidence |
+|---|---|---|
+| `DEBT-1` | `data_blocked` | The 10 m lateral source offset cannot be retired from code alone. Retirement requires observed passenger-emergence positions and uncertainty, followed by source preflight and held-out comparison. No expiry is assigned. |
+| `DEBT-2` | `known_limitation` | Round28 T1/T2/T3 kept the frozen cohort and threshold. T3 improved two 480-step seeds but the final ratios remain 1.443%–7.787%; source conservation, zero drops, zero placement retries, and zero liveness violations still pass. Impact is a service/recovery limitation, not evidence of source loss. |
+| `DEBT-3` | `retired_synthetic_branch` | `platform_boarding` is now explicitly `scene_class=synthetic_declared` in `SceneConfig`, the preflight artifact, and the closing review. Its only observation basis is the trajectory bounding-box footprint; seven constructed doors/gates/channels are not claimed as observed calibration. |
+| `DEBT-4` | `data_blocked` | The nominal exit-service versus completed-throughput gap cannot be retired from gate code alone. Retirement requires observed per-lane service opportunities/effective windows and throughput reconciliation. No expiry is assigned. |
+
+Retirement rule added in Round 28: retire a debt only when the named cohort can fail the debt's
+criterion. A debt that requires external observations is data-blocked rather than silently
+expired; a synthetic branch must be labeled as synthetic rather than presented as observation
+matched.
+
+## Historical open debt snapshot (Round 27; superseded by Round 28 disposition)
 
 | id | what | masks | introduced | justification | retire_evidence | expiry_round |
 |---|---|---|---|---|---|---|
@@ -86,5 +104,7 @@ adds a net debt without retiring another.
 
 Every `fix(...)` commit must state the user-visible failure mode, whether the change removes the
 failure or only its visibility, and—if only visibility changes—the debt entry and retirement
-evidence. `registered_debt_delta` is computed against this five-entry registered baseline only in
-subsequent rounds; Round 25 reports it as not comparable.
+evidence. A retirement is valid only when its named cohort can fail the debt criterion; missing
+external data must be recorded as `data_blocked` rather than assigned an expiry. `registered_debt_delta`
+is computed against this five-entry registered baseline only in subsequent rounds; Round 25
+reports it as not comparable.

@@ -5,7 +5,7 @@ from math import hypot
 from shapely.geometry import Point as ShapelyPoint
 
 from ..facilities.filters import filter_facilities_for_passenger
-from ..planning.goal_choice import MinimumPerceivedCostSelector
+from ..planning.goal_choice import FacilitySelection, MinimumPerceivedCostSelector
 from ..planning.goal_events import DecisionObservation
 from ..planning.plan import AgentIntent, AgentState, FacilityStage
 from ..station.geometry import project_to_safe_point
@@ -193,6 +193,26 @@ class PassengerGoalRegionRouter(PassengerGoalDecisionGeometryMixin):
             if candidates
             else None
         )
+        if (
+            getattr(passenger, "_force_least_loaded_stalled_replan", False)
+            and stage == FacilityStage.EXIT_GATE.value
+            and selectable
+        ):
+            least_loaded = min(
+                selectable,
+                key=lambda facility: (
+                    -len(model._available_facility_approach_slot_indices(facility)),
+                    len(facility.queue),
+                    str(facility.facility_id),
+                ),
+            )
+            if selection is None or selection.facility_id != least_loaded.facility_id:
+                selection = FacilitySelection(
+                    facility_id=least_loaded.facility_id,
+                    score=0.0,
+                    reason="least_loaded_after_stalled_replan",
+                    action="switch",
+                )
         if not candidates:
             candidates = physical_candidates
         self._record_selection_hysteresis(

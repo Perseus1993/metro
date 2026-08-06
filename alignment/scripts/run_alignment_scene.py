@@ -395,6 +395,7 @@ def _write_source_preflight_artifact(
         {
             "schema_version": SOURCE_PREFLIGHT_ARTIFACT_SCHEMA_VERSION,
             "scene_id": config.scene_id,
+            "scene_class": config.scene_class,
             "scene_config_schema_version": SCENE_CONFIG_SCHEMA_VERSION,
             "scene_config": scene_config_payload(config),
             "scene_config_sha256": scene_config_sha256(config),

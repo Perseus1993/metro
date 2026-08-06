@@ -296,7 +296,16 @@ class PassengerGoalCoordinator:
             stage in passenger.facility_approach_slots_by_stage
             and stage in passenger.facility_approach_facility_ids_by_stage
         )
-        if has_approach_reservation and passenger.last_replan_reason == reason:
+        if (
+            has_approach_reservation
+            and (
+                passenger.last_replan_reason == reason
+                or (
+                    reason == "movement_stalled"
+                    and base_region == "exit_gate_decision"
+                )
+            )
+        ):
             self.model._clear_facility_targeting_reservation(passenger, stage)
             router.clear_decision_context(
                 passenger,
@@ -326,6 +335,9 @@ class PassengerGoalCoordinator:
         # replacement platform cell; a persistent replan reason would also
         # change later, ordinary platform allocations.
         passenger._platform_waiting_stall_recovery = True
+        passenger._force_least_loaded_stalled_replan = (
+            base_region == "exit_gate_decision"
+        )
         try:
             self._execute(
                 passenger,
@@ -341,7 +353,81 @@ class PassengerGoalCoordinator:
             )
         finally:
             passenger._platform_waiting_stall_recovery = False
+            passenger._force_least_loaded_stalled_replan = False
+        if (
+            base_region == "exit_gate_decision"
+            and passenger.current_goal.kind == "goal_region"
+            and not passenger.route
+        ):
+            target = tuple(passenger.target)
+            if target != tuple(passenger.pos):
+                passenger.set_route(
+                    (target,),
+                    goal_kind="goal_region",
+                    goal_label=region_id,
+                )
         passenger.last_replan_reason = reason
+        commitment = state.commitment
+        candidate_facility_ids = tuple(
+            passenger.decision_facility_ids_by_region.get(base_region, ())
+        )
+        target_facility_id = (
+            None if commitment is None else str(commitment.facility_id)
+        )
+        if target_facility_id is None:
+            target_facility_id = passenger.assigned_facility_id
+        if target_facility_id is None:
+            target_facility_id = passenger.decision_preferred_facility_id_by_region.get(
+                base_region
+            )
+        stage_order = {
+            "entry_gate": 0,
+            "vertical": 1,
+            "exit_gate": 2,
+            "boarding": 3,
+        }
+
+        def occupancy_for(facility) -> dict[str, object]:
+            queue = getattr(facility, "queue", None)
+            return {
+                "facility_id": str(facility.facility_id),
+                "stage": str(getattr(facility.spec.stage, "value", facility.spec.stage)),
+                "queue_persons": 0 if queue is None else len(queue),
+                "active_persons": len(getattr(facility, "active_passes", ())),
+                "approach_reservations": (
+                    0
+                    if queue is None
+                    else len(queue.approach_slot_reservations)
+                ),
+                "queue_capacity": int(
+                    getattr(queue, "max_length", 0) or 0
+                ),
+                "forced_disabled": bool(getattr(facility, "is_forced_disabled", False)),
+                "service_blocked_reason": getattr(
+                    facility, "service_blocked_reason", None
+                ),
+            }
+
+        facility_occupancy = [
+            occupancy_for(facility)
+            for facility in sorted(
+                self.model.facilities,
+                key=lambda item: str(item.facility_id),
+            )
+        ]
+        current_stage_order = stage_order.get(str(stage), 0)
+        upstream_occupancy = [
+            item
+            for item in facility_occupancy
+            if stage_order.get(str(item["stage"]), current_stage_order)
+            < current_stage_order
+        ]
+        downstream_occupancy = [
+            item
+            for item in facility_occupancy
+            if stage_order.get(str(item["stage"]), current_stage_order)
+            > current_stage_order
+        ]
         self.model.audit.record(
             "passenger_replanned_stalled_region_approach",
             source="goal_runtime",
@@ -354,6 +440,15 @@ class PassengerGoalCoordinator:
                 "before_replan": before_replan,
                 "after_target": [float(passenger.target[0]), float(passenger.target[1])],
                 "after_route": [[float(point[0]), float(point[1])] for point in passenger.route],
+                "passenger_state": str(passenger.state),
+                "goal_kind": str(passenger.current_goal.kind),
+                "goal_node_id": state.current_node_id,
+                "interaction_state": state.interaction_state,
+                "target_facility_id": target_facility_id,
+                "candidate_facility_ids": list(candidate_facility_ids),
+                "upstream_occupancy": upstream_occupancy,
+                "downstream_occupancy": downstream_occupancy,
+                "facility_occupancy": facility_occupancy,
             },
         )
         return True

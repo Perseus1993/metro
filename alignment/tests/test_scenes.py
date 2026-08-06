@@ -67,6 +67,7 @@ def test_scene_registry_key_must_match_scene_id(monkeypatch) -> None:
 def test_platform_dimensions_change_compiled_design() -> None:
     default = build_platform()
     assert default.alighting_source_lateral_offset_m == pytest.approx(10.0)
+    assert default.scene_class == "synthetic_declared"
     assert default.geometry_evidence_status == "proxy"
     assert "internal obstacles" in default.geometry_evidence
     wider = build_platform(platform_length_m=90.0, platform_width_m=18.0)
@@ -80,3 +81,5 @@ def test_platform_dimensions_change_compiled_design() -> None:
         replace(default, geometry_evidence_status="observed_matched")
     with pytest.raises(ValueError, match="must be proxy or observed_matched"):
         replace(default, geometry_evidence_status="trusted")
+    with pytest.raises(ValueError, match="scene_class"):
+        replace(default, scene_class="unverified")

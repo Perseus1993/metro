@@ -1,0 +1,73 @@
+{
+  "schema_version": "alignment_round28_debt2_attempts.v1",
+  "round": 28,
+  "cohort": [
+    {"steps": 240, "seed": 47},
+    {"steps": 240, "seed": 50},
+    {"steps": 480, "seed": 42},
+    {"steps": 480, "seed": 43},
+    {"steps": 480, "seed": 44}
+  ],
+  "gate_contract_unchanged": {
+    "floor": "Round27 frozen floors",
+    "denominator": "scheduled persons",
+    "replan_threshold": 0.01,
+    "long_horizon_runs": false,
+    "clearance_run": false
+  },
+  "diagnostic_baseline": {
+    "source": [
+      "alignment/output/round28/diagnostic_240_seed47.json",
+      "alignment/output/round28/diagnostic_240_seed50.json",
+      "alignment/output/round28/diagnostic_480_seed42.json",
+      "alignment/output/round28/diagnostic_480_seed43.json",
+      "alignment/output/round28/diagnostic_480_seed44.json"
+    ],
+    "replan_event_count": 80,
+    "event_regions": {"exit_gate_decision": 67, "entry_gate_decision": 13},
+    "all_exit_events_empty_route": true,
+    "target_approach_reservations_full": 47,
+    "all_candidates_approach_full": 29
+  },
+  "attempts": [
+    {
+      "id": "T1",
+      "hypothesis": "Repeated movement-stalled replans are caused by an approach reservation that should be released on the same stalled reason.",
+      "modification": "Broadened the existing approach-reservation release condition for exit-gate movement stalls.",
+      "result": "no_effect",
+      "ratios": {"240_seed47": 0.0264317181, "240_seed50": 0.0168067227, "480_seed42": 0.0478170478, "480_seed43": 0.0164609053, "480_seed44": 0.0802469136}
+    },
+    {
+      "id": "T2",
+      "hypothesis": "The stalled passenger is missing a one-step goal-region route after the recovery path is cleared.",
+      "modification": "Added a one-step target route fallback after exit-gate recovery when the goal-region route is empty.",
+      "result": "no_effect",
+      "ratios": {"240_seed47": 0.0264317181, "240_seed50": 0.0168067227, "480_seed42": 0.0478170478, "480_seed43": 0.0164609053, "480_seed44": 0.0802469136}
+    },
+    {
+      "id": "T3",
+      "hypothesis": "The retry loop repeatedly reselects a physically blocked exit lane; a least-loaded selection on the stalled recovery path may break the cycle.",
+      "modification": "On exit-gate movement stalls, selected the least-loaded selectable lane by approach-slot availability, then queue length and stable facility id.",
+      "result": "improved_but_failed_threshold",
+      "ratios": {"240_seed47": 0.0264317181, "240_seed50": 0.0168067227, "480_seed42": 0.0478170478, "480_seed43": 0.0144329897, "480_seed44": 0.0778688525}
+    }
+  ],
+  "final_attempt3": {
+    "source": [
+      "alignment/output/round28/attempt3_240_seed47.json",
+      "alignment/output/round28/attempt3_240_seed50.json",
+      "alignment/output/round28/attempt3_480_seed42.json",
+      "alignment/output/round28/attempt3_480_seed43.json",
+      "alignment/output/round28/attempt3_480_seed44.json"
+    ],
+    "scheduled_persons": 2404,
+    "completed_persons": 571,
+    "service_ratio": 0.2375207987,
+    "placement_retry_attempts": 0,
+    "liveness_violations": 0,
+    "dropped_persons": 0,
+    "source_conservation": true,
+    "replan_ratio_range": [0.0144329897, 0.0778688525],
+    "decision": "DEBT-2 remains above the unchanged one-percent criterion after the three-attempt timebox and is downgraded to known_limitation; no Round29 engineering search is authorized without a new observed failure mechanism."
+  }
+}
